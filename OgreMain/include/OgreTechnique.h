@@ -55,7 +55,7 @@ namespace Ogre {
 
     private:
         /// Illumination pass state type
-        enum IlluminationPassesState
+        enum IlluminationPassesState : int8
         {
             IPS_COMPILE_DISABLED = -1,
             IPS_NOT_COMPILED = 0,
@@ -69,6 +69,8 @@ namespace Ogre {
         // Raw pointer since we don't want child to stop parent's destruction
         Material* mParent;
         IlluminationPassesState mIlluminationPassesCompilationPhase;
+
+        bool mIsSupported;
         /// LOD level
         unsigned short mLodIndex;
         /** Scheme index, derived from scheme name but the names are held on
@@ -106,8 +108,6 @@ namespace Ogre {
 
         // User objects binding.
         UserObjectBindings  mUserObjectBindings;
-
-        bool mIsSupported;
     public:
         /** Directive used to manually control technique support based on the
             inclusion or exclusion of some factor.
@@ -180,16 +180,14 @@ namespace Ogre {
             enough facilities for what you're asking for.
         */
         Pass* createPass(void);
-        /** Retrieves the Pass with the given index.
-         * @deprecated use getPasses() */
-        Pass* getPass(unsigned short index) const;
+        /** Retrieves the Pass with the given index.*/
+        Pass* getPass(size_t index) const { return mPasses.at(index); }
         /** Retrieves the Pass matching name.
             Returns 0 if name match is not found.
         */
         Pass* getPass(const String& name) const;
-        /** Retrieves the number of passes.
-         * @deprecated use getPasses() */
-        unsigned short getNumPasses(void) const;
+        /** Retrieves the number of passes. */
+        size_t getNumPasses(void) const { return mPasses.size(); }
         /** Removes the Pass with the given index. */
         void removePass(unsigned short index);
         /** Removes all Passes from this Technique. */
@@ -549,8 +547,6 @@ namespace Ogre {
         @see Pass::setSeparateSceneBlending
         */
         void setSeparateSceneBlending( const SceneBlendFactor sourceFactor, const SceneBlendFactor destFactor, const SceneBlendFactor sourceFactorAlpha, const SceneBlendFactor destFactorAlpha);
-        /// @deprecated do not use
-        OGRE_DEPRECATED bool applyTextureAliases(const AliasTextureNamePairList& aliasList, const bool apply = true) const;
         /// @}
 
         /** Assigns a level-of-detail (LOD) index to this Technique.

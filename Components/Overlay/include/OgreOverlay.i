@@ -40,10 +40,6 @@
 %csmethodmodifiers Ogre::OverlaySystem::eventOccurred "public";
 #endif
 
-// DisplayString is implicitly constructable from String
-// this breaks when using get*, will fix this by switching to String with 1.13
-#define DisplayString String
-
 %include "OgreOverlayPrerequisites.h"
 SHARED_PTR(Font);
 %include "OgreFont.h"
@@ -66,6 +62,7 @@ SHARED_PTR(OverlayElement);
   }
 }
 %include "OgreOverlayElement.h"
+%feature("director") Ogre::OverlayElementFactory;
 %include "OgreOverlayElementFactory.h"
 SHARED_PTR(OverlayContainer);
 %ignore Ogre::OverlayContainer::getChildIterator;

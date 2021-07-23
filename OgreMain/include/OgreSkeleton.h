@@ -45,7 +45,7 @@ namespace Ogre {
     */
 
     /**  */
-    enum SkeletonAnimationBlendMode {
+    enum SkeletonAnimationBlendMode : uint8 {
         /// Animations are applied by calculating a weighted average of all animations
         ANIMBLEND_AVERAGE = 0,
         /// Animations are applied by calculating a weighted cumulative total
@@ -423,32 +423,31 @@ namespace Ogre {
         virtual void _buildMapBoneByName(const Skeleton* source,
             BoneHandleMap& boneHandleMap) const;
 
+    protected:
+        /// Storage of animations, lookup by name
+        typedef std::map<String, Animation*> AnimationList;
+        AnimationList mAnimationsList;
     private:
-        SkeletonAnimationBlendMode mBlendState;
-        /// Storage of bones, indexed by bone handle
-        BoneList mBoneList;
         /// Lookup by bone name
         typedef std::map<String, Bone*> BoneListByName;
         BoneListByName mBoneListByName;
 
-
         /// Pointer to root bones (can now have multiple roots)
         mutable BoneList mRootBones;
-        /// Bone automatic handles
-        unsigned short mNextAutoHandle;
         typedef std::set<Bone*> BoneSet;
         /// Manual bones
         BoneSet mManualBones;
-        /// Manual bones dirty?
-        bool mManualBonesDirty;
-
-
-        /// Storage of animations, lookup by name
-        typedef std::map<String, Animation*> AnimationList;
-        AnimationList mAnimationsList;
 
         /// List of references to other skeletons to use animations from 
         mutable LinkedSkeletonAnimSourceList mLinkedSkeletonAnimSourceList;
+
+        /// Bone automatic handles
+        unsigned short mNextAutoHandle;
+        SkeletonAnimationBlendMode mBlendState;
+        /// Manual bones dirty?
+        bool mManualBonesDirty;
+        /// Storage of bones, indexed by bone handle
+        BoneList mBoneList;
 
         /** Internal method which parses the bones to derive the root bone. 
         @remarks

@@ -47,8 +47,6 @@ namespace Ogre {
     /** Specialisation of HardwareBuffer for a vertex buffer. */
     class _OgreExport HardwareVertexBuffer : public HardwareBuffer
     {
-        protected:
-
             bool mIsInstanceData;
             HardwareBufferManagerBase* mMgr;
             size_t mNumVertices;
@@ -177,12 +175,12 @@ namespace Ogre {
     class _OgreExport VertexElement : public VertexDataAlloc
     {
     private:
+        /// The offset in the buffer that this element starts at
+        size_t mOffset;
         /// The source vertex buffer, as bound to an index using VertexBufferBinding
         unsigned short mSource;
         /// Index of the item, only applicable for some elements like texture coords
         unsigned short mIndex;
-        /// The offset in the buffer that this element starts at
-        size_t mOffset;
         /// The type of element
         VertexElementType mType;
         /// The meaning of the element

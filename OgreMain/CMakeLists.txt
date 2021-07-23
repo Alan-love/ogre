@@ -138,23 +138,20 @@ if (OGRE_CONFIG_THREADS)
 endif ()
 
 if (OGRE_CONFIG_ENABLE_DDS)
-  list(APPEND HEADER_FILES include/OgreDDSCodec.h)
-  list(APPEND SOURCE_FILES src/OgreDDSCodec.cpp)
+  list(APPEND SOURCE_FILES src/OgreDDSCodec.cpp src/OgreDDSCodec.h)
 endif ()
 
 if (OGRE_CONFIG_ENABLE_PVRTC)
-  list(APPEND HEADER_FILES include/OgrePVRTCCodec.h)
-  list(APPEND SOURCE_FILES src/OgrePVRTCCodec.cpp)
+  list(APPEND HEADER_FILES )
+  list(APPEND SOURCE_FILES src/OgrePVRTCCodec.cpp src/OgrePVRTCCodec.h)
 endif ()
 
 if (OGRE_CONFIG_ENABLE_ETC)
-  list(APPEND HEADER_FILES include/OgreETCCodec.h)
-  list(APPEND SOURCE_FILES src/OgreETCCodec.cpp)
+  list(APPEND SOURCE_FILES src/OgreETCCodec.cpp src/OgreETCCodec.h)
 endif ()
 
 if (OGRE_CONFIG_ENABLE_ASTC)
-  list(APPEND HEADER_FILES include/OgreASTCCodec.h)
-  list(APPEND SOURCE_FILES src/OgreASTCCodec.cpp)
+  list(APPEND SOURCE_FILES src/OgreASTCCodec.cpp src/OgreASTCCodec.h)
 endif ()
 
 if (OGRE_CONFIG_ENABLE_ZIP)
@@ -218,7 +215,7 @@ if (APPLE)
     set_target_properties(OgreMain PROPERTIES INSTALL_NAME_DIR "OGRE")
   else()
     if(OGRE_BUILD_LIBS_AS_FRAMEWORKS)
-      set(OGRE_OSX_BUILD_CONFIGURATION "$ENV{PLATFORM_NAME}/$ENV{CONFIGURATION}")
+      set(OGRE_OSX_BUILD_CONFIGURATION "${CMAKE_OSX_SYSROOT}/$(CONFIGURATION)")
       add_custom_command(TARGET OgreMain POST_BUILD
           COMMAND mkdir ARGS -p ${PROJECT_BINARY_DIR}/lib/${OGRE_OSX_BUILD_CONFIGURATION}/Ogre.framework/Headers/Threading
           COMMAND ditto

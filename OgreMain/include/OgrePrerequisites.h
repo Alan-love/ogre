@@ -109,17 +109,17 @@ namespace Ogre {
     class GpuProgramParameters;
     class GpuSharedParameters;
     class GpuProgram;
+    class GpuProgramFactory;
+    typedef GpuProgramFactory HighLevelGpuProgramFactory; //!< @deprecated
     class GpuProgramManager;
+    typedef GpuProgramManager HighLevelGpuProgramManager; //!< @deprecated
     class GpuProgramUsage;
     class HardwareBuffer;
     class HardwareIndexBuffer;
     class HardwareOcclusionQuery;
-    class HardwareUniformBuffer;
     class HardwareVertexBuffer;
     class HardwarePixelBuffer;
     class HighLevelGpuProgram;
-    class HighLevelGpuProgramManager;
-    class HighLevelGpuProgramFactory;
     class IndexData;
     class InstanceBatch;
     class InstanceBatchHW;
@@ -185,8 +185,6 @@ namespace Ogre {
     class RenderPriorityGroup;
     class RenderQueue;
     class RenderQueueGroup;
-    class RenderQueueInvocation;
-    class RenderQueueInvocationSequence;
     class RenderQueueListener;
     class RenderObjectListener;
     class RenderSystem;
@@ -208,7 +206,6 @@ namespace Ogre {
     class Root;
     class SceneManager;
     class SceneManagerEnumerator;
-    class SceneLoaderManager;
     class SceneNode;
     class SceneQuery;
     class SceneQueryListener;
@@ -280,23 +277,28 @@ namespace Ogre {
     typedef SharedPtr<GpuLogicalBufferStruct> GpuLogicalBufferStructPtr;
     typedef SharedPtr<GpuSharedParameters> GpuSharedParametersPtr;
     typedef SharedPtr<GpuProgramParameters> GpuProgramParametersPtr;
-    typedef GpuProgramParametersPtr GpuProgramParametersSharedPtr; //!< @deprecated
     typedef SharedPtr<HardwareBuffer> HardwareBufferPtr;
-    typedef SharedPtr<HardwareIndexBuffer> HardwareIndexBufferSharedPtr;
-    typedef SharedPtr<HardwarePixelBuffer> HardwarePixelBufferSharedPtr;
-    typedef SharedPtr<HardwareUniformBuffer> HardwareUniformBufferSharedPtr;
-    typedef HardwareUniformBufferSharedPtr HardwareCounterBufferSharedPtr;
-    typedef SharedPtr<HardwareVertexBuffer> HardwareVertexBufferSharedPtr;
-    typedef SharedPtr<HighLevelGpuProgram> HighLevelGpuProgramPtr;
+    typedef SharedPtr<HardwareIndexBuffer> HardwareIndexBufferPtr;
+    typedef SharedPtr<HardwarePixelBuffer> HardwarePixelBufferPtr;
+    typedef SharedPtr<HardwareVertexBuffer> HardwareVertexBufferPtr;
     typedef SharedPtr<Material> MaterialPtr;
     typedef SharedPtr<MemoryDataStream> MemoryDataStreamPtr;
     typedef SharedPtr<Mesh> MeshPtr;
     typedef SharedPtr<PatchMesh> PatchMeshPtr;
-    typedef SharedPtr<RenderToVertexBuffer> RenderToVertexBufferSharedPtr;
+    typedef SharedPtr<RenderToVertexBuffer> RenderToVertexBufferPtr;
     typedef SharedPtr<Resource> ResourcePtr;
     typedef SharedPtr<ShadowCameraSetup> ShadowCameraSetupPtr;
     typedef SharedPtr<Skeleton> SkeletonPtr;
     typedef SharedPtr<Texture> TexturePtr;
+
+    typedef RenderToVertexBufferPtr RenderToVertexBufferSharedPtr; //!< @deprecated
+    typedef HardwareIndexBufferPtr HardwareIndexBufferSharedPtr; //!< @deprecated
+    typedef HardwarePixelBufferPtr HardwarePixelBufferSharedPtr; //!< @deprecated
+    typedef HardwareVertexBufferPtr HardwareVertexBufferSharedPtr; //!< @deprecated
+    typedef GpuProgramPtr HighLevelGpuProgramPtr; //!< @deprecated
+    typedef HardwareBufferPtr HardwareUniformBufferSharedPtr; //!< @deprecated
+    typedef HardwareBufferPtr HardwareCounterBufferSharedPtr; //!< @deprecated
+    typedef GpuProgramParametersPtr GpuProgramParametersSharedPtr; //!< @deprecated
 }
 
 /* Include all the standard header *after* all the configuration
@@ -308,12 +310,8 @@ settings have been made.
 
 namespace Ogre
 {
-    typedef std::string _StringBase;
-    typedef std::basic_stringstream<char,std::char_traits<char>,std::allocator<char> > _StringStreamBase;
-
-    typedef _StringBase String;
-    typedef _StringStreamBase StringStream;
-    typedef StringStream stringstream;
+    typedef std::string String;
+    typedef std::stringstream StringStream;
 
     template <typename T, size_t Alignment = OGRE_SIMD_ALIGNMENT>
     using aligned_vector = std::vector<T, AlignedAllocator<T, Alignment>>;

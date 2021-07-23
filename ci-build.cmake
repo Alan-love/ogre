@@ -4,10 +4,10 @@ set(CROSS)
 
 set(CMAKE_BUILD_TYPE Debug)
 set(BUILD_DEPS FALSE)
-set(SWIG_EXECUTABLE /usr/bin/swig3.0)
+set(SWIG_EXECUTABLE /usr/bin/swig4.0)
 
 set(RENDERSYSTEMS
-    # tests only run with the legacy GL rendersystem as MESA is too old on buildbot
+    -DOGRE_BUILD_PLUGIN_GLSLANG=TRUE # only builds on Linux, this is the Linux specific config
     -DOGRE_BUILD_RENDERSYSTEM_GL=TRUE
     -DOGRE_BUILD_RENDERSYSTEM_GL3PLUS=TRUE
     -DOGRE_BUILD_RENDERSYSTEM_GLES2=TRUE
