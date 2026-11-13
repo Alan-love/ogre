@@ -37,7 +37,7 @@ THE SOFTWARE.
 namespace Ogre {
 
     /** Factory class for particle emitter of type "Ring".
-    @remarks
+
         Creates instances of RingEmitter to be used in particle systems. 
     */
     class RingEmitterFactory : public ParticleEmitterFactory
@@ -47,13 +47,7 @@ namespace Ogre {
     public:
         String getName() const override { return "Ring"; }
 
-        ParticleEmitter* createEmitter(ParticleSystem* psys) override
-        {
-            ParticleEmitter* emit = OGRE_NEW RingEmitter(psys);
-            mEmitters.push_back(emit);
-            return emit;
-        }
-
+        ParticleEmitter* createEmitter(ParticleSystem* psys) override { return new RingEmitter(psys); }
     };
 
 }

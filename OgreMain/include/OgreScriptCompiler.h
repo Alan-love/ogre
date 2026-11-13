@@ -88,6 +88,12 @@ namespace Ogre
     typedef std::list<AbstractNodePtr> AbstractNodeList;
     typedef SharedPtr<AbstractNodeList> AbstractNodeListPtr;
 
+    struct _OgreExport ScriptProperty
+    {
+        String name;
+        StringVector values;
+    };
+
     class _OgreExport AbstractNode : public AbstractNodeAlloc
     {
     public:
@@ -103,6 +109,10 @@ namespace Ogre
         virtual AbstractNode *clone() const = 0;
         /// Returns a string value depending on the type of the AbstractNode.
         virtual const String& getValue() const = 0;
+        /// Returns the string content of the node for ANT_ATOM. Empty string otherwise.
+        const String& getString() const;
+        /// Returns the property name and values of the node for ANT_PROPERTY. Empty string otherwise.
+        ScriptProperty getProperty() const;
     };
 
     /** This is an abstract node which cannot be broken down further */
@@ -113,9 +123,14 @@ namespace Ogre
         uint32 id;
     public:
         AtomAbstractNode(AbstractNode *ptr);
-        AbstractNode *clone() const;
-        const String& getValue() const { return value; }
+        AbstractNode *clone() const override;
+        const String& getValue() const override { return value; }
     };
+
+    inline const String& AbstractNode::getString() const
+    {
+        return type == ANT_ATOM ? static_cast<const AtomAbstractNode*>(this)->value : BLANKSTRING;
+    }
 
     /** This specific abstract node represents a script object */
     class _OgreExport ObjectAbstractNode : public AbstractNode
@@ -132,8 +147,8 @@ namespace Ogre
         AbstractNodeList overrides; // For use when processing object inheritance and overriding
     public:
         ObjectAbstractNode(AbstractNode *ptr);
-        AbstractNode *clone() const;
-        const String& getValue() const { return cls; }
+        AbstractNode *clone() const override;
+        const String& getValue() const override { return cls; }
 
         void addVariable(const String &name);
         void setVariable(const String &name, const String &value);
@@ -150,9 +165,21 @@ namespace Ogre
         AbstractNodeList values;
     public:
         PropertyAbstractNode(AbstractNode *ptr);
-        AbstractNode *clone() const;
-        const String& getValue() const { return name; }
+        AbstractNode *clone() const override;
+        const String& getValue() const override { return name; }
     };
+
+    inline ScriptProperty AbstractNode::getProperty() const
+    {
+        if (type != ANT_PROPERTY)
+            return ScriptProperty();
+
+        const PropertyAbstractNode *prop = static_cast<const PropertyAbstractNode*>(this);
+        StringVector values;
+        for (const auto& value : prop->values)
+            values.push_back(value->getString());
+        return {prop->name, values};
+    }
 
     /** This abstract node represents an import statement */
     class _OgreExport ImportAbstractNode : public AbstractNode
@@ -161,8 +188,8 @@ namespace Ogre
         String target, source;
     public:
         ImportAbstractNode();
-        AbstractNode *clone() const;
-        const String& getValue() const { return target; }
+        AbstractNode *clone() const override;
+        const String& getValue() const override { return target; }
     };
 
     /** This abstract node represents a variable assignment */
@@ -172,8 +199,8 @@ namespace Ogre
         String name;
     public:
         VariableAccessAbstractNode(AbstractNode *ptr);
-        AbstractNode *clone() const;
-        const String& getValue() const { return name; }
+        AbstractNode *clone() const override;
+        const String& getValue() const override { return name; }
     };
 
     class ScriptCompilerEvent;
@@ -221,21 +248,16 @@ namespace Ogre
         bool compile(const ConcreteNodeListPtr &nodes, const String &group);
         /// Adds the given error to the compiler's list of errors
         void addError(uint32 code, const String &file, int line, const String &msg = "");
+        /// @overload
+        void addError(const AbstractNode& node, const String &msg = "", uint32 code = CE_INVALIDPARAMETERS);
         /// Sets the listener used by the compiler
         void setListener(ScriptCompilerListener *listener);
         /// Returns the currently set listener
         ScriptCompilerListener *getListener();
         /// Returns the resource group currently set for this compiler
         const String &getResourceGroup() const;
-        /// Adds a name exclusion to the map
-        /**
-         * Name exclusions identify object types which cannot accept
-         * names. This means that excluded types will always have empty names.
-         * All values in the object header are stored as object values.
-         */
-        //void addNameExclusion(const String &type);
-        /// Removes a name exclusion
-        //void removeNameExclusion(const String &type);
+        /// Returns the current source file name
+        const String& getFileName() const { return mSourceFile; }
         /// Internal method for firing the handleEvent method
         bool _fireEvent(ScriptCompilerEvent *evt, void *retval);
 
@@ -259,11 +281,11 @@ namespace Ogre
         /// Loads the requested script and converts it to an AST
         AbstractNodeListPtr loadImportPath(const String &name);
         /// Returns the abstract nodes from the given tree which represent the target
-        AbstractNodeList locateTarget(const AbstractNodeList& nodes, const String &target);
+        AbstractNodePtr locateTarget(const AbstractNodeList& nodes, const String &target);
         /// Handles object inheritance and variable expansion
-        void processObjects(AbstractNodeList& nodes, const AbstractNodeList &top);
+        void processObjects(AbstractNodeList& nodes, const AbstractNodeList &top, const ObjectAbstractNode* exclude = nullptr);
         /// Handles processing the variables
-        void processVariables(AbstractNodeList& nodes);
+        void processVariables(AbstractNodeList& nodes, std::set<String>& expadingVars);
         /// This function overlays the given object on the destination object following inheritance rules
         void overlayObject(const ObjectAbstractNode &source, ObjectAbstractNode& dest);
         /// Returns true if the given class is name excluded
@@ -272,6 +294,7 @@ namespace Ogre
         void initWordMap();
     private:
         friend String getPropertyName(const ScriptCompiler *compiler, uint32 id);
+        String mSourceFile;
         // Resource group
         String mGroup;
         // The word -> id conversion table
@@ -442,28 +465,16 @@ namespace Ogre
         /// Adds a script extension that can be handled (e.g. *.material, *.pu, etc.)
         void addScriptPattern(const String &pattern);
         /// @copydoc ScriptLoader::getScriptPatterns
-        const StringVector& getScriptPatterns(void) const;
+        const StringVector& getScriptPatterns(void) const override;
         /// @copydoc ScriptLoader::parseScript
-        void parseScript(DataStreamPtr& stream, const String& groupName);
+        void parseScript(DataStreamPtr& stream, const String& groupName) override;
         /// @copydoc ScriptLoader::getLoadingOrder
-        Real getLoadingOrder(void) const;
+        Real getLoadingOrder(void) const override;
 
         /// @copydoc Singleton::getSingleton()
         static ScriptCompilerManager& getSingleton(void);
         /// @copydoc Singleton::getSingleton()
         static ScriptCompilerManager* getSingletonPtr(void);
-    };
-
-    /// @deprecated do not use
-    class OGRE_DEPRECATED _OgreExport PreApplyTextureAliasesScriptCompilerEvent : public ScriptCompilerEvent
-    {
-    public:
-        Material *mMaterial;
-        AliasTextureNamePairList *mAliases;
-        static String eventType;
-
-        PreApplyTextureAliasesScriptCompilerEvent(Material *material, AliasTextureNamePairList *aliases)
-            :ScriptCompilerEvent(eventType), mMaterial(material), mAliases(aliases){}
     };
 
     class _OgreExport ProcessResourceNameScriptCompilerEvent : public ScriptCompilerEvent
@@ -643,7 +654,6 @@ namespace Ogre
         ID_CULL_SOFTWARE,
             ID_BACK,
             ID_FRONT,
-        ID_NORMALISE_NORMALS,
         ID_LIGHTING,
         ID_SHADING,
             ID_FLAT, 
@@ -684,6 +694,7 @@ namespace Ogre
             ID_3D,
             ID_CUBIC,
             ID_2DARRAY,
+            ID_2DMS,
             ID_UNLIMITED,
             ID_ALPHA,
             ID_GAMMA,
@@ -755,9 +766,6 @@ namespace Ogre
             ID_SAWTOOTH,
             ID_INVERSE_SAWTOOTH,
         ID_TRANSFORM,
-        ID_BINDING_TYPE,
-            ID_VERTEX,
-            ID_FRAGMENT,
         ID_CONTENT_TYPE,
             ID_NAMED,
             ID_SHADOW,
@@ -827,7 +835,7 @@ namespace Ogre
             ID_DEPTH_FAIL_OP,
             ID_PASS_OP,
             ID_TWO_SIDED,
-        // Suport for shader model 5.0
+        // Support for shader model 5.0
         // More program IDs
         ID_TESSELLATION_HULL_PROGRAM,
         ID_TESSELLATION_DOMAIN_PROGRAM,
@@ -850,7 +858,13 @@ namespace Ogre
         ID_AUTO,
         ID_CAMERA,
         ID_ALIGN_TO_FACE,
-
+        ID_UNORDERED_ACCESS_MIP,
+        ID_MESH_PROGRAM,
+        ID_MESH_PROGRAM_REF,
+        ID_TASK_PROGRAM,
+        ID_TASK_PROGRAM_REF,
+        ID_FSAA,
+        ID_USE_LINEAR_COLOURS,
         ID_END_BUILTIN_IDS
     };
     /** @} */

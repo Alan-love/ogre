@@ -31,12 +31,20 @@ THE SOFTWARE.
 namespace Ogre {
 namespace RTShader {
 
-String CGProgramWriter::TargetLanguage = "cg";
+String CGProgramWriter::TargetLanguage = "hlsl";
 
 //-----------------------------------------------------------------------
 CGProgramWriter::CGProgramWriter()
 {
     initializeStringMaps();
+
+    if(GpuProgramManager::getSingleton().isSyntaxSupported("ps_4_0"))
+    {
+        mGpuConstTypeMap[GCT_SAMPLER2DARRAY] = "Sampler2DArray";
+        mGpuConstTypeMap[GCT_SAMPLER2DSHADOW] = "Sampler2DShadow";
+        mGpuConstTypeMap[GCT_SAMPLER2DARRAYSHADOW] = "Sampler2DArrayShadow";
+        mGpuConstTypeMap[GCT_SAMPLERCUBESHADOW] = "SamplerCubeShadow";
+    }
 }
 
 //-----------------------------------------------------------------------
@@ -75,6 +83,31 @@ void CGProgramWriter::initializeStringMaps()
     mGpuConstTypeMap[GCT_UINT4] = "uint4";
 
     mParamSemanticMap[Parameter::SPS_FRONT_FACING] = "VFACE";
+    mParamSemanticMap[Parameter::SPS_LAYER] = "SV_RenderTargetArrayIndex";
+}
+
+void CGProgramWriter::writeSharedParams(std::ostream& os, const String& name, int registerIdx, const GpuSharedParametersPtr& params)
+{
+    // In HLSL/D3D11 constant buffers are bound to register(bN).
+    // Only SM4+ (ps_4_0 and up) understands cbuffer/register(b#).
+    bool useRegister = GpuProgramManager::getSingleton().isSyntaxSupported("ps_4_0");
+
+    os << "cbuffer " << name;
+    if (useRegister)
+        os << " : register(b" << registerIdx << ")";
+    os << " {\n";
+
+    for (const auto& e : params->getConstantDefinitionsSorted())
+    {
+        const GpuConstantDefinition& def = e.second;
+
+        os << "\t" << mGpuConstTypeMap[def.constType] << " " << e.first;
+        if (def.arraySize > 1)
+            os << "[" << def.arraySize << "]";
+        os << ";\n";
+    }
+
+    os << "};\n";
 }
 
 //-----------------------------------------------------------------------
@@ -84,21 +117,21 @@ void CGProgramWriter::writeSourceCode(std::ostream& os, Program* program)
     writeProgramTitle(os, program);
     os << std::endl;
 
-    // Generate dependencies.
-    writeProgramDependencies(os, program);
-    os << std::endl;
-
     // Generate global variable code.
-    writeUniformParametersTitle(os, program);
-    os << std::endl;
+    int sharedRegister = 1;
+    for (const auto& shared : program->getSharedParameters())
+        writeSharedParams(os, shared->getName(), sharedRegister++, shared);
 
-    for (const auto& param : program->getParameters())
+    for (const auto& p : program->getParameters())
     {
-        param->isSampler() ? writeSamplerParameter(os, param) : writeParameter(os, param);
-        os << ";" << std::endl;             
+        p->isSampler() ? writeSamplerParameter(os, p) : writeParameter(os, p);
+        os << ";" << std::endl;
     }
     os << std::endl;
 
+    // Generate dependencies.
+    writeProgramDependencies(os, program);
+    os << std::endl;
 
     Function* curFunction = program->getMain();
 
@@ -108,49 +141,22 @@ void CGProgramWriter::writeSourceCode(std::ostream& os, Program* program)
     os << "{" << std::endl;
 
     // Write local parameters.
-    const ShaderParameterList& localParams = curFunction->getLocalParameters();
-    ShaderParameterConstIterator itParam;
-
-    for (itParam=localParams.begin();  itParam != localParams.end(); ++itParam)
+    for (const auto& p : curFunction->getLocalParameters())
     {
         os << "\t";
-        writeParameter(os, *itParam);
+        writeParameter(os, p);
         os << ";" << std::endl;
     }
 
-    const FunctionAtomInstanceList& atomInstances = curFunction->getAtomInstances();
-    FunctionAtomInstanceConstIterator itAtom;
-
-    for (itAtom=atomInstances.begin(); itAtom != atomInstances.end(); ++itAtom)
+    for (const auto& a : curFunction->getAtomInstances())
     {
-        writeAtomInstance(os, *itAtom);
+        redirectGlobalWrites(os, a, curFunction->getInputParameters(), program->getParameters());
+        writeAtomInstance(os, a);
     }
 
 
     os << "}" << std::endl;
     os << std::endl;
-}
-
-
-//-----------------------------------------------------------------------
-void CGProgramWriter::writeProgramDependencies(std::ostream& os, Program* program)
-{
-    os << "//-----------------------------------------------------------------------------" << std::endl;
-    os << "//                         PROGRAM DEPENDENCIES" << std::endl;
-    os << "//-----------------------------------------------------------------------------" << std::endl;
-
-    os << "#include <OgreUnifiedShader.h>" << std::endl;
-
-    const auto& rgm = ResourceGroupManager::getSingleton();
-
-    for (unsigned int i=0; i < program->getDependencyCount(); ++i)
-    {
-        String curDependency = program->getDependency(i) + ".cg";
-        if (!rgm.resourceExistsInAnyGroup(curDependency))
-            curDependency = program->getDependency(i) + ".glsl"; // fall back to glsl extension
-
-        os << "#include \"" << curDependency << '\"' << std::endl;
-    }
 }
 
 //-----------------------------------------------------------------------
@@ -164,28 +170,22 @@ void CGProgramWriter::writeFunctionParameter(std::ostream& os, ParameterPtr para
 //-----------------------------------------------------------------------
 void CGProgramWriter::writeFunctionDeclaration(std::ostream& os, Function* function)
 {
-    const ShaderParameterList& inParams  = function->getInputParameters();
-    const ShaderParameterList& outParams = function->getOutputParameters();
-
-
     os << "void main(\n";
 
-    ShaderParameterConstIterator it;
-
     // Write input parameters.
-    for (it=inParams.begin(); it != inParams.end(); ++it)
-    {                   
+    for (const auto& p : function->getInputParameters())
+    {
         os << "\t in ";
-        writeFunctionParameter(os, *it);
+        writeFunctionParameter(os, p);
         os << ",\n";
     }
 
 
     // Write output parameters.
-    for (it=outParams.begin(); it != outParams.end(); ++it)
+    for (const auto& p : function->getOutputParameters())
     {
         os << "\t out ";
-        writeFunctionParameter(os, *it);
+        writeFunctionParameter(os, p);
         os << ",\n";
     }
 

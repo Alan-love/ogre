@@ -60,12 +60,15 @@ public:
     virtual ~RenderState();
 
     /** Reset this render state */
-    void reset();
+    void resetToBuiltinSubRenderStates();
 
     /** Add a template sub render state to this render state.
     @param subRenderState The sub render state template to add.
     */
     void addTemplateSubRenderState(SubRenderState* subRenderState);
+
+    /// Add multiple template sub render states by SRS type
+    void addTemplateSubRenderStates(const StringVector& srsTypes);
 
     /** Remove a sub render state from this render state.
     @param subRenderState The sub render state to remove.
@@ -75,24 +78,18 @@ public:
     /** Get the list of the sub render states composing this render state. */
     const SubRenderStateList& getSubRenderStates() const { return mSubRenderStateList; }
 
-    /** 
-    Set the light count per light type.
-    @param 
-    lightCount The light count per type.
-    lightCount[0] defines the point light count.
-    lightCount[1] defines the directional light count.
-    lightCount[2] defines the spot light count.
-    */
-    void setLightCount(const Vector3i& lightCount);
+    /// get sub render state by type (uniquely identified) or NULL if not found
+    SubRenderState* getSubRenderState(const String& type) const;
 
     /** 
-    Get the light count per light type.
-
-    lightCount[0] defines the point light count.
-    lightCount[1] defines the directional light count.
-    lightCount[2] defines the spot light count.
+    Set the maximal light count to consider
     */
-    const Vector3i& getLightCount() const;
+    void setLightCount(int32 lightCount) { mLightCount = lightCount;}
+
+    /** 
+    Get the maximal light count to consider
+    */
+    int32 getLightCount() const { return mLightCount; }
 
     /** 
     Set the light count auto update state.
@@ -108,7 +105,8 @@ public:
     */
     bool getLightCountAutoUpdate() const { return mLightCountAutoUpdate; }
 
-    
+    bool haveAreaLights() const { return mHaveAreaLights; }
+    void setHaveAreaLights(bool val) { mHaveAreaLights = val; }
 
 
     // Attributes.
@@ -116,13 +114,14 @@ protected:
     // The sub render states list.  
     SubRenderStateList mSubRenderStateList;
     // The light count per light type definition.
-    Vector3i mLightCount;
+    int32 mLightCount;
     // True if light count was explicitly set.
     bool mLightCountAutoUpdate;
+    bool mHaveAreaLights;
 
 private:
+    void clear();
     friend class ProgramManager;
-    friend class FFPRenderStateBuilder;
 };
 
 /** This is the target render state. This class will hold the actual generated CPU/GPU programs.
@@ -203,7 +202,6 @@ private:
 
 private:
     friend class ProgramManager;
-    friend class FFPRenderStateBuilder;
 };
 
 typedef std::shared_ptr<TargetRenderState> TargetRenderStatePtr;

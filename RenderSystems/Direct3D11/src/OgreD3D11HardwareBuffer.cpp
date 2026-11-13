@@ -36,7 +36,7 @@ namespace Ogre {
         BufferType btype, size_t sizeBytes,
         HardwareBuffer::Usage usage, D3D11Device & device, 
         bool useShadowBuffer, bool streamOut)
-        : HardwareBuffer(usage, false,  useShadowBuffer),
+        : HardwareBuffer(usage, useShadowBuffer),
         mUseTempStagingBuffer(false),
         mBufferType(btype),
         mDevice(device)
@@ -250,6 +250,7 @@ namespace Ogre {
         const void* pSource,
         bool discardWholeBuffer)
     {
+        discardWholeBuffer = discardWholeBuffer || (offset == 0 && length == mSizeInBytes);
         // There is no functional interface in D3D, just do via manual 
         // lock, copy & unlock
         HardwareBufferLockGuard thisLock(this, offset, length,

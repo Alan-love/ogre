@@ -32,11 +32,12 @@ THE SOFTWARE.
 #include "OgreVulkanPrerequisites.h"
 
 #include "OgreTexture.h"
-#include "OgreFrustum.h"
-
-#include "vulkan/vulkan_core.h"
 
 #include "OgreHardwarePixelBuffer.h"
+#include "OgreVulkanHardwareBuffer.h"
+#include "OgreRenderTexture.h"
+
+#include "vk_mem_alloc.h"
 
 namespace Ogre
 {
@@ -46,6 +47,8 @@ namespace Ogre
     /** \addtogroup Resources
      *  @{
      */
+
+    class VulkanRenderPassDescriptor;
 
     namespace ResourceAccess
     {
@@ -63,9 +66,12 @@ namespace Ogre
     {
         VulkanTextureGpu* mParent;
         uint8 mFace;
-    public:
-        VulkanHardwarePixelBuffer(VulkanTextureGpu* tex, uint32 width, uint32 height, uint32 depth, uint8 face);
+        uint32 mLevel;
+        std::unique_ptr<VulkanHardwareBuffer> mStagingBuffer;
         PixelBox lockImpl(const Box &lockBox,  LockOptions options) override;
+        void unlockImpl(void) override;
+    public:
+        VulkanHardwarePixelBuffer(VulkanTextureGpu* tex, uint32 width, uint32 height, uint32 depth, uint8 face, uint32 mip);
         void blitFromMemory(const PixelBox& src, const Box& dstBox) override;
         void blitToMemory(const Box& srcBox, const PixelBox& dst) override;
     };
@@ -101,11 +107,11 @@ namespace Ogre
         ///     4. The msaa resolved texture (hasMsaaExplicitResolves==false)
         /// This value may be a renderbuffer instead of a texture if isRenderbuffer() returns true.
         VkImage mFinalTextureName;
-        VkDeviceMemory mMemory;
+        VmaAllocation mAllocation;
 
         /// Only used when hasMsaaExplicitResolves() == false
         VkImage mMsaaTextureName;
-        VkDeviceMemory mMsaaMemory;
+        VmaAllocation mMsaaAllocation;
     public:
         /// The current layout we're in. Including any internal stuff.
         VkImageLayout mCurrLayout;
@@ -121,9 +127,11 @@ namespace Ogre
         void createInternalResourcesImpl( void ) override;
         void freeInternalResourcesImpl( void ) override;
 
+        HardwarePixelBufferPtr createSurface(uint32 face, uint32 mipmap, uint32 width, uint32 height,
+                                             uint32 depth) override;
+
         virtual void createMsaaSurface( void );
         virtual void destroyMsaaSurface( void );
-
     public:
         bool hasMsaaExplicitResolves() const { return false; }
         bool isUav() const { return false; }
@@ -164,14 +172,16 @@ namespace Ogre
         VkImage getMsaaTextureName( void ) const { return mMsaaTextureName; }
     };
 
-    class VulkanTextureGpuRenderTarget : public VulkanTextureGpu
+    class VulkanRenderTexture : public RenderTexture
     {
-    protected:
-        virtual void createMsaaSurface( void );
-        virtual void destroyMsaaSurface( void );
-
+        std::unique_ptr<VulkanTextureGpu> mDepthTexture;
+        std::unique_ptr<VulkanRenderPassDescriptor> mRenderPassDescriptor;
     public:
-        VulkanTextureGpuRenderTarget(String name, TextureType initialType, TextureManager* textureManager);
+        VulkanRenderTexture(const String& name, HardwarePixelBuffer* buffer, uint32 slice, VulkanTextureGpu* target);
+
+        bool requiresTextureFlipping() const override { return true; }
+
+        VulkanRenderPassDescriptor* getRenderPassDescriptor() const { return mRenderPassDescriptor.get(); }
     };
 
     /** @} */

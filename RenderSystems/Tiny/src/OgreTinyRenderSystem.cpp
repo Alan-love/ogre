@@ -91,18 +91,6 @@ namespace Ogre {
         static String strName("Tiny Rendering Subsystem");
         return strName;
     }
-    void TinyRenderSystem::initConfigOptions()
-    {
-        RenderSystem::initConfigOptions();
-
-        ConfigOption opt;
-        opt.name = "Video Mode";
-        opt.immutable = false;
-        opt.possibleValues.push_back("800 x 600");
-        opt.currentValue = opt.possibleValues[0];
-
-        mOptions[opt.name] = opt;
-    }
     RenderSystemCapabilities* TinyRenderSystem::createRenderSystemCapabilities() const
     {
         RenderSystemCapabilities* rsc = OGRE_NEW RenderSystemCapabilities();
@@ -116,9 +104,6 @@ namespace Ogre {
 
         // Vertex Buffer Objects are always supported
         rsc->setCapability(RSC_MAPBUFFER);
-
-        // GL always shares vertex and fragment texture units (for now?)
-        rsc->setVertexTextureUnitsShared(true);
 
         // Check for non-power-of-2 texture support
         rsc->setCapability(RSC_NON_POWER_OF_2_TEXTURES);
@@ -143,23 +128,6 @@ namespace Ogre {
         rsc->setCapability(RSC_VERTEX_TEXTURE_FETCH);
 
         return rsc;
-    }
-
-    void TinyRenderSystem::initialiseFromRenderSystemCapabilities(RenderSystemCapabilities* caps, RenderTarget* primary)
-    {
-        if (caps->getRenderSystemName() != getName())
-        {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
-                        "Trying to initialize TinyRenderSystem from RenderSystemCapabilities that do not support Tiny");
-        }
-
-        // Use VBO's by default
-        mHardwareBufferManager = new DefaultHardwareBufferManager();
-
-        // Create the texture manager
-        mTextureManager = new TinyTextureManager();
-
-        mGLInitialised = true;
     }
 
     void TinyRenderSystem::shutdown(void)
@@ -201,16 +169,21 @@ namespace Ogre {
 
             fireEvent("RenderSystemCapabilitiesCreated");
 
-            initialiseFromRenderSystemCapabilities(mCurrentCapabilities, (RenderTarget *) win);
+            // Use VBO's by default
+            mHardwareBufferManager = new DefaultHardwareBufferManager();
+
+            // Create the texture manager
+            mTextureManager = new TinyTextureManager();
+
+            mGLInitialised = true;
         }
 
-        if ( win->getDepthBufferPool() != DepthBuffer::POOL_NO_DEPTH )
+        if ( win->getDepthBufferPool() != RBP_NONE )
         {
             // Unlike D3D9, OGL doesn't allow sharing the main depth buffer, so keep them separate.
             // Only Copy does, but Copy means only one depth buffer...
-            auto *depthBuffer = new TinyDepthBuffer( DepthBuffer::POOL_DEFAULT,
-                                                                      win->getWidth(), win->getHeight(),
-                                                                      win->getFSAA(), true );
+            auto* depthBuffer =
+                new TinyDepthBuffer(win->getDepthBufferPool(), win->getWidth(), win->getHeight(), win->getFSAA(), true);
 
             mDepthBufferPool[depthBuffer->getPoolId()].push_back( depthBuffer );
 
@@ -224,7 +197,7 @@ namespace Ogre {
     DepthBuffer* TinyRenderSystem::_createDepthBufferFor( RenderTarget *rt )
     {
         // No "custom-quality" multisample for now in GL
-        return new TinyDepthBuffer(0, rt->getWidth(), rt->getHeight(), rt->getFSAA(), false);
+        return new TinyDepthBuffer(rt->getDepthBufferPool(), rt->getWidth(), rt->getHeight(), rt->getFSAA(), false);
     }
 
     MultiRenderTarget* TinyRenderSystem::createMultiRenderTarget(const String & name)
@@ -475,8 +448,7 @@ namespace Ogre {
         // Check the depth buffer status
         auto *depthBuffer = target->getDepthBuffer();
 
-        if ( target->getDepthBufferPool() != DepthBuffer::POOL_NO_DEPTH &&
-                (!depthBuffer) )
+        if (target->getDepthBufferPool() != RBP_NONE && !depthBuffer)
         {
             // Depth is automatically managed and there is no depth buffer attached to this RT
             // or the Current context doesn't match the one this Depth buffer was created with

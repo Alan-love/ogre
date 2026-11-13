@@ -37,14 +37,9 @@ void ProgramWriter::writeProgramTitle(std::ostream& os, Program* program)
     os << "// Language: " <<  getTargetLanguage() << std::endl;
     os << "// Created by Ogre RT Shader Generator. All rights reserved." << std::endl;
     os << "//-----------------------------------------------------------------------------" << std::endl;
-}
 
-//-----------------------------------------------------------------------
-void ProgramWriter::writeUniformParametersTitle(std::ostream& os, Program* program)
-{
-    os << "//-----------------------------------------------------------------------------" << std::endl;
-    os << "//                         GLOBAL PARAMETERS" << std::endl;
-    os << "//-----------------------------------------------------------------------------" << std::endl;
+    os << "#define USE_OGRE_FROM_FUTURE" << std::endl;
+    os << "#include <OgreUnifiedShader.h>" << std::endl;
 }
 //-----------------------------------------------------------------------
 void ProgramWriter::writeFunctionTitle(std::ostream& os, Function* function)
@@ -70,12 +65,18 @@ ProgramWriter::~ProgramWriter() {}
 
 void ProgramWriter::writeParameter(std::ostream& os, const ParameterPtr& parameter)
 {
+    if (!parameter->getStructType().empty())
+    {
+        os << parameter->getStructType() << '\t' << parameter->getName();
+        return;
+    }
+
     os << mGpuConstTypeMap[parameter->getType()] << '\t' << parameter->getName();
     if (parameter->isArray())
         os << '[' << parameter->getSize() << ']';
 }
 
-void ProgramWriter::writeSamplerParameter(std::ostream& os, const UniformParameterPtr& parameter, int offset)
+void ProgramWriter::writeSamplerParameter(std::ostream& os, const UniformParameterPtr& parameter)
 {
     if (parameter->getType() == GCT_SAMPLER_EXTERNAL_OES)
     {
@@ -104,10 +105,16 @@ void ProgramWriter::writeSamplerParameter(std::ostream& os, const UniformParamet
     case GCT_SAMPLER2DARRAY:
         os << "SAMPLER2DARRAY(";
         break;
+    case GCT_SAMPLER2DARRAYSHADOW:
+        os << "SAMPLER2DARRAYSHADOW(";
+        break;
+    case GCT_SAMPLERCUBESHADOW:
+        os << "SAMPLERCUBESHADOW(";
+        break;
     default:
         OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "unsupported sampler type");
     }
-    os << parameter->getName() << ", " << (parameter->getIndex() + offset) << ")";
+    os << parameter->getName() << ", " << parameter->getIndex() << ")";
 }
 
 void ProgramWriter::writeParameterSemantic(std::ostream& os, const ParameterPtr& parameter)
@@ -119,6 +126,56 @@ void ProgramWriter::writeParameterSemantic(std::ostream& os, const ParameterPtr&
         (parameter->getSemantic() == Parameter::SPS_COLOR && parameter->getIndex() > 0))
     {
         os << parameter->getIndex();
+    }
+}
+
+void ProgramWriter::redirectGlobalWrites(std::ostream& os, FunctionAtom* func, const ShaderParameterList& inputs,
+                                         const UniformParameterList& uniforms)
+{
+    for (auto& operand : func->getOperandList())
+    {
+        auto opSemantic = operand.getSemantic();
+
+        if (opSemantic != Operand::OPS_OUT && opSemantic != Operand::OPS_INOUT)
+            continue;
+
+        const ParameterPtr& param = operand.getParameter();
+
+        // Check if we write to an input variable because they are only readable
+        // Well, actually "attribute" were writable in GLSL < 120, but we dont care here
+        bool doLocalRename = std::find(inputs.begin(), inputs.end(), param) != inputs.end();
+
+        // If its not a varying param check if a uniform is written
+        if (!doLocalRename)
+        {
+            doLocalRename = std::find(uniforms.begin(), uniforms.end(), param) != uniforms.end();
+        }
+
+        // now we check if we already declared a redirector var
+        if (doLocalRename && mLocalRenames.find(param->getName()) == mLocalRenames.end())
+        {
+            // Declare the copy variable and assign the original
+            String newVar = "local_" + param->getName();
+            os << "\t" << mGpuConstTypeMap[param->getType()] << " " << newVar << " = " << param->getName() << ";"
+                << std::endl;
+
+            // From now on we replace it automatic
+            param->_rename(newVar, true);
+            mLocalRenames.insert(newVar);
+        }
+    }
+}
+
+//-----------------------------------------------------------------------
+void ProgramWriter::writeProgramDependencies(std::ostream& os, Program* program)
+{
+    os << "//-----------------------------------------------------------------------------" << std::endl;
+    os << "//                         PROGRAM DEPENDENCIES" << std::endl;
+    os << "//-----------------------------------------------------------------------------" << std::endl;
+
+    for (unsigned int i=0; i < program->getDependencyCount(); ++i)
+    {
+        os << "#include \"" << program->getDependency(i) << ".glsl\"" << std::endl;
     }
 }
 

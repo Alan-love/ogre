@@ -7,7 +7,6 @@
 /* Includes the header in the wrapper code */
 #include "Ogre.h"
 #include "OgreDefaultDebugDrawer.h"
-#include "OgreUnifiedHighLevelGpuProgram.h"
 #include "OgreTerrainLayerBlendMap.h"
 #include "OgreTerrainMaterialGeneratorA.h"
 #include "OgreTerrain.h"
@@ -33,7 +32,23 @@
 %include "OgreTerrainQuadTreeNode.h"
 
 %template(LayerInstanceList) std::vector<Ogre::Terrain::LayerInstance>;
+#ifdef SWIGPYTHON
+%{
+    // this is a workaround for the following map
+    namespace swig {
+    template<> struct traits<Ogre::TerrainGroup::TerrainSlot> {
+        typedef pointer_category category;
+        static const char* type_name() { return "Ogre::TerrainGroup::TerrainSlot"; }
+    };
+    }
+%}
+#endif
+#ifndef SWIGJAVA
+%template(TerrainSlotMap) std::map<uint32_t, Ogre::TerrainGroup::TerrainSlot*>;
+#endif
 %template(TerrainRayResult) std::pair<bool, Ogre::Vector3>;
+%ignore Ogre::Terrain::getBlendTextureCount;
+%ignore Ogre::Terrain::getBlendTextureName;
 %include "OgreTerrain.h"
 
 %ignore Ogre::TerrainGroup::rayIntersects;

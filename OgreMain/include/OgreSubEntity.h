@@ -30,8 +30,8 @@ THE SOFTWARE.
 
 #include "OgrePrerequisites.h"
 
+#include "OgreEntity.h"
 #include "OgreRenderable.h"
-#include "OgreHardwareBufferManager.h"
 #include "OgreResourceGroupManager.h"
 #include "OgreHeaderPrefix.h"
 
@@ -44,12 +44,12 @@ namespace Ogre {
     *  @{
     */
     /** Utility class which defines the sub-parts of an Entity.
-        @remarks
-            Just as meshes are split into submeshes, an Entity is made up of
-            potentially multiple SubMeshes. These are mainly here to provide the
-            link between the Material which the SubEntity uses (which may be the
-            default Material for the SubMesh or may have been changed for this
-            object) and the SubMesh data.
+
+        Just as meshes are split into submeshes, an Entity is made up of
+        potentially multiple SubMeshes. These are mainly here to provide the
+        link between the Material which the SubEntity uses (which may be the
+        default Material for the SubMesh or may have been changed for this
+        object) and the SubMesh data.
         @par
             The SubEntity also allows the application some flexibility in the
             material properties for this section of a particular instance of this
@@ -80,10 +80,9 @@ namespace Ogre {
         SubMesh* mSubMesh;
 
         /// override the start index for the RenderOperation
-        size_t mIndexStart;
-
+        uint32 mIndexStart;
         /// override the end index for the RenderOperation
-        size_t mIndexEnd;
+        uint32 mIndexEnd;
 
         /// Is this SubEntity visible?
         bool mVisible;
@@ -96,18 +95,12 @@ namespace Ogre {
         bool mRenderQueuePrioritySet;
         /// The render queue priority to use when rendering this renderable
         ushort mRenderQueuePriority;
-#if !OGRE_NO_MESHLOD
-        /// The LOD number of the material to use, calculated by Entity::_notifyCurrentCamera
-        unsigned short mMaterialLodIndex;
-#else
-        const unsigned short mMaterialLodIndex; // = 0
-#endif
         /// Blend buffer details for dedicated geometry
         std::unique_ptr<VertexData> mSkelAnimVertexData;
         /// Quick lookup of buffers
-        TempBlendedBufferInfo mTempSkelAnimInfo;
+        Entity::TempBlendedBufferInfo mTempSkelAnimInfo;
         /// Temp buffer details for software Vertex anim geometry
-        TempBlendedBufferInfo mTempVertexAnimInfo;
+        Entity::TempBlendedBufferInfo mTempVertexAnimInfo;
         /// Vertex data details for software Vertex anim of shared geometry
         std::unique_ptr<VertexData> mSoftwareVertexAnimVertexData;
         /// Vertex data details for hardware Vertex anim of shared geometry
@@ -132,10 +125,10 @@ namespace Ogre {
         const String& getMaterialName() const;
 
         /** Sets the name of the Material to be used.
-            @remarks
-                By default a SubEntity uses the default Material that the SubMesh
-                uses. This call can alter that so that the Material is different
-                for this instance.
+
+            By default a SubEntity uses the default Material that the SubMesh
+            uses. This call can alter that so that the Material is different
+            for this instance.
         */
         void setMaterialName( const String& name, const String& groupName = ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME );
 
@@ -149,7 +142,7 @@ namespace Ogre {
         bool isVisible(void) const { return mVisible; }
 
         /** Sets the render queue group this SubEntity will be rendered through.
-        @remarks
+
             Render queues are grouped to allow you to more tightly control the ordering
             of rendered objects. If you do not call this method, the SubEntity will use
             either the Entity's queue or it will use the default
@@ -162,7 +155,7 @@ namespace Ogre {
         void setRenderQueueGroup(uint8 queueID);
 
         /** Sets the render queue group and group priority this SubEntity will be rendered through.
-        @remarks
+
             Render queues are grouped to allow you to more tightly control the ordering
             of rendered objects. Within a single render group there another type of grouping
             called priority which allows further control.  If you do not call this method, 
@@ -190,36 +183,26 @@ namespace Ogre {
 
         /** Accessor method to read mesh data.
         */
-        SubMesh* getSubMesh(void);
+        SubMesh* getSubMesh(void) const { return mSubMesh; }
 
         /** Accessor to get parent Entity */
         Entity* getParent(void) const { return mParentEntity; }
 
 
         const MaterialPtr& getMaterial(void) const override { return mMaterialPtr; }
-        Technique* getTechnique(void) const override;
         void getRenderOperation(RenderOperation& op) override;
 
-        /** Tells this SubEntity to draw a subset of the SubMesh by adjusting the index buffer extents.
-         * Default value is zero so that the entire index buffer is used when drawing.
-         * Valid values are zero to getIndexDataEndIndex()
-        */
-        void setIndexDataStartIndex(size_t start_index);
+        /// @deprecated api about to be removed
+        OGRE_DEPRECATED void setIndexDataStartIndex(uint32 start_index);
 
-        /** Returns the current value of the start index used for drawing.
-         * \see setIndexDataStartIndex
-        */
-        size_t getIndexDataStartIndex() const;
+        /// @deprecated api about to be removed
+        OGRE_DEPRECATED uint32 getIndexDataStartIndex() const { return mIndexStart; }
 
-        /** Tells this SubEntity to draw a subset of the SubMesh by adjusting the index buffer extents.
-         * Default value is SubMesh::indexData::indexCount so that the entire index buffer is used when drawing.
-         * Valid values are mStartIndex to SubMesh::indexData::indexCount
-        */
-        void setIndexDataEndIndex(size_t end_index);
+        /// @deprecated api about to be removed
+        OGRE_DEPRECATED void setIndexDataEndIndex(uint32 end_index);
 
-        /** Returns the current value of the start index used for drawing.
-        */
-        size_t getIndexDataEndIndex() const;
+        /// @deprecated api about to be removed
+        OGRE_DEPRECATED uint32 getIndexDataEndIndex() const { return mIndexEnd; }
 
         /** Reset the custom start/end index to the default values.
         */
@@ -232,16 +215,16 @@ namespace Ogre {
         bool getCastsShadows(void) const override;
         /** Advanced method to get the temporarily blended vertex information
         for entities which are software skinned. 
-        @remarks
-            Internal engine will eliminate software animation if possible, this
-            information is unreliable unless added request for software animation
-            via Entity::addSoftwareAnimationRequest.
+
+        Internal engine will eliminate software animation if possible, this
+        information is unreliable unless added request for software animation
+        via Entity::addSoftwareAnimationRequest.
         @note
             The positions/normals of the returned vertex data is in object space.
         */
         VertexData* _getSkelAnimVertexData(void);
         /** Advanced method to get the temporarily blended software morph vertex information
-        @remarks
+
             Internal engine will eliminate software animation if possible, this
             information is unreliable unless added request for software animation
             via Entity::addSoftwareAnimationRequest.
@@ -254,14 +237,6 @@ namespace Ogre {
             The positions/normals of the returned vertex data is in object space.
         */
         VertexData* _getHardwareVertexAnimVertexData(void);
-        /** Advanced method to get the temp buffer information for software 
-        skeletal animation.
-        */
-        TempBlendedBufferInfo* _getSkelAnimTempBufferInfo(void);
-        /** Advanced method to get the temp buffer information for software 
-        morph animation.
-        */
-        TempBlendedBufferInfo* _getVertexAnimTempBufferInfo(void);
         /// Retrieve the VertexData which should be used for GPU binding
         VertexData* getVertexDataForBinding(void);
 

@@ -33,7 +33,7 @@ namespace RTShader {
 /************************************************************************/
 /*                                                                      */
 /************************************************************************/
-String FFPColour::Type = "FFP_Colour";
+const String SRS_VERTEX_COLOUR = "FFP_Colour";
 
 //-----------------------------------------------------------------------
 FFPColour::FFPColour()
@@ -44,7 +44,7 @@ FFPColour::FFPColour()
 //-----------------------------------------------------------------------
 const String& FFPColour::getType() const
 {
-    return Type;
+    return SRS_VERTEX_COLOUR;
 }
 
 
@@ -101,6 +101,9 @@ bool FFPColour::addFunctionInvocations(ProgramSet* programSet)
     Function* vsMain   = vsProgram->getEntryPointFunction();
     Function* psMain   = psProgram->getEntryPointFunction();    
     
+    vsProgram->addDependency("RTSLib_Colour");
+    psProgram->addDependency("RTSLib_Colour");
+
     // Create vertex shader colour invocations.
     ParameterPtr vsDiffuse;
     ParameterPtr vsSpecular;
@@ -109,6 +112,7 @@ bool FFPColour::addFunctionInvocations(ProgramSet* programSet)
     if (mVSInputDiffuse)
     {
         vsDiffuse = mVSInputDiffuse;
+        vsStage.callFunction("ENABLE_LINEAR_COLOUR", vsDiffuse);
     }
     else
     {
@@ -165,6 +169,7 @@ bool FFPColour::addFunctionInvocations(ProgramSet* programSet)
     psMain->getStage(FFP_PS_COLOUR_END)
         .add(In(mPSOutputDiffuse).xyz(), In(psSpecular).xyz(), Out(mPSOutputDiffuse).xyz());
 
+    psMain->getStage(FFP_PS_POST_PROCESS).callFunction("COLOUR_TRANSFER", mPSOutputDiffuse);
     return true;
 }
 
@@ -191,30 +196,15 @@ bool FFPColour::preAddToRenderState(const RenderState* renderState, Pass* srcPas
 //-----------------------------------------------------------------------
 const String& FFPColourFactory::getType() const
 {
-    return FFPColour::Type;
+    return SRS_VERTEX_COLOUR;
 }
 
 //-----------------------------------------------------------------------
-SubRenderState* FFPColourFactory::createInstance(ScriptCompiler* compiler, 
-                                                    PropertyAbstractNode* prop, Pass* pass, SGScriptTranslator* translator)
+SubRenderState* FFPColourFactory::createInstance(const ScriptProperty& prop, Pass* pass, SGScriptTranslator* translator)
 {
-    if (prop->name == "colour_stage")
+    if (prop.name == "colour_stage" && prop.values[0] == "ffp")
     {
-        if(prop->values.size() == 1)
-        {
-            String modelType;
-
-            if(false == SGScriptTranslator::getString(prop->values.front(), &modelType))
-            {
-                compiler->addError(ScriptCompiler::CE_INVALIDPARAMETERS, prop->file, prop->line);
-                return NULL;
-            }
-
-            if (modelType == "ffp")
-            {
-                return createOrRetrieveInstance(translator);
-            }
-        }       
+        return createOrRetrieveInstance(translator);
     }
 
     return NULL;

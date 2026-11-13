@@ -34,7 +34,8 @@
 #include "OgreRenderOperation.h"
 
 namespace Ogre {
-
+    struct BufferInfo { int binding; uint bufferType; };
+    typedef std::map<String, BufferInfo> BufferInfoMap;
     class GLUniformCache;
     class GLSLShader : public GLSLShaderCommon
     {
@@ -44,22 +45,24 @@ namespace Ogre {
                    const String& group, bool isManual, ManualResourceLoader* loader);
 		~GLSLShader();
 
-        void attachToProgramObject(const GLuint programObject);
-        void detachFromProgramObject(const GLuint programObject);
+        void attachToProgramObject(const GLuint programObject) override;
+        void detachFromProgramObject(const GLuint programObject) override;
 
-        bool linkSeparable();
+        bool linkSeparable() override;
 
         void setSamplerBinding(bool enable) { mHasSamplerBinding = enable; }
         bool getSamplerBinding() const { return mHasSamplerBinding; }
 
-        const HardwareBufferPtr& getDefaultBuffer() const { return mDefaultBuffer; }
+        const BufferInfoMap& getBufferInfoMap() const { return mBufferInfoMap; }
+
+        void _setBufferInfoMap(const BufferInfoMap& bufferInfoMap) { mBufferInfoMap = bufferInfoMap; }
 
         /// Overridden from GpuProgram
-        const String& getLanguage(void) const;
+        const String& getLanguage(void) const override;
     protected:
-        void loadFromSource();
+        void loadFromSource() override;
         /// Internal unload implementation, must be implemented by subclasses
-        void unloadHighLevelImpl(void);
+        void unloadHighLevelImpl(void) override;
         /// Populate the passed parameters with name->index map, must be overridden
         void buildConstantDefinitions() override;
         /// Add boiler plate code and preprocessor extras, then
@@ -68,9 +71,9 @@ namespace Ogre {
 
         /// @param block uniform block to consider. -1 for non-UBO uniforms
         void extractUniforms(int block = -1) const;
-        void extractBufferBlocks(GLenum type) const;
+        void extractBufferBlocks(GLenum type);
 
-        mutable HardwareBufferPtr mDefaultBuffer;
+        BufferInfoMap mBufferInfoMap;
         bool mHasSamplerBinding;
     };
 
@@ -80,10 +83,10 @@ namespace Ogre {
     {
     public:
         /// Get the name of the language this factory creates shaders for.
-        const String& getLanguage(void) const;
+        const String& getLanguage(void) const override;
         /// Create an instance of GLSLProgram.
         GpuProgram* create(ResourceManager* creator, const String& name, ResourceHandle handle,
-                           const String& group, bool isManual, ManualResourceLoader* loader);
+                           const String& group, bool isManual, ManualResourceLoader* loader) override;
     };
 }
 

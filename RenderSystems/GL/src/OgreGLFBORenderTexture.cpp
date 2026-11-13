@@ -27,73 +27,14 @@ THE SOFTWARE.
 */
 
 #include "OgreGLFBORenderTexture.h"
+#include "OgreGLFrameBufferObject.h"
 #include "OgreGLPixelFormat.h"
 #include "OgreLogManager.h"
 #include "OgreStringConverter.h"
 #include "OgreRoot.h"
 #include "OgreGLHardwarePixelBuffer.h"
-#include "OgreGLFBOMultiRenderTarget.h"
 
 namespace Ogre {
-
-//-----------------------------------------------------------------------------    
-    GLFBORenderTexture::GLFBORenderTexture(GLFBOManager *manager, const String &name,
-        const GLSurfaceDesc &target, bool writeGamma, uint fsaa):
-        GLRenderTexture(name, target, writeGamma, fsaa),
-        mFB(manager, fsaa)
-    {
-        // Bind target to surface 0 and initialise
-        mFB.bindSurface(0, target);
-        // Get attributes
-        mWidth = mFB.getWidth();
-        mHeight = mFB.getHeight();
-    }
-
-    void GLFBORenderTexture::getCustomAttribute(const String& name, void* pData)
-    {
-        if( name == GLRenderTexture::CustomAttributeString_FBO )
-        {
-            *static_cast<GLFrameBufferObject **>(pData) = &mFB;
-        }
-        else if(name == GLRenderTexture::CustomAttributeString_GLCONTEXT)
-        {
-            *static_cast<GLContext**>(pData) = mFB.getContext();
-        }
-        else if (name == "GL_FBOID")
-        {
-            *static_cast<GLuint*>(pData) = mFB.getGLFBOID();
-        }
-        else if (name == "GL_MULTISAMPLEFBOID")
-        {
-            *static_cast<GLuint*>(pData) = mFB.getGLMultisampleFBOID();
-        }
-    }
-
-    void GLFBORenderTexture::swapBuffers()
-    {
-        mFB.swapBuffers();
-    }
-    //-----------------------------------------------------------------------------
-    bool GLFBORenderTexture::attachDepthBuffer( DepthBuffer *depthBuffer )
-    {
-        bool result;
-        if( (result = GLRenderTexture::attachDepthBuffer( depthBuffer )) )
-            mFB.attachDepthBuffer( depthBuffer );
-
-        return result;
-    }
-    //-----------------------------------------------------------------------------
-    void GLFBORenderTexture::detachDepthBuffer()
-    {
-        mFB.detachDepthBuffer();
-        GLRenderTexture::detachDepthBuffer();
-    }
-    //-----------------------------------------------------------------------------
-    void GLFBORenderTexture::_detachDepthBuffer()
-    {
-        mFB.detachDepthBuffer();
-        GLRenderTexture::_detachDepthBuffer();
-    }
    
 /// Size of probe texture
 #define PROBE_SIZE 16
@@ -477,9 +418,10 @@ static const uchar depthBits[] =
     }
 
     GLFBORenderTexture *GLFBOManager::createRenderTexture(const String &name, 
-        const GLSurfaceDesc &target, bool writeGamma, uint fsaa)
+        const GLSurfaceDesc &target, bool writeGamma)
     {
-        GLFBORenderTexture *retval = new GLFBORenderTexture(this, name, target, writeGamma, fsaa);
+        GLFBORenderTexture* retval =
+            new GLFBORenderTexture(name, target, writeGamma, new GLFrameBufferObject(target.numSamples));
         return retval;
     }
     //---------------------------------------------------------------------
@@ -487,39 +429,17 @@ static const uchar depthBits[] =
     {
         /// Check if the render target is in the rendertarget->FBO map
         if(auto fbo = dynamic_cast<GLRenderTarget*>(target)->getFBO())
+        {
             fbo->bind(true);
+        }
         else
             // Old style context (window/pbuffer) or copying render texture
             glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
     }
-    
-    GLSurfaceDesc GLFBOManager::requestRenderBuffer(GLenum format, uint32 width, uint32 height, uint fsaa)
+
+    GLHardwarePixelBufferCommon* GLFBOManager::createNewRenderBuffer(unsigned format, uint32 width, uint32 height,
+                                                                     uint fsaa)
     {
-        GLSurfaceDesc retval;
-        retval.buffer = 0; // Return 0 buffer if GL_NONE is requested
-        if(format != GL_NONE)
-        {
-            RBFormat key(format, width, height, fsaa);
-            RenderBufferMap::iterator it = mRenderBufferMap.find(key);
-            if(it != mRenderBufferMap.end())
-            {
-                retval.buffer = it->second.buffer;
-                retval.zoffset = 0;
-                retval.numSamples = fsaa;
-                // Increase refcount
-                ++it->second.refcount;
-            }
-            else
-            {
-                // New one
-                GLRenderBuffer *rb = new GLRenderBuffer(format, width, height, fsaa);
-                mRenderBufferMap[key] = RBRef(rb);
-                retval.buffer = rb;
-                retval.zoffset = 0;
-                retval.numSamples = fsaa;
-            }
-        }
-        //std::cerr << "Requested renderbuffer with format " << std::hex << format << std::dec << " of " << width << "x" << height << " :" << retval.buffer << std::endl;
-        return retval;
+        return new GLRenderBuffer(format, width, height, fsaa);
     }
 }

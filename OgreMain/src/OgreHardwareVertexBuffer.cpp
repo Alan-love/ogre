@@ -27,15 +27,16 @@ THE SOFTWARE.
 */
 #include "OgreStableHeaders.h"
 #include "OgreHardwareVertexBuffer.h"
+
+#include <memory>
 #include "OgreDefaultHardwareBufferManager.h"
 
 namespace Ogre {
 
     //-----------------------------------------------------------------------------
-    HardwareVertexBuffer::HardwareVertexBuffer(HardwareBufferManagerBase* mgr, size_t vertexSize,  
-        size_t numVertices, HardwareBuffer::Usage usage, 
-        bool useSystemMemory, bool useShadowBuffer) 
-        : HardwareBuffer(usage, useSystemMemory, useShadowBuffer),
+    HardwareVertexBuffer::HardwareVertexBuffer(HardwareBufferManagerBase* mgr, size_t vertexSize,
+        size_t numVertices, HardwareBuffer::Usage usage, bool useShadowBuffer)
+        : HardwareBuffer(usage, useShadowBuffer),
           mIsInstanceData(false),
           mMgr(mgr),
           mNumVertices(numVertices),
@@ -48,14 +49,13 @@ namespace Ogre {
         // Create a shadow buffer if required
         if (useShadowBuffer)
         {
-            mShadowBuffer.reset(new DefaultHardwareBuffer(mSizeInBytes));
+            mShadowBuffer = std::make_unique<DefaultHardwareBuffer>(mSizeInBytes);
         }
 
     }
     HardwareVertexBuffer::HardwareVertexBuffer(HardwareBufferManagerBase* mgr, size_t vertexSize,
                                                size_t numVertices, HardwareBuffer* delegate)
-        : HardwareVertexBuffer(mgr, vertexSize, numVertices, delegate->getUsage(), delegate->isSystemMemory(),
-                               false)
+        : HardwareVertexBuffer(mgr, vertexSize, numVertices, delegate->getUsage(), false)
     {
         mDelegate.reset(delegate);
     }
@@ -68,30 +68,17 @@ namespace Ogre {
         }
     }
     //-----------------------------------------------------------------------------
-    bool HardwareVertexBuffer::checkIfVertexInstanceDataIsSupported()
-    {
-        // Use the current render system
-        RenderSystem* rs = Root::getSingleton().getRenderSystem();
-
-        // Check if the supported  
-        return rs->getCapabilities()->hasCapability(RSC_VERTEX_BUFFER_INSTANCE_DATA);
-    }
-    //-----------------------------------------------------------------------------
     void HardwareVertexBuffer::setIsInstanceData( const bool val )
     {
-        if (val && !checkIfVertexInstanceDataIsSupported())
-        {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
-                "vertex instance data is not supported by the render system.", 
-                "HardwareVertexBuffer::checkIfInstanceDataSupported");
-        }
-        else
-        {
-            mIsInstanceData = val;  
-        }
+        RenderSystem* rs = Root::getSingleton().getRenderSystem();
+
+        OgreAssert(!val || rs->getCapabilities()->hasCapability(RSC_VERTEX_BUFFER_INSTANCE_DATA),
+                   "unsupported by rendersystem");
+
+        mIsInstanceData = val;
     }
     //-----------------------------------------------------------------------------
-    size_t HardwareVertexBuffer::getInstanceDataStepRate() const
+    uint32 HardwareVertexBuffer::getInstanceDataStepRate() const
     {
         return mInstanceDataStepRate;
     }
@@ -145,19 +132,23 @@ namespace Ogre {
             return sizeof(double)*4;
         case VET_SHORT1:
         case VET_USHORT1:
+        case VET_HALF1:
             return sizeof( short );
         case VET_SHORT2:
         case VET_SHORT2_NORM:
         case VET_USHORT2:
         case VET_USHORT2_NORM:
+        case VET_HALF2:
             return sizeof( short ) * 2;
         case VET_SHORT3:
         case VET_USHORT3:
+        case VET_HALF3:
             return sizeof( short ) * 3;
         case VET_SHORT4:
         case VET_SHORT4_NORM:
         case VET_USHORT4:
         case VET_USHORT4_NORM:
+        case VET_HALF4:
             return sizeof( short ) * 4;
         case VET_INT1:
         case VET_UINT1:
@@ -177,6 +168,8 @@ namespace Ogre {
         case VET_UBYTE4_NORM:
         case _DETAIL_SWAP_RB:
             return sizeof(char)*4;
+        case VET_INT_10_10_10_2_NORM:
+            return 4;
         }
         return 0;
     }
@@ -191,6 +184,7 @@ namespace Ogre {
         case VET_UINT1:
         case VET_INT1:
         case VET_DOUBLE1:
+        case VET_HALF1:
             return 1;
         case VET_FLOAT2:
         case VET_SHORT2:
@@ -200,6 +194,7 @@ namespace Ogre {
         case VET_UINT2:
         case VET_INT2:
         case VET_DOUBLE2:
+        case VET_HALF2:
             return 2;
         case VET_FLOAT3:
         case VET_SHORT3:
@@ -207,6 +202,7 @@ namespace Ogre {
         case VET_UINT3:
         case VET_INT3:
         case VET_DOUBLE3:
+        case VET_HALF3:
             return 3;
         case VET_FLOAT4:
         case VET_SHORT4:
@@ -221,6 +217,8 @@ namespace Ogre {
         case VET_BYTE4_NORM:
         case VET_UBYTE4_NORM:
         case _DETAIL_SWAP_RB:
+        case VET_INT_10_10_10_2_NORM:
+        case VET_HALF4:
             return 4;
         }
         OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Invalid type", 
@@ -238,6 +236,7 @@ namespace Ogre {
         case VET_DOUBLE1:
         case VET_INT1:
         case VET_UINT1:
+        case VET_HALF1:
             // evil enumeration arithmetic
             return static_cast<VertexElementType>( baseType + count - 1 );
 
@@ -284,20 +283,13 @@ namespace Ogre {
             "VertexElement::multiplyTypeCount");
     }
     //--------------------------------------------------------------------------
-    VertexElementType VertexElement::getBestColourVertexElementType(void)
-    {
-        return VET_UBYTE4_NORM;
-    }
-    //--------------------------------------------------------------------------
-    void VertexElement::convertColourValue(VertexElementType srcType, 
-        VertexElementType dstType, uint32* ptr)
+    void VertexElement::convertColourValue(VertexElementType srcType, VertexElementType dstType, uint32* ptr)
     {
         if (srcType == dstType)
             return;
 
         // Conversion between ARGB and ABGR is always a case of flipping R/B
-        *ptr = 
-           ((*ptr&0x00FF0000)>>16)|((*ptr&0x000000FF)<<16)|(*ptr&0xFF00FF00);               
+        *ptr = ((*ptr & 0x00FF0000) >> 16) | ((*ptr & 0x000000FF) << 16) | (*ptr & 0xFF00FF00);
     }
     //-----------------------------------------------------------------------------
     VertexElementType VertexElement::getBaseType(VertexElementType multiType)
@@ -309,6 +301,11 @@ namespace Ogre {
             case VET_FLOAT3:
             case VET_FLOAT4:
                 return VET_FLOAT1;
+            case VET_HALF1:
+            case VET_HALF2:
+            case VET_HALF3:
+            case VET_HALF4:
+                return VET_HALF1;
             case VET_DOUBLE1:
             case VET_DOUBLE2:
             case VET_DOUBLE3:
@@ -349,6 +346,8 @@ namespace Ogre {
             case VET_UBYTE4_NORM:
             case _DETAIL_SWAP_RB:
                 return VET_UBYTE4_NORM;
+            case VET_INT_10_10_10_2_NORM:
+                return VET_INT_10_10_10_2_NORM;
         };
         // To keep compiler happy
         return VET_FLOAT1;
@@ -371,14 +370,7 @@ namespace Ogre {
         size_t offset, VertexElementType theType,
         VertexElementSemantic semantic, unsigned short index)
     {
-        // Refine colour type to a specific type
-        if (theType == VET_COLOUR)
-        {
-            theType = VertexElement::getBestColourVertexElementType();
-        }
-        mElementList.push_back(
-            VertexElement(source, offset, theType, semantic, index));
-
+        mElementList.push_back(VertexElement(source, offset, theType, semantic, index));
         notifyChanged();
         return mElementList.back();
     }
@@ -460,50 +452,40 @@ namespace Ogre {
     const VertexElement* VertexDeclaration::findElementBySemantic(
         VertexElementSemantic sem, unsigned short index) const
     {
-        VertexElementList::const_iterator ei, eiend;
-        eiend = mElementList.end();
-        for (ei = mElementList.begin(); ei != eiend; ++ei)
+        for (auto& e : mElementList)
         {
-            if (ei->getSemantic() == sem && ei->getIndex() == index)
+            if (e.getSemantic() == sem && e.getIndex() == index)
             {
-                return &(*ei);
+                return &e;
             }
         }
 
         return NULL;
-
-
     }
     //-----------------------------------------------------------------------------
     VertexDeclaration::VertexElementList VertexDeclaration::findElementsBySource(
         unsigned short source) const
     {
         VertexElementList retList;
-        VertexElementList::const_iterator ei, eiend;
-        eiend = mElementList.end();
-        for (ei = mElementList.begin(); ei != eiend; ++ei)
+        for (auto& e : mElementList)
         {
-            if (ei->getSource() == source)
+            if (e.getSource() == source)
             {
-                retList.push_back(*ei);
+                retList.push_back(e);
             }
         }
         return retList;
-
     }
 
     //-----------------------------------------------------------------------------
     size_t VertexDeclaration::getVertexSize(unsigned short source) const
     {
-        VertexElementList::const_iterator i, iend;
-        iend = mElementList.end();
         size_t sz = 0;
-
-        for (i = mElementList.begin(); i != iend; ++i)
+        for (auto& e : mElementList)
         {
-            if (i->getSource() == source)
+            if (e.getSource() == source)
             {
-                sz += i->getSize();
+                sz += e.getSize();
 
             }
         }
@@ -515,17 +497,15 @@ namespace Ogre {
         HardwareBufferManagerBase* pManager = mgr ? mgr : HardwareBufferManager::getSingletonPtr(); 
         VertexDeclaration* ret = pManager->createVertexDeclaration();
 
-        VertexElementList::const_iterator i, iend;
-        iend = mElementList.end();
-        for (i = mElementList.begin(); i != iend; ++i)
+        for (auto& e : mElementList)
         {
-            ret->addElement(i->getSource(), i->getOffset(), i->getType(), i->getSemantic(), i->getIndex());
+            ret->addElement(e.getSource(), e.getOffset(), e.getType(), e.getSemantic(), e.getIndex());
         }
         return ret;
     }
     //-----------------------------------------------------------------------------
     // Sort routine for VertexElement
-    bool VertexDeclaration::vertexElementLess(const VertexElement& e1, const VertexElement& e2)
+    static bool vertexElementLess(const VertexElement& e1, const VertexElement& e2)
     {
         // Sort by source first
         if (e1.getSource() < e2.getSource())
@@ -552,7 +532,7 @@ namespace Ogre {
     }
     void VertexDeclaration::sort(void)
     {
-        mElementList.sort(VertexDeclaration::vertexElementLess);
+        mElementList.sort(vertexElementLess);
     }
     //-----------------------------------------------------------------------------
     void VertexDeclaration::closeGapsInSource(void)
@@ -563,14 +543,11 @@ namespace Ogre {
         // Sort first
         sort();
 
-        VertexElementList::iterator i, iend;
-        iend = mElementList.end();
         unsigned short targetIdx = 0;
         unsigned short lastIdx = getElement(0)->getSource();
         unsigned short c = 0;
-        for (i = mElementList.begin(); i != iend; ++i, ++c)
+        for (auto& elem : mElementList)
         {
-            VertexElement& elem = *i;
             if (lastIdx != elem.getSource())
             {
                 targetIdx++;
@@ -582,8 +559,8 @@ namespace Ogre {
                     elem.getSemantic(), elem.getIndex());
             }
 
+            ++c;
         }
-
     }
     //-----------------------------------------------------------------------
     VertexDeclaration* VertexDeclaration::getAutoOrganisedDeclaration(
@@ -592,13 +569,12 @@ namespace Ogre {
         VertexDeclaration* newDecl = this->clone();
         // Set all sources to the same buffer (for now)
         const VertexDeclaration::VertexElementList& elems = newDecl->getElements();
-        VertexDeclaration::VertexElementList::const_iterator i;
         unsigned short c = 0;
-        for (i = elems.begin(); i != elems.end(); ++i, ++c)
+        for (auto& elem : elems)
         {
-            const VertexElement& elem = *i;
             // Set source & offset to 0 for now, before sort
             newDecl->modifyElement(c, 0, 0, elem.getType(), elem.getSemantic(), elem.getIndex());
+            ++c;
         }
         newDecl->sort();
         // Now sort out proper buffer assignments and offsets
@@ -606,10 +582,8 @@ namespace Ogre {
         c = 0;
         unsigned short buffer = 0;
         VertexElementSemantic prevSemantic = VES_POSITION;
-        for (i = elems.begin(); i != elems.end(); ++i, ++c)
+        for (auto& elem : elems)
         {
-            const VertexElement& elem = *i;
-
             bool splitWithPrev = false;
             bool splitWithNext = false;
             switch (elem.getSemantic())
@@ -665,6 +639,7 @@ namespace Ogre {
             {
                 offset += elem.getSize();
             }
+            ++c;
         }
 
         return newDecl;
@@ -674,16 +649,13 @@ namespace Ogre {
     //-----------------------------------------------------------------------------
     unsigned short VertexDeclaration::getMaxSource(void) const
     {
-        VertexElementList::const_iterator i, iend;
-        iend = mElementList.end();
         unsigned short ret = 0;
-        for (i = mElementList.begin(); i != iend; ++i)
+        for (auto& e : mElementList)
         {
-            if (i->getSource() > ret)
+            if (e.getSource() > ret)
             {
-                ret = i->getSource();
+                ret = e.getSource();
             }
-
         }
         return ret;
     }
@@ -691,10 +663,8 @@ namespace Ogre {
     unsigned short VertexDeclaration::getNextFreeTextureCoordinate() const
     {
         unsigned short texCoord = 0;
-        for (VertexElementList::const_iterator i = mElementList.begin(); 
-             i != mElementList.end(); ++i)
+        for (const auto & el : mElementList)
         {
-            const VertexElement& el = *i;
             if (el.getSemantic() == VES_TEXTURE_COORDINATES)
             {
                 ++texCoord;

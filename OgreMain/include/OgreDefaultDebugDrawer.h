@@ -12,13 +12,17 @@ namespace Ogre
 
 class _OgreExport DefaultDebugDrawer : public DebugDrawer
 {
+    SceneNode* mCameraNode;
     ManualObject mLines;
     ManualObject mAxes;
     int mDrawType;
     bool mStatic;
-    void preFindVisibleObjects(SceneManager* source, SceneManager::IlluminationRenderStage irs, Viewport* v);
-    void postFindVisibleObjects(SceneManager* source, SceneManager::IlluminationRenderStage irs, Viewport* v);
+    float mBoneAxesSize;
+    void preFindVisibleObjects(SceneManager* source, SceneManager::IlluminationRenderStage irs, Viewport* v) override;
+    void postFindVisibleObjects(SceneManager* source, SceneManager::IlluminationRenderStage irs, Viewport* v) override;
     void beginLines();
+    void beginAxes();
+    void drawAxis2D(const Affine3& pose, const Matrix3& rot, float scale, const ColourValue& col);
 public:
     enum DrawType
     {
@@ -31,13 +35,16 @@ public:
     /// if static, the drawer contents are preserved across frames. They are cleared otherwise.
     void setStatic(bool enable) { mStatic = enable; }
 
-    void drawBone(const Node* node);
-    void drawSceneNode(const SceneNode* node);
-    void drawFrustum(const Frustum* frust);
+    void drawBone(const Node* node, const Affine3 & transform = Affine3::IDENTITY) override;
+    void drawSceneNode(const SceneNode* node) override;
+    void drawFrustum(const Frustum* frust) override;
     /// Allows the rendering of a wireframe bounding box.
     void drawWireBox(const AxisAlignedBox& aabb, const ColourValue& colour = ColourValue::White);
+    void drawSphere(const Sphere & sphere) override;
     /// draw coordinate axes
     void drawAxes(const Affine3& pose, float size = 1.0f);
+    /// Specifes the size of the axes drawn by drawBone()
+    void setBoneAxesSize(float size);
 };
 
 } /* namespace Ogre */

@@ -148,7 +148,7 @@ namespace Ogre {
                 // find & load source code
                 DataStreamPtr stream = 
                     ResourceGroupManager::getSingleton().openResource(
-                    mFilename, mGroup, true, this);
+                    mFilename, mGroup, this);
                 mSource = stream->getAsString();
             }
 
@@ -223,8 +223,7 @@ namespace Ogre {
         else if ( GpuProgramManager::getSingleton().getSaveMicrocodesToCache() )
         {
             // create microcode
-            GpuProgramManager::Microcode newMicrocode = 
-                GpuProgramManager::getSingleton().createMicrocode(microcode->GetBufferSize());
+            auto newMicrocode = GpuProgramManager::createMicrocode(microcode->GetBufferSize());
 
             // save microcode
             memcpy(newMicrocode->getPtr(), microcode->GetBufferPointer(), microcode->GetBufferSize());

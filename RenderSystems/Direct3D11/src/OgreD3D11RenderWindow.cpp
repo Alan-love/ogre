@@ -32,7 +32,6 @@ THE SOFTWARE.
 #include "OgreRoot.h"
 #include "OgreD3D11DepthBuffer.h"
 #include "OgreD3D11Texture.h"
-#include "OgreViewport.h"
 #include "OgreLogManager.h"
 #include "OgreHardwarePixelBuffer.h"
 #if OGRE_NO_QUAD_BUFFER_STEREO == 0
@@ -46,6 +45,10 @@ THE SOFTWARE.
 #if defined(_WIN32_WINNT_WIN8) && _WIN32_WINNT >= _WIN32_WINNT_WIN8
 #include <Windows.h>
 #include <VersionHelpers.h>
+#endif
+
+#if defined(_WIN32_WINNT_WIN10) && _WIN32_WINNT >= _WIN32_WINNT_WIN10
+#include <dxgi1_4.h>
 #endif
 
 #define OGRE_D3D11_WIN_CLASS_NAME "OgreD3D11Wnd"
@@ -64,6 +67,7 @@ namespace Ogre
         mActive = false;
         mSizing = false;
         mHidden = false;
+        mHdrDisplay = false;
     }
     //---------------------------------------------------------------------
     D3D11RenderWindowBase::~D3D11RenderWindowBase()
@@ -113,6 +117,16 @@ namespace Ogre
             opt = miscParams->find("gamma");
             if(opt != miscParams->end())
                 mHwGamma = StringConverter::parseBool(opt->second);
+
+#if defined(_WIN32_WINNT_WIN10) && _WIN32_WINNT >= _WIN32_WINNT_WIN10
+            // hdrDisplay?
+            opt = miscParams->find("hdrDisplay");
+            if(opt != miscParams->end())
+            {
+                mHdrDisplay = StringConverter::parseBool(opt->second);
+                mHwGamma = mHdrDisplay; // hdr implies hw gamma
+            }
+#endif
         }
 
         mName = name;
@@ -221,14 +235,6 @@ namespace Ogre
 
 		RenderWindow::updateImpl();
 	}
-    //---------------------------------------------------------------------
-    void D3D11RenderWindowBase::_updateViewportsDimensions()
-    {
-        // Notify viewports of resize
-        ViewportList::iterator it = mViewportList.begin();
-        while( it != mViewportList.end() )
-            (*it++).second->_updateDimensions();            
-    }
     //---------------------------------------------------------------------
     void D3D11RenderWindowBase::_queryDxgiDeviceImpl(IDXGIDeviceN** dxgiDevice)
     {
@@ -478,9 +484,7 @@ namespace Ogre
         }
 
         _createSizeDependedD3DResources();
-
-        // Notify viewports of resize
-        _updateViewportsDimensions();
+        rsys->_setViewport(NULL); // force reset viewport settings
         rsys->fireDeviceEvent(&mDevice,"RenderWindowResized",this);
     }
     //---------------------------------------------------------------------
@@ -522,7 +526,7 @@ namespace Ogre
         _createSizeDependedD3DResources();
 
         // Notify viewports of resize
-        _updateViewportsDimensions();
+        RenderWindow::resize(mWidth, mHeight);
         rsys->fireDeviceEvent(&mDevice,"RenderWindowResized",this);
     }
 
@@ -678,6 +682,9 @@ namespace Ogre
             opt = miscParams->find("useFlipMode");
             if(opt != miscParams->end())
                 mUseFlipMode = IsWindows8OrGreater() && StringConverter::parseBool(opt->second);
+
+            if (mHdrDisplay && IsWindows8OrGreater())
+                mUseFlipMode = true;
 #endif
             // vsync    [parseBool]
             opt = miscParams->find("vsync");
@@ -823,7 +830,7 @@ namespace Ogre
 
         _createSwapChain();
         _createSizeDependedD3DResources();
-        mDevice.GetDXGIFactory()->MakeWindowAssociation(mHWnd, NULL);
+        mDevice.GetDXGIFactory()->MakeWindowAssociation(mHWnd, 0);
         setHidden(mHidden);
 
         D3D11RenderSystem* rsys = static_cast<D3D11RenderSystem*>(Root::getSingleton().getRenderSystem());
@@ -845,7 +852,7 @@ namespace Ogre
     void D3D11RenderWindowHwnd::notifyDeviceRestored(D3D11Device* device)
     {
         D3D11RenderWindowSwapChainBased::notifyDeviceRestored(device);
-        mDevice.GetDXGIFactory()->MakeWindowAssociation(mHWnd, NULL);
+        mDevice.GetDXGIFactory()->MakeWindowAssociation(mHWnd, 0);
     }
     //---------------------------------------------------------------------
 	HRESULT D3D11RenderWindowHwnd::_createSwapChainImpl(IDXGIDeviceN* pDXGIDevice)
@@ -904,6 +911,23 @@ namespace Ogre
 
         // Create swap chain            
         HRESULT hr = mDevice.GetDXGIFactory()->CreateSwapChain(pDXGIDevice, &mSwapChainDesc, mpSwapChain.ReleaseAndGetAddressOf());
+
+#if defined(_WIN32_WINNT_WIN10) && _WIN32_WINNT >= _WIN32_WINNT_WIN10
+        if (SUCCEEDED(hr) && mHdrDisplay && mUseFlipMode)
+        {
+            ComPtr<IDXGISwapChain3> swapChain3;
+            if (SUCCEEDED(mpSwapChain.As(&swapChain3)))
+            {
+                UINT colorSpaceSupport = 0;
+                DXGI_COLOR_SPACE_TYPE colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+                if (SUCCEEDED(swapChain3->CheckColorSpaceSupport(colorSpace, &colorSpaceSupport)) &&
+                    (colorSpaceSupport & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT))
+                {
+                    swapChain3->SetColorSpace1(colorSpace);
+                }
+            }
+        }
+#endif
 
         return hr;
     }
@@ -1063,7 +1087,7 @@ namespace Ogre
             if ((oldFullscreen && fullScreen) || mIsExternal)
             {
                 // Notify viewports of resize
-                _updateViewportsDimensions();
+                RenderWindow::resize(mWidth, mHeight);
             }
         }
     } 
@@ -1716,13 +1740,9 @@ namespace Ogre
 
         _destroySizeDependedD3DResources();
 
-        mWidth = width;
-        mHeight = height;
+        RenderWindow::resize(width, height);
 
         _createSizeDependedD3DResources();
-
-        // Notify viewports of resize
-        _updateViewportsDimensions();
     }
     //---------------------------------------------------------------------
     void D3D11RenderWindowImageSource::getCustomAttribute( const String& name, void* pData )

@@ -29,7 +29,6 @@ THE SOFTWARE.
 
 #include "OgreShaderPrerequisites.h"
 #include "OgreSingleton.h"
-#include "OgreFileSystemLayer.h"
 #include "OgreRenderObjectListener.h"
 #include "OgreSceneManager.h"
 #include "OgreShaderRenderState.h"
@@ -54,6 +53,8 @@ class SGRenderObjectListener;
 class SGSceneManagerListener;
 class SGScriptTranslatorManager;
 class SGResourceGroupListener;
+class SGMaterialSerializerListener;
+class ProgramManager;
 
 /** Shader generator system main interface. This singleton based class
 enables automatic generation of shader code based on existing material techniques.
@@ -76,7 +77,7 @@ public:
 
 
     /** Override standard Singleton retrieval.
-    @remarks
+
     Why do we do this? Well, it's because the Singleton
     implementation is in a .h file, which means it gets compiled
     into anybody who includes it. This is needed for the
@@ -188,7 +189,7 @@ public:
     Tells if a given render state exists
     @param schemeName The scheme name to check.
     */
-    bool hasRenderState(const String& schemeName) const;
+    bool hasRenderState(const String& schemeName) const { return getScheme(schemeName); }
     
     /**
      Get render state of specific pass.
@@ -316,7 +317,7 @@ public:
     @param dstMat The destination material
     @return True if successful
     */
-    bool cloneShaderBasedTechniques(const Material& srcMat, Material& dstMat);
+    bool cloneShaderBasedTechniques(Material& srcMat, Material& dstMat);
 
     /** 
     Remove all shader based techniques that created by this shader generator.   
@@ -334,14 +335,18 @@ public:
     given scheme name.
     @param schemeName The scheme to invalidate.
     */
-    void invalidateScheme(const String& schemeName);
+    void invalidateScheme(const String& schemeName) const
+    {
+        if (auto scheme = getScheme(schemeName))
+            scheme->invalidate();
+    }
 
     /** 
     Validate a given scheme. This action will generate shader programs for all techniques of the
     given scheme name.
     @param schemeName The scheme to validate.
     */
-    bool validateScheme(const String& schemeName);
+    bool validateScheme(const String& schemeName) const;
     
     /** 
     Invalidate specific material scheme. This action will lead to shader regeneration of the technique belongs to the
@@ -350,7 +355,12 @@ public:
     @param materialName The material to invalidate.
     @param groupName The source group name. 
     */
-    void invalidateMaterial(const String& schemeName, const String& materialName, const String& groupName OGRE_RESOURCE_GROUP_INIT);
+    void invalidateMaterial(const String& schemeName, const String& materialName,
+                            const String& groupName OGRE_RESOURCE_GROUP_INIT) const
+    {
+        if (auto scheme = getScheme(schemeName))
+            scheme->invalidate(materialName, groupName);
+    }
 
     /// @overload
     void invalidateMaterial(const String& schemeName, const Material& mat)
@@ -365,10 +375,10 @@ public:
     @param materialName The material to validate.
     @param groupName The source group name. 
     */
-    bool validateMaterial(const String& schemeName, const String& materialName, const String& groupName OGRE_RESOURCE_GROUP_INIT);
+    bool validateMaterial(const String& schemeName, const String& materialName, const String& groupName OGRE_RESOURCE_GROUP_INIT) const;
 
     /// @overload
-    void validateMaterial(const String& schemeName, const Material& mat)
+    void validateMaterial(const String& schemeName, const Material& mat) const
     {
         validateMaterial(schemeName, mat.getName(), mat.getGroup());
     }
@@ -380,16 +390,22 @@ public:
 	@param materialName The material to invalidate.
 	@param groupName The source group name.
 	*/
-    void invalidateMaterialIlluminationPasses(const String& schemeName, const String& materialName, const String& groupName OGRE_RESOURCE_GROUP_INIT);
+    void invalidateMaterialIlluminationPasses(const String& schemeName, const String& materialName,
+                                              const String& groupName OGRE_RESOURCE_GROUP_INIT) const
+    {
+        if (auto scheme = getScheme(schemeName))
+            scheme->invalidateIlluminationPasses(materialName, groupName);
+    }
 
-	/**
+        /**
 	Validate specific material scheme. This action will generate shader programs illumination passes of the technique of the
 	given scheme name.
 	@param schemeName The scheme to validate.
 	@param materialName The material to validate.
 	@param groupName The source group name.
 	*/
-	bool validateMaterialIlluminationPasses(const String& schemeName, const String& materialName, const String& groupName OGRE_RESOURCE_GROUP_INIT);
+    bool validateMaterialIlluminationPasses(const String& schemeName, const String& materialName,
+                                            const String& groupName OGRE_RESOURCE_GROUP_INIT) const;
 
     /** 
     Return custom material Serializer of the shader generator.
@@ -440,9 +456,18 @@ public:
     */
     const String& getRTShaderScheme(size_t index) const;
 
-    /// Default material scheme of the shader generator.
-    static String DEFAULT_SCHEME_NAME;
+    /**
+     * Set whether the shaders should target the linear colour space - e.g. when rendering to
+     * a SRGB framebuffer.
+     */
+    void setTargetLinearColours(bool linear) { mTargetLinearColours = linear; }
+    bool getTargetLinearColours() const { return mTargetLinearColours; }
 
+    /// mark the given texture unit as non-FFP
+    static void _markNonFFP(const TextureUnitState* tu);
+
+    /// same as @ref MSN_SHADERGEN
+    static String DEFAULT_SCHEME_NAME;
 private:
     class SGPass;
     class SGTechnique;
@@ -762,6 +787,8 @@ private:
     /** Destroy sub render state core extensions factories */
     void destroyBuiltinSRSFactories();
 
+    SGScheme* getScheme(const String& name) const;
+
     /** Create an instance of the SubRenderState based on script properties using the
     current sub render state factories.
     @see SubRenderStateFactory::createInstance  
@@ -784,22 +811,6 @@ private:
 
     /** Return a matching script translator. */
     ScriptTranslator* getTranslator(const AbstractNodePtr& node);
-
-
-    /** This method called by instance of SGMaterialSerializerListener and 
-    serialize a given pass entry attributes.
-    @param ser The material serializer.
-    @param passEntry The SGPass instance.
-    */
-    void serializePassAttributes(MaterialSerializer* ser, SGPass* passEntry);
-
-    /** This method called by instance of SGMaterialSerializerListener and 
-    serialize a given textureUnitState entry attributes.
-    @param ser The material serializer.
-    @param passEntry The SGPass instance.
-    @param srcTextureUnit The TextureUnitState being serialized.
-    */
-    void serializeTextureUnitStateAttributes(MaterialSerializer* ser, SGPass* passEntry, const TextureUnitState* srcTextureUnit);
 
     /** Finds an entry iterator in the mMaterialEntriesMap map.
     This function is able to find materials with group specified as 
@@ -852,10 +863,6 @@ private:
     std::unique_ptr<ProgramManager> mProgramManager;
     // Shader program writer manager.
     std::unique_ptr<ProgramWriterManager> mProgramWriterManager;
-    // File system layer manager.
-    FileSystemLayer* mFSLayer;
-    // Fixed Function Render state builder.
-    std::unique_ptr<FFPRenderStateBuilder> mFFPRenderStateBuilder;
     // Material entries map.
     SGMaterialMap mMaterialEntriesMap;
     // Scheme entries map.
@@ -876,11 +883,11 @@ private:
     bool mCreateShaderOverProgrammablePass;
     // A flag to indicate finalizing
     bool mIsFinalizing;
+    bool mTargetLinearColours;
 
     uint32 ID_RT_SHADER_SYSTEM;
 
     friend class SGPass;
-    friend class FFPRenderStateBuilder;
     friend class SGScriptTranslatorManager;
     friend class SGScriptTranslator;
     friend class SGMaterialSerializerListener;

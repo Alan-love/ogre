@@ -28,6 +28,8 @@ THE SOFTWARE.
 #include "OgreStableHeaders.h"
 
 #include "OgreRenderQueue.h"
+
+#include <memory>
 #include "OgreMaterial.h"
 #include "OgreRenderQueueSortingGrouping.h"
 #include "OgreSceneManagerEnumerator.h"
@@ -42,8 +44,8 @@ namespace Ogre {
         , mRenderableListener(0)
     {
         // Create the 'main' queue up-front since we'll always need that
-        mGroups[RENDER_QUEUE_MAIN].reset(new RenderQueueGroup(
-            mSplitPassesByLightingType, mSplitNoShadowPasses, mShadowCastersCannotBeReceivers));
+        mGroups[RENDER_QUEUE_MAIN] = std::make_unique<RenderQueueGroup>(
+            mSplitPassesByLightingType, mSplitNoShadowPasses, mShadowCastersCannotBeReceivers);
 
         // set default queue
         mDefaultQueueGroup = RENDER_QUEUE_MAIN;
@@ -57,17 +59,30 @@ namespace Ogre {
         // trigger the pending pass updates, otherwise we could leak
         Pass::processPendingPassUpdates();
     }
+
+    static bool onTransparentQueue(Technique* pTech)
+    {
+        // Transparent and depth/colour settings mean depth sorting is required?
+        // Note: colour write disabled with depth check/write enabled means
+        //       setup depth buffer for other passes use.
+        if (pTech->isTransparentSortingForced() ||
+            (pTech->isTransparent() &&
+             (!pTech->isDepthWriteEnabled() || !pTech->isDepthCheckEnabled() || pTech->hasColourWriteDisabled())))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
     //-----------------------------------------------------------------------
     void RenderQueue::addRenderable(Renderable* pRend, uint8 groupID, ushort priority)
     {
-        // Find group
-        RenderQueueGroup* pGroup = getQueueGroup(groupID);
-
         Technique* pTech;
 
-        // tell material it's been used
-        if (pRend->getMaterial())
-            pRend->getMaterial()->touch();
+        // make sure supported techniques are populated
+        if (auto mat = pRend->getMaterial())
+            mat->prepare();
 
         // Check material & technique supplied (the former since the default implementation
         // of getTechnique is based on it for backwards compatibility
@@ -78,7 +93,7 @@ namespace Ogre {
             pRend->getRenderOperation(op);
             bool useLighting = (NULL != op.vertexData->vertexDeclaration->findElementBySemantic(VES_NORMAL));
             MaterialPtr defaultMat = MaterialManager::getSingleton().getDefaultMaterial(useLighting);
-            defaultMat->load();
+            defaultMat->prepare();
             pTech = defaultMat->getBestTechnique();
         }
         else
@@ -87,14 +102,18 @@ namespace Ogre {
         if (mRenderableListener)
         {
             // Allow listener to override technique and to abort
-            if (!mRenderableListener->renderableQueued(pRend, groupID, priority, 
-                &pTech, this))
+            if (!mRenderableListener->renderableQueued(pRend, groupID, priority, &pTech, this))
                 return; // rejected
-
-            // tell material it's been used (incase changed)
-            pTech->getParent()->touch();
         }
-        
+
+        // tell material it's been used
+        pTech->getParent()->touch();
+
+        if(groupID == mDefaultQueueGroup && onTransparentQueue(pTech))
+            groupID = RENDER_QUEUE_TRANSPARENTS;
+
+        // Find group
+        RenderQueueGroup* pGroup = getQueueGroup(groupID);
         pGroup->addRenderable(pRend, pTech, priority);
 
     }
@@ -108,10 +127,10 @@ namespace Ogre {
         {
             RenderQueue* queue = p.second->getRenderQueue();
 
-            for (size_t i = 0; i < RENDER_QUEUE_COUNT; ++i)
+            for (auto & g : queue->mGroups)
             {
-                if(queue->mGroups[i])
-                    queue->mGroups[i]->clear(destroyPassMaps);
+                if(g)
+                    g->clear(destroyPassMaps);
             }
         }
 
@@ -161,8 +180,8 @@ namespace Ogre {
         if (!mGroups[groupID])
         {
             // Insert new
-            mGroups[groupID].reset(new RenderQueueGroup(mSplitPassesByLightingType, mSplitNoShadowPasses,
-                                                        mShadowCastersCannotBeReceivers));
+            mGroups[groupID] = std::make_unique<RenderQueueGroup>(mSplitPassesByLightingType, mSplitNoShadowPasses,
+                                                        mShadowCastersCannotBeReceivers);
         }
 
         return mGroups[groupID].get();
@@ -173,10 +192,10 @@ namespace Ogre {
     {
         mSplitPassesByLightingType = split;
 
-        for (size_t i = 0; i < RENDER_QUEUE_COUNT; ++i)
+        for (auto & g : mGroups)
         {
-            if(mGroups[i])
-                mGroups[i]->setSplitPassesByLightingType(split);
+            if(g)
+                g->setSplitPassesByLightingType(split);
         }
     }
     //-----------------------------------------------------------------------
@@ -189,10 +208,10 @@ namespace Ogre {
     {
         mSplitNoShadowPasses = split;
 
-        for (size_t i = 0; i < RENDER_QUEUE_COUNT; ++i)
+        for (auto & g : mGroups)
         {
-            if(mGroups[i])
-                mGroups[i]->setSplitNoShadowPasses(split);
+            if(g)
+                g->setSplitNoShadowPasses(split);
         }
     }
     //-----------------------------------------------------------------------
@@ -205,10 +224,10 @@ namespace Ogre {
     {
         mShadowCastersCannotBeReceivers = ind;
 
-        for (size_t i = 0; i < RENDER_QUEUE_COUNT; ++i)
+        for (auto & g : mGroups)
         {
-            if(mGroups[i])
-                mGroups[i]->setShadowCastersCannotBeReceivers(ind);
+            if(g)
+                g->setShadowCastersCannotBeReceivers(ind);
         }
     }
     //-----------------------------------------------------------------------
@@ -235,31 +254,32 @@ namespace Ogre {
         bool onlyShadowCasters, 
         VisibleObjectsBoundsInfo* visibleBounds)
     {
-        mo->_notifyCurrentCamera(cam);
-        if (mo->isVisible())
-        {
-            bool receiveShadows = getQueueGroup(mo->getRenderQueueGroup())->getShadowsEnabled()
-                && mo->getReceivesShadows();
+        // receiveShadows is a material property, so we can query it before LOD
+        bool receiveShadows = getQueueGroup(mo->getRenderQueueGroup())->getShadowsEnabled() && mo->getReceivesShadows();
 
-            if (!onlyShadowCasters || mo->getCastShadows())
+        if(onlyShadowCasters && !mo->getCastShadows() && !receiveShadows)
+            return;
+
+        mo->_notifyCurrentCamera(cam);
+        if (!mo->isVisible())
+            return;
+
+        const auto& bbox = mo->getWorldBoundingBox(true);
+        const auto& bsphere = mo->getWorldBoundingSphere(true);
+
+        if (!onlyShadowCasters || mo->getCastShadows())
+        {
+            mo->_updateRenderQueue(this);
+            if (visibleBounds)
             {
-                mo -> _updateRenderQueue( this );
-                if (visibleBounds)
-                {
-                    visibleBounds->merge(mo->getWorldBoundingBox(true), 
-                        mo->getWorldBoundingSphere(true), cam, 
-                        receiveShadows);
-                }
-            }
-            // not shadow caster, receiver only?
-            else if (onlyShadowCasters && !mo->getCastShadows() && 
-                receiveShadows)
-            {
-                visibleBounds->mergeNonRenderedButInFrustum(mo->getWorldBoundingBox(true), 
-                    mo->getWorldBoundingSphere(true), cam);
+                visibleBounds->merge(bbox, bsphere, cam, receiveShadows);
             }
         }
-
+        // not shadow caster, receiver only?
+        else if (receiveShadows)
+        {
+            visibleBounds->mergeNonRenderedButInFrustum(bbox, bsphere, cam);
+        }
     }
 
 }

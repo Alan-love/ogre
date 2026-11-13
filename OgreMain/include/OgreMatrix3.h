@@ -231,27 +231,32 @@ namespace Ogre
         }
         void FromAngleAxis (const Vector3& rkAxis, const Radian& fRadians);
 
-        /** The matrix must be orthonormal.  The decomposition is yaw*pitch*roll
-            where yaw is rotation about the Up vector, pitch is rotation about the
-            Right axis, and roll is rotation about the Direction axis. */
-        bool ToEulerAnglesXYZ (Radian& rfYAngle, Radian& rfPAngle,
-            Radian& rfRAngle) const;
-        bool ToEulerAnglesXZY (Radian& rfYAngle, Radian& rfPAngle,
-            Radian& rfRAngle) const;
-        bool ToEulerAnglesYXZ (Radian& rfYAngle, Radian& rfPAngle,
-            Radian& rfRAngle) const;
-        bool ToEulerAnglesYZX (Radian& rfYAngle, Radian& rfPAngle,
-            Radian& rfRAngle) const;
-        bool ToEulerAnglesZXY (Radian& rfYAngle, Radian& rfPAngle,
-            Radian& rfRAngle) const;
-        bool ToEulerAnglesZYX (Radian& rfYAngle, Radian& rfPAngle,
-            Radian& rfRAngle) const;
-        void FromEulerAnglesXYZ (const Radian& fYAngle, const Radian& fPAngle, const Radian& fRAngle);
-        void FromEulerAnglesXZY (const Radian& fYAngle, const Radian& fPAngle, const Radian& fRAngle);
-        void FromEulerAnglesYXZ (const Radian& fYAngle, const Radian& fPAngle, const Radian& fRAngle);
-        void FromEulerAnglesYZX (const Radian& fYAngle, const Radian& fPAngle, const Radian& fRAngle);
-        void FromEulerAnglesZXY (const Radian& fYAngle, const Radian& fPAngle, const Radian& fRAngle);
-        void FromEulerAnglesZYX (const Radian& fYAngle, const Radian& fPAngle, const Radian& fRAngle);
+        /**
+            @name Euler angle conversions
+            (De-)composes the matrix in/ from yaw, pitch and roll angles,
+            where yaw is rotation about the Y vector, pitch is rotation about the
+            X axis, and roll is rotation about the Z axis.
+
+            The function suffix indicates the (de-)composition order;
+            e.g. with the YXZ variants the matrix will be (de-)composed as yaw*pitch*roll
+
+            For ToEulerAngles*, the return value denotes whether the solution is unique.
+            @note The matrix to be decomposed must be orthonormal.
+            @{
+        */
+        bool ToEulerAnglesXYZ(Radian& xAngle, Radian& yAngle, Radian& zAngle) const;
+        bool ToEulerAnglesXZY(Radian& xAngle, Radian& zAngle, Radian& yAngle) const;
+        bool ToEulerAnglesYXZ(Radian& yAngle, Radian& xAngle, Radian& zAngle) const;
+        bool ToEulerAnglesYZX(Radian& yAngle, Radian& zAngle, Radian& xAngle) const;
+        bool ToEulerAnglesZXY(Radian& zAngle, Radian& xAngle, Radian& yAngle) const;
+        bool ToEulerAnglesZYX(Radian& zAngle, Radian& yAngle, Radian& xAngle) const;
+        void FromEulerAnglesXYZ(const Radian& xAngle, const Radian& yAngle, const Radian& zAngle);
+        void FromEulerAnglesXZY(const Radian& xAngle, const Radian& zAngle, const Radian& yAngle);
+        void FromEulerAnglesYXZ(const Radian& yAngle, const Radian& xAngle, const Radian& zAngle);
+        void FromEulerAnglesYZX(const Radian& yAngle, const Radian& zAngle, const Radian& xAngle);
+        void FromEulerAnglesZXY(const Radian& zAngle, const Radian& xAngle, const Radian& yAngle);
+        void FromEulerAnglesZYX(const Radian& zAngle, const Radian& yAngle, const Radian& xAngle);
+        /// @}
         /// Eigensolver, matrix must be symmetric
         void EigenSolveSymmetric (Real afEigenvalue[3],
             Vector3 akEigenvector[3]) const;
@@ -274,17 +279,6 @@ namespace Ogre
                 return true;
 
             return false;
-        }
-
-        /** Function for writing to a stream.
-        */
-        inline friend std::ostream& operator <<
-            ( std::ostream& o, const Matrix3& mat )
-        {
-            o << "Matrix3(" << mat[0][0] << ", " << mat[0][1] << ", " << mat[0][2] << "; "
-                            << mat[1][0] << ", " << mat[1][1] << ", " << mat[1][2] << "; "
-                            << mat[2][0] << ", " << mat[2][1] << ", " << mat[2][2] << ")";
-            return o;
         }
 
         static const Real EPSILON;
@@ -330,6 +324,10 @@ namespace Ogre
         ret.FromAxes(xAxis, yAxis, direction);
         return ret;
     }
+
+    /** Function for writing to a stream.
+     */
+    _OgreExport std::ostream& operator<<(std::ostream& o, const Matrix3& mat);
     /** @} */
     /** @} */
 }

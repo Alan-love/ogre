@@ -63,10 +63,6 @@ namespace Ogre {
         CompositorManager();
         virtual ~CompositorManager();
 
-        /** Initialises the Compositor manager, which also triggers it to
-            parse all available .compositor scripts. */
-        void initialise(void);
-
         /**
          * Create a new compositor
          * @see ResourceManager::createResource
@@ -75,13 +71,9 @@ namespace Ogre {
                             bool isManual = false, ManualResourceLoader* loader = 0,
                             const NameValuePairList* createParams = 0);
 
-        /// Get a resource by name
+        /// Get a resource by name. For example, a compositor defined in some .compositor script.
         /// @see ResourceManager::getResourceByName
         CompositorPtr getByName(const String& name, const String& groupName = ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME) const;
-
-        /** @see ScriptLoader::parseScript
-        */
-        void parseScript(DataStreamPtr& stream, const String& groupName);
 
         /** Get the compositor chain for a Viewport. If there is none yet, a new
             compositor chain is registered.
@@ -123,7 +115,7 @@ namespace Ogre {
         Renderable *_getTexturedRectangle2D();
 
         /** Overridden from ResourceManager since we have to clean up chains too. */
-        void removeAll(void);
+        void removeAll(void) override;
 
         /** Internal method for forcing all active compositors to recreate their resources. */
         void _reconstructAllCompositorResources();
@@ -137,7 +129,12 @@ namespace Ogre {
             twice (this is important for example if you request 2 ping-pong textures, 
             you don't want to get the same texture for both requests!
         */
-        TexturePtr getPooledTexture(const String& name, const String& localName, 
+        TexturePtr getPooledTexture(const CompositionTechnique::TextureDefinition& def, const String& localName,
+                                    PixelFormat f, const String& aaHint, UniqueTextureSet& texturesAlreadyAssigned,
+                                    CompositorInstance* inst);
+
+        /// @deprecated do not use
+        OGRE_DEPRECATED TexturePtr getPooledTexture(const String& name, const String& localName,
             uint32 w, uint32 h,
             PixelFormat f, uint aa, const String& aaHint, bool srgb, UniqueTextureSet& texturesAlreadyAssigned, 
             CompositorInstance* inst, CompositionTechnique::TextureScope scope, TextureType type = TEX_TYPE_2D);
@@ -251,9 +248,9 @@ namespace Ogre {
         ChainTexturesByDef mChainTexturesByDef;
 
         bool isInputPreviousTarget(CompositorInstance* inst, const Ogre::String& localName);
-        bool isInputPreviousTarget(CompositorInstance* inst, TexturePtr tex);
+        bool isInputPreviousTarget(CompositorInstance* inst, const TexturePtr& tex);
         bool isInputToOutputTarget(CompositorInstance* inst, const Ogre::String& localName);
-        bool isInputToOutputTarget(CompositorInstance* inst, TexturePtr tex);
+        bool isInputToOutputTarget(CompositorInstance* inst, const TexturePtr& tex);
 
     };
     /** @} */

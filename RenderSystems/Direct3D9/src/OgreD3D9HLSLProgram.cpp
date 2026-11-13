@@ -45,7 +45,9 @@ namespace Ogre {
     {
         HighLevelGpuProgram::prepareImpl();
 
-        uint32 hash = _getHash();
+        mSyntaxCode = getTarget();
+        uint32 seed = FastHash(mSyntaxCode.c_str(), mSyntaxCode.length());
+        uint32 hash = _getHash(seed);
         if ( GpuProgramManager::getSingleton().isMicrocodeAvailableInCache(hash) )
         {
             getMicrocodeFromCache(hash);
@@ -99,18 +101,20 @@ namespace Ogre {
             cacheMicrocode->read( &def,  sizeof(GpuConstantDefinition));
 
             mParametersMap.emplace(paramName, def);
+
+            mLogicalToPhysical->bufferSize += def.elementSize * def.arraySize;
         }
     }
     //-----------------------------------------------------------------------
     const String& D3D9HLSLProgram::getTarget() const
     {
-        if(mTarget.empty())
+        if(mSyntaxCode == "hlsl")
         {
             static String vs_2_0 = "vs_2_0", ps_2_0 = "ps_2_0";
             return mType == GPT_VERTEX_PROGRAM ? vs_2_0 : ps_2_0;
         }
 
-        return mTarget;
+        return mSyntaxCode;
     }
 
     void D3D9HLSLProgram::compileMicrocode(void)
@@ -180,7 +184,7 @@ namespace Ogre {
             pDefines,
             NULL,
             mEntryPoint.c_str(),
-            getTarget().c_str(),
+            mSyntaxCode.c_str(),
             compileFlags,
             &mMicroCode,
             &errors,
@@ -230,8 +234,7 @@ namespace Ogre {
         size_t sizeOfBuffer = sizeof(size_t) + mMicroCode->GetBufferSize() + sizeof(size_t) + mParametersMapSizeAsBuffer;
         
         // create microcode
-        GpuProgramManager::Microcode newMicrocode = 
-            GpuProgramManager::getSingleton().createMicrocode(sizeOfBuffer);
+        auto newMicrocode = GpuProgramManager::createMicrocode(sizeOfBuffer);
 
         // save size of microcode
         size_t microcodeSize = mMicroCode->GetBufferSize();
@@ -566,14 +569,6 @@ namespace Ogre {
         }
     }
     //-----------------------------------------------------------------------
-    bool D3D9HLSLProgram::isSupported(void) const
-    {
-        if (mCompileError || !isRequiredCapabilitiesSupported())
-            return false;
-
-        return GpuProgramManager::getSingleton().isSyntaxSupported(getTarget());
-    }
-    //-----------------------------------------------------------------------
     GpuProgramParametersSharedPtr D3D9HLSLProgram::createParameters(void)
     {
         // Call superclass
@@ -595,12 +590,12 @@ namespace Ogre {
             String & currentProfile = profiles[i];
             if(GpuProgramManager::getSingleton().isSyntaxSupported(currentProfile))
             {
-                mTarget = currentProfile;
+                mSyntaxCode = currentProfile;
                 return;
             }
         }
 
-        mTarget = profiles.front();
+        mSyntaxCode = profiles.front();
     }
 
     //-----------------------------------------------------------------------

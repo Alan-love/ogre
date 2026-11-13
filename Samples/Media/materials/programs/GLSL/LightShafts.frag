@@ -6,13 +6,16 @@
 
 #include <OgreUnifiedShader.h>
 
+SAMPLER2D(uDepthMap,  0);
+SAMPLER2D(uCookieMap, 1);
+SAMPLER2D(uNoiseMap,  2);
+
 // UNIFORM
+OGRE_UNIFORMS(
 uniform vec4    uAttenuation;
 uniform vec3    uLightPosition;
-uniform SAMPLER2D(uDepthMap,  0);
-uniform SAMPLER2D(uCookieMap, 1);
-uniform SAMPLER2D(uNoiseMap,  2);
 uniform float Time;
+)
 
 MAIN_PARAMETERS
 IN(vec3 vPosition, TEXCOORD0)
@@ -23,11 +26,15 @@ MAIN_DECLARATION
 
     float Depth  = texture2D(uDepthMap,  iUV.xy).r;
 
-#if !defined(OGRE_HLSL) && !defined(OGRE_REVERSED_Z)
+#if !defined(OGRE_HLSL) && !defined(OGRE_REVERSED_Z) && !defined(VULKAN)
     iUV.z = iUV.z * 0.5 + 0.5;
 #endif
 
+#ifdef OGRE_REVERSED_Z
+    if (Depth > iUV.z)
+#else
     if (Depth < iUV.z)
+#endif
     {
         gl_FragColor = vec4(0,0,0,1);
     }

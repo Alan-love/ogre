@@ -34,10 +34,8 @@ namespace Ogre {
     //---------------------------------------------------------------------
     Serializer::Serializer() :
         mVersion("[Serializer_v1.00]"), // Version number
-        mFlipEndian(false)
-#if OGRE_SERIALIZER_VALIDATE_CHUNKSIZE
-        , mReportChunkErrors(true)
-#endif
+        mFlipEndian(false),
+        mReportChunkErrors(true)
     {
     }
 
@@ -260,13 +258,32 @@ namespace Ogre {
     //---------------------------------------------------------------------
     unsigned short Serializer::readChunk(const DataStreamPtr& stream)
     {
-#if OGRE_SERIALIZER_VALIDATE_CHUNKSIZE
         size_t pos = stream->tell();
-#endif
         unsigned short id;
         readShorts(stream, &id, 1);
         
         readInts(stream, &mCurrentstreamLen, 1);
+
+        if (!stream->eof())
+        {
+            // chunk size cant be smaller than the header size, and must fit within the stream
+            if (mCurrentstreamLen < calcChunkHeaderSize())
+                OGRE_EXCEPT(Exception::ERR_INTERNAL_ERROR, "Corrupt chunk length");
+
+            if (pos + mCurrentstreamLen > stream->size())
+            {
+                if (mReportChunkErrors)
+                    OGRE_EXCEPT(Exception::ERR_INTERNAL_ERROR, "Corrupt chunk length");
+
+                // legacy exporters wrote chunk sizes that do not match the data they wrote.
+                // all reads are still bounded by the stream, so just clamp the chunk end.
+                LogManager::getSingleton().stream(LML_WARNING)
+                    << "Chunk " << id << " in '" << stream->getName()
+                    << "' extends past the end of the stream, clamping to stream size";
+                mCurrentstreamLen = static_cast<uint32>(stream->size() - pos);
+            }
+        }
+
 #if OGRE_SERIALIZER_VALIDATE_CHUNKSIZE
         if (!mChunkSizeStack.empty() && !stream->eof()){
             if (pos != static_cast<size_t>(mChunkSizeStack.back()) && mReportChunkErrors){
@@ -282,6 +299,14 @@ namespace Ogre {
     {
         static_assert(sizeof(bool) == 1, "add conversion to char for your platform");
         stream->read(pDest, sizeof(bool) * count);
+        // Normalize raw bytes to canonical bool values (0 or 1).
+        // A non-zero byte that is not exactly 1 can cause miscompile bugs later
+        for (size_t i = 0; i < count; ++i)
+        {
+            uint8_t raw;
+            memcpy(&raw, &pDest[i], 1);
+            pDest[i] = (raw != 0);
+        }
     }
     //---------------------------------------------------------------------
     void Serializer::readFloats(const DataStreamPtr& stream, float* pDest, size_t count)
@@ -315,15 +340,6 @@ namespace Ogre {
     {
         stream->read(pDest, sizeof(uint32) * count);
         flipFromLittleEndian(pDest, sizeof(uint32), count);
-    }
-    //---------------------------------------------------------------------
-    String Serializer::readString(const DataStreamPtr& stream, size_t numChars)
-    {
-        OgreAssert(numChars <= 255, "");
-        char str[255];
-        stream->read(str, numChars);
-        str[numChars] = '\0';
-        return str;
     }
     //---------------------------------------------------------------------
     String Serializer::readString(const DataStreamPtr& stream)
@@ -378,17 +394,6 @@ namespace Ogre {
         {
 	        Bitwise::bswapChunks(pData, size, count);
         }
-    }
-    
-    size_t Serializer::calcChunkHeaderSize()
-    {
-        return sizeof(uint16) + sizeof(uint32);
-    }
-
-    size_t Serializer::calcStringSize( const String& string )
-    {
-        // string + terminating \n character
-        return string.length() + 1;
     }
 
     void Serializer::pushInnerChunk(const DataStreamPtr& stream)

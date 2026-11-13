@@ -26,6 +26,8 @@ THE SOFTWARE.
 */
 #include "OgreShaderExTextureAtlasSampler.h"
 
+#include <memory>
+
 #ifdef RTSHADER_SYSTEM_BUILD_EXT_SHADERS
 #include "OgreShaderFFPRenderState.h"
 #include "OgreShaderProgram.h"
@@ -61,7 +63,7 @@ TextureAtlasSampler::TextureAtlasSampler() :
     mIsTableDataUpdated(false),
     mAutoAdjustPollPosition(true)
 {
-    mTextureAddressings->u = mTextureAddressings->v = mTextureAddressings->w = TextureUnitState::TAM_UNKNOWN;
+    mTextureAddressings->u = mTextureAddressings->v = mTextureAddressings->w = TAM_WRAP;
     memset(mIsAtlasTextureUnits, 0, sizeof(bool) * TAS_MAX_TEXTURES);
 }
 
@@ -90,7 +92,7 @@ bool TextureAtlasSampler::resolveParameters(ProgramSet* programSet)
     //
     // Define vertex shader parameters used to find the position of the textures in the atlas
     //
-    Parameter::Content indexContent = (Parameter::Content)((int)Parameter::SPC_TEXTURE_COORDINATE0 + mAtlasTexcoordPos);
+    int indexContent = Parameter::SPC_TEXTURE_COORDINATE0 + mAtlasTexcoordPos;
     GpuConstantType indexType = GCT_FLOAT4;
 
     mVSInpTextureTableIndex = vsMain->resolveInputParameter(indexContent, indexType);
@@ -117,9 +119,7 @@ bool TextureAtlasSampler::resolveParameters(ProgramSet* programSet)
 //-----------------------------------------------------------------------
 bool TextureAtlasSampler::resolveDependencies(ProgramSet* programSet)
 {
-    Program* vsProgram = programSet->getCpuProgram(GPT_VERTEX_PROGRAM);
     Program* psProgram = programSet->getCpuProgram(GPT_FRAGMENT_PROGRAM);
-    vsProgram->addDependency(FFP_LIB_COMMON);
     psProgram->addDependency(SGX_LIB_TEXTURE_ATLAS);
 
     return true;
@@ -173,7 +173,7 @@ bool TextureAtlasSampler::addFunctionInvocations(ProgramSet* programSet)
         if (mIsAtlasTextureUnits[j] == true)
         {
             //Find the texture coordinates texel and sampler from the original FFPTexturing
-            ParameterPtr texcoord = psMain->getInputParameter((Parameter::Content)(Parameter::SPC_TEXTURE_COORDINATE0 + j), GCT_FLOAT2);
+            ParameterPtr texcoord = psMain->getInputParameter(Parameter::SPC_TEXTURE_COORDINATE0 + j, GCT_FLOAT2);
             ParameterPtr texel = psMain->getLocalParameter(c_ParamTexel + StringConverter::toString(j));
             UniformParameterPtr sampler = psProgram->getParameterByType(GCT_SAMPLER2D, j);
                 
@@ -217,8 +217,7 @@ const char* TextureAtlasSampler::getAdressingFunctionName(TextureAddressingMode 
 {
     switch (mode)
     {
-    case TextureUnitState::TAM_WRAP: return SGX_FUNC_ATLAS_WRAP; 
-    case TextureUnitState::TAM_UNKNOWN: return SGX_FUNC_ATLAS_WRAP;
+    case TextureUnitState::TAM_WRAP: return SGX_FUNC_ATLAS_WRAP;
     case TextureUnitState::TAM_MIRROR: return SGX_FUNC_ATLAS_MIRROR;
     case TextureUnitState::TAM_CLAMP: return SGX_FUNC_ATLAS_CLAMP; 
     case TextureUnitState::TAM_BORDER: return SGX_FUNC_ATLAS_BORDER; 
@@ -358,34 +357,7 @@ const String& TextureAtlasSamplerFactory::getType() const
 }
 
 //-----------------------------------------------------------------------
-SubRenderState* TextureAtlasSamplerFactory::createInstance(ScriptCompiler* compiler, 
-                                                    PropertyAbstractNode* prop, Pass* pass, SGScriptTranslator* translator)
-{
-    return NULL;
-}
-
-//-----------------------------------------------------------------------
-void TextureAtlasSamplerFactory::writeInstance(MaterialSerializer* ser, SubRenderState* subRenderState, 
-                                        Pass* srcPass, Pass* dstPass)
-{
-}
-
-//-----------------------------------------------------------------------
-bool TextureAtlasSamplerFactory::addTexutreAtlasDefinition( const Ogre::String& filename, TextureAtlasTablePtr textureAtlasTable )
-{
-    std::ifstream inp;
-    inp.open(filename.c_str(), std::ios::in | std::ios::binary);
-    if(!inp)
-    {
-        OGRE_EXCEPT(Exception::ERR_FILE_NOT_FOUND, "'" + filename + "' file not found!", 
-            "TextureAtlasSamplerFactory::addTexutreAtlasDefinition" );
-    }
-    DataStreamPtr stream(OGRE_NEW FileStreamDataStream(filename, &inp, false));
-    return addTexutreAtlasDefinition(stream, textureAtlasTable);
-
-}
-//-----------------------------------------------------------------------
-bool TextureAtlasSamplerFactory::addTexutreAtlasDefinition( DataStreamPtr stream, TextureAtlasTablePtr textureAtlasTable )
+bool TextureAtlasSamplerFactory::addTexutreAtlasDefinition( const DataStreamPtr& stream, const TextureAtlasTablePtr& textureAtlasTable )
 {
     stream->seek(0);
 
@@ -411,7 +383,7 @@ bool TextureAtlasSamplerFactory::addTexutreAtlasDefinition( DataStreamPtr stream
                     TextureAtlasMap::iterator it = tmpMap.find(textureName);
                     if (it == tmpMap.end())
                     {
-                        it = tmpMap.emplace(textureName, TextureAtlasTablePtr(new TextureAtlasTable)).first;
+                        it = tmpMap.emplace(textureName, std::make_shared<TextureAtlasTable>()).first;
                     }
                     
                     // file line format:  <original texture filename>/t/t<atlas filename>, <atlas idx>, <atlas type>, <woffset>, <hoffset>, <depth offset>, <width>, <height>
@@ -439,12 +411,10 @@ bool TextureAtlasSamplerFactory::addTexutreAtlasDefinition( DataStreamPtr stream
 
         //place the information in the main texture
         size_t maxTextureCount = 0;
-        TextureAtlasMap::const_iterator it = tmpMap.begin();
-        TextureAtlasMap::const_iterator itEnd = tmpMap.end();
-        for(;it != itEnd; ++it)
+        for (const auto& entry : tmpMap)
         {
-            setTextureAtlasTable(it->first, it->second);
-            maxTextureCount = std::max<size_t>(maxTextureCount, it->second->size());
+            setTextureAtlasTable(entry.first, entry.second);
+            maxTextureCount = std::max<size_t>(maxTextureCount, entry.second->size());
         }
 
         if (maxTextureCount > TAS_MAX_SAFE_ATLASED_TEXTURES)

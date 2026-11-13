@@ -15,7 +15,7 @@
 // }
 
 /// configuration
-// use macros that will be default with Ogre 14
+// use macros that will be default with Ogre 15
 // #define USE_OGRE_FROM_FUTURE
 
 // @public-api
@@ -23,26 +23,62 @@
 #if defined(OGRE_HLSL) || defined(OGRE_CG)
 // HLSL
 #include "HLSL_SM4Support.hlsl"
+
+#if OGRE_HLSL >= 4 && defined(OGRE_FRAGMENT_SHADER) && defined(USE_OGRE_FROM_FUTURE)
+// #define float min16float - redefining float itself overwrites RTSS cbuffer parts
+#define vec2 min16float2
+#define vec3 min16float3
+#define vec4 min16float4
+#define mat3 min16float3x3
+#define mat4 min16float4x4
+#else
 #define vec2 float2
 #define vec3 float3
 #define vec4 float4
 #define mat3 float3x3
 #define mat4 float4x4
+#endif
+
+#define float32_t float
+#define f32vec2 float2
+#define f32vec3 float3
+#define f32vec4 float4
+
+#define ivec2 int2
+#define ivec3 int3
+#define ivec4 int4
+
+#define uvec2 uint2
+#define uvec3 uint3
+#define uvec4 uint4
 
 #define texture1D tex1D
 #define texture2D tex2D
 #define texture3D tex3D
-#define texture2DArray tex2DARRAY
+#define texture2DArray texSample
 #define textureCube texCUBE
-#define shadow2D tex2Dcmp
+#define shadow2D texSample
 #define texture2DProj tex2Dproj
 vec4 texture2DLod(sampler2D s, vec2 v, float lod) { return tex2Dlod(s, vec4(v.x, v.y, 0, lod)); }
 
 #define samplerCube samplerCUBE
+vec4 textureCubeLod(samplerCube s, vec3 v, float lod) { return texCUBElod(s, vec4(v.x, v.y, v.z, lod)); }
+
+#define sampler2DArray Sampler2DArray
 #define sampler2DShadow Sampler2DShadow
+#define sampler2DArrayShadow Sampler2DArrayShadow
+#define samplerCubeShadow SamplerCubeShadow
 
 #define mix lerp
 #define fract frac
+#define inversesqrt rsqrt
+#define dFdx ddx
+#define dFdy ddy
+
+float mod(float _a, float _b) { return _a - _b * floor(_a / _b); }
+vec2  mod(float2  _a, float2  _b) { return _a - _b * floor(_a / _b); }
+vec3  mod(float3  _a, float3  _b) { return _a - _b * floor(_a / _b); }
+vec4  mod(float4  _a, float4  _b) { return _a - _b * floor(_a / _b); }
 
 vec2 vec2_splat(float x) { return vec2(x, x); }
 vec3 vec3_splat(float x) { return vec3(x, x, x); }
@@ -65,31 +101,43 @@ mat3 mtxFromCols(vec3 a, vec3 b, vec3 c)
 
 #define STATIC static
 
+#define OGRE_UNIFORMS_BEGIN
+#define OGRE_UNIFORMS_END
+
 #define MAIN_PARAMETERS void main(
 
 #ifdef OGRE_VERTEX_SHADER
 #define MAIN_DECLARATION out float4 gl_Position : POSITION)
 #else
-#define MAIN_DECLARATION in float4 gl_FragCoord : POSITION, out float4 gl_FragColor : COLOR)
+#   if OGRE_HLSL > 3
+#   define VPOS POSITION
+#   endif
+#define MAIN_DECLARATION in float4 gl_FragCoord : VPOS, out float4 gl_FragColor : COLOR)
 #endif
 
 #define IN(decl, sem) in decl : sem,
 #define OUT(decl, sem) out decl : sem,
 #elif defined(OGRE_METAL)
+
 #define vec2 float2
 #define vec3 float3
 #define vec4 float4
 #define mat3 metal::float3x3
 #define mat4 metal::float4x4
 
+#define float32_t float
+#define f32vec2 float2
+#define f32vec3 float3
+#define f32vec4 float4
+
 #define IN(decl, sem) decl [[ attribute(sem) ]];
 #else
 // GLSL
 #include "GLSL_GL3Support.glsl"
 
-#ifndef USE_OGRE_FROM_FUTURE
-#define _UNIFORM_BINDING(b)
-#elif OGRE_GLSL >= 420 || defined(OGRE_GLSLANG)
+#ifdef VULKAN
+#define _UNIFORM_BINDING(b) layout(binding = b + 2) uniform
+#elif __VERSION__ >= 420
 #define _UNIFORM_BINDING(b) layout(binding = b) uniform
 #else
 #define _UNIFORM_BINDING(b) uniform
@@ -101,6 +149,8 @@ mat3 mtxFromCols(vec3 a, vec3 b, vec3 c)
 #define SAMPLER2DARRAY(name, reg) _UNIFORM_BINDING(reg) sampler2DArray name
 #define SAMPLERCUBE(name, reg) _UNIFORM_BINDING(reg) samplerCube name
 #define SAMPLER2DSHADOW(name, reg) _UNIFORM_BINDING(reg) sampler2DShadow name
+#define SAMPLER2DARRAYSHADOW(name, reg) _UNIFORM_BINDING(reg) sampler2DArrayShadow name
+#define SAMPLERCUBESHADOW(name, reg) _UNIFORM_BINDING(reg) samplerCubeShadow name
 
 #define saturate(x) clamp(x, 0.0, 1.0)
 #define mul(a, b) ((a) * (b))
@@ -139,10 +189,17 @@ mat3 mtxFromCols(vec3 a, vec3 b, vec3 c)
 #define COLOR0      3
 #define COLOR1      4
 #define COLOR COLOR0
+#define FOG         5
 #define BLENDINDICES 7
 #define TEXCOORD0   8
 #define TEXCOORD1   9
 #define TEXCOORD2  10
 #define TEXCOORD3  11
+#define TEXCOORD4  12
+#define TEXCOORD5  13
+#define TEXCOORD6  14
+#define TEXCOORD7  15
 #define TANGENT    14
 #endif
+
+#define OGRE_UNIFORMS(params) OGRE_UNIFORMS_BEGIN params OGRE_UNIFORMS_END

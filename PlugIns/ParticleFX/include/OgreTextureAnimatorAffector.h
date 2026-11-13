@@ -20,7 +20,7 @@ namespace Ogre {
 
 	/** This affector makes it possible to have an animated texture for each individual particle.
     */
-    class _OgreParticleFXExport TextureAnimatorAffector : public ParticleAffector
+    class TextureAnimatorAffector : public ParticleAffector
     {
     public:
         TextureAnimatorAffector(ParticleSystem* psys);
@@ -62,16 +62,11 @@ namespace Ogre {
     };
 
     /** Factory class for TextureAnimatorAffector. */
-    class _OgreParticleFXExport TextureAnimatorAffectorFactory : public ParticleAffectorFactory
+    class TextureAnimatorAffectorFactory : public ParticleAffectorFactory
     {
         String getName() const override { return "TextureAnimator"; }
 
-        ParticleAffector* createAffector(ParticleSystem* psys) override
-        {
-            ParticleAffector* p = OGRE_NEW TextureAnimatorAffector(psys);
-            mAffectors.push_back(p);
-            return p;
-        }
+        ParticleAffector* createAffector(ParticleSystem* psys) override { return new TextureAnimatorAffector(psys); }
     };
 
     /** @} */

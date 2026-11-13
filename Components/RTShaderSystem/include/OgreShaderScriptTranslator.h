@@ -53,15 +53,15 @@ public:
     /**
     *@see ScriptTranslator::translate.
     */
-    virtual void translate(ScriptCompiler *compiler, const AbstractNodePtr &node);
+    void translate(ScriptCompiler *compiler, const AbstractNodePtr &node) override;
 
     using ScriptTranslator::getBoolean;
-    using ScriptTranslator::getString;
-    using ScriptTranslator::getReal;
+    using ScriptTranslator::getColour;
     using ScriptTranslator::getFloat;
     using ScriptTranslator::getInt;
+    using ScriptTranslator::getReal;
     using ScriptTranslator::getUInt;
-    using ScriptTranslator::getColour;
+    using ScriptTranslator::getVector;
 
     /**
     * Returns a sub render state of a given name which has already 
@@ -76,7 +76,7 @@ public:
     */
     virtual SubRenderState* getGeneratedSubRenderState(const String& typeName);
 
-
+    void emitError(const String &msg = BLANKSTRING, uint32 code = ScriptCompiler::CE_INVALIDPARAMETERS);
 protected:
     /**
     * Translates RT Shader System section within a pass context.
@@ -110,6 +110,8 @@ private:
     //Render state created as a result of the current node being parsed
     RenderState* mGeneratedRenderState;
 
+    ScriptCompiler* mCompiler;
+    const AbstractNode* mCurrentNode;
 };
 
 }

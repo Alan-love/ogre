@@ -29,6 +29,8 @@ THE SOFTWARE.
 #include "OgreScriptLexer.h"
 
 namespace Ogre {
+    static const uint32 MAX_BRACE_LAYER = 32;
+
     ScriptTokenList ScriptLexer::tokenize(const String &str, const String& source)
     {
         String error;
@@ -54,11 +56,10 @@ namespace Ogre {
         ScriptTokenList tokens;
 
         // Iterate over the input
-        String::const_iterator i = str.begin(), end = str.end();
-        while(i != end)
+        for(char i : str)
         {
             lastc = c;
-            c = *i;
+            c = i;
 
             if(c == quote)
                 lastQuote = line;
@@ -69,7 +70,14 @@ namespace Ogre {
                 {
                     if(braceLayer == 0)
                         firstOpenBrace = line;
-                    
+
+                    if (braceLayer >= MAX_BRACE_LAYER)
+                    {
+                        error = StringUtil::format("too deeply nested open brackets '{' (max %u) at %s:%d",
+                                                   MAX_BRACE_LAYER, source, line);
+                        return tokens;
+                    }
+
                     braceLayer ++;
                 }
                 else if(c == closebrace)
@@ -236,8 +244,6 @@ namespace Ogre {
             // Separate check for newlines just to track line numbers
             if(c == cr || (c == lf && lastc != cr))
                 line++;
-
-            i++;
         }
 
         // Check for valid exit states
@@ -323,6 +329,4 @@ namespace Ogre {
     {
         return c == '\n' || c == '\r';
     }
-
 }
-

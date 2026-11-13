@@ -24,12 +24,54 @@
 namespace Ogre
 {
 
+static void DrawConfigOption(RenderSystem* rs, const ConfigOption& opt)
+{
+    if(ImGui::BeginCombo(opt.name.c_str(), opt.currentValue.c_str()))
+    {
+        for(const auto& it : opt.possibleValues)
+        {
+            if(ImGui::Selectable(it.c_str(), it == opt.currentValue))
+                rs->setConfigOption(opt.name, it);
+        }
+        ImGui::EndCombo();
+    }
+}
+
+void DrawRenderingSettings(String& rsName)
+{
+    auto root = Root::getSingletonPtr();
+    OgreAssert(root, "Root must be created");
+
+    if(rsName.empty())
+        rsName = root->getRenderSystem()->getName();
+
+    if(ImGui::BeginCombo("Render System", rsName.c_str()))
+    {
+        for(const auto& it : root->getAvailableRenderers())
+        {
+            if(ImGui::Selectable(it->getName().c_str(), it->getName() == rsName))
+                rsName = it->getName();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::SeparatorText("Options");
+
+    auto rs = root->getRenderSystemByName(rsName);
+    for(const auto& it : rs->getConfigOptions())
+        DrawConfigOption(rs, it.second);
+}
+
 ImGuiOverlay::ImGuiOverlay() : Overlay("ImGuiOverlay")
 {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
 
     io.BackendPlatformName = "OGRE";
+    io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
+#if IMGUI_VERSION_NUM >= 19200
+    io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+#endif
 }
 ImGuiOverlay::~ImGuiOverlay()
 {
@@ -49,7 +91,7 @@ void ImGuiOverlay::initialise()
 //-----------------------------------------------------------------------------------
 void ImGuiOverlay::_findVisibleObjects(Camera* cam, RenderQueue* queue, Viewport* vp)
 {
-    if (!mVisible)
+    if (!mInitialised)
         return;
 
     mRenderable._update();
@@ -61,15 +103,18 @@ void ImGuiOverlay::ImGUIRenderable::createMaterial()
     mMaterial = MaterialManager::getSingleton().create("ImGui/material", RGN_INTERNAL);
     Pass* mPass = mMaterial->getTechnique(0)->getPass(0);
     mPass->setCullingMode(CULL_NONE);
+    mPass->setFog(true, FOG_NONE);
     mPass->setVertexColourTracking(TVC_DIFFUSE);
-    mPass->setSceneBlending(SBT_TRANSPARENT_ALPHA);
-    mPass->setSeparateSceneBlendingOperation(SBO_ADD, SBO_ADD);
-    mPass->setSeparateSceneBlending(SBF_SOURCE_ALPHA, SBF_ONE_MINUS_SOURCE_ALPHA,
-                                    SBF_ONE_MINUS_SOURCE_ALPHA, SBF_ZERO);
+    mPass->setSceneBlendingOperation(SBO_ADD);
+    mPass->setSeparateSceneBlending(SBF_SOURCE_ALPHA, SBF_ONE_MINUS_SOURCE_ALPHA, SBF_ONE, SBF_ONE_MINUS_SOURCE_ALPHA);
 
     TextureUnitState* mTexUnit = mPass->createTextureUnitState();
-    mTexUnit->setTexture(mFontTex);
     mTexUnit->setTextureFiltering(TFO_NONE);
+    mTexUnit->setTextureAddressingMode(TAM_CLAMP);
+
+#if IMGUI_VERSION_NUM < 19200
+    mTexUnit->setTextureName("ImGui/FontTex");
+#endif
 
     mMaterial->load();
     mMaterial->setLightingEnabled(false);
@@ -80,11 +125,12 @@ void ImGuiOverlay::ImGUIRenderable::createMaterial()
 ImFont* ImGuiOverlay::addFont(const String& name, const String& group)
 {
     FontPtr font = FontManager::getSingleton().getByName(name, group);
-    OgreAssert(font, "font does not exist");
+    if (!font)
+        OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND,
+                    StringUtil::format("Font '%s' not found in group '%s'", name.c_str(), group.c_str()));
+
     OgreAssert(font->getType() == FT_TRUETYPE, "font must be of FT_TRUETYPE");
-    DataStreamPtr dataStreamPtr =
-        ResourceGroupManager::getSingleton().openResource(font->getSource(), font->getGroup());
-    MemoryDataStream ttfchunk(dataStreamPtr, false); // transfer ownership to imgui
+    MemoryDataStream ttfchunk(font->_getTTFData(), false); // transfer ownership to imgui
 
     // convert codepoint ranges for imgui
     CodePointRange cprange;
@@ -96,37 +142,47 @@ ImFont* ImGuiOverlay::addFont(const String& name, const String& group)
 
     ImGuiIO& io = ImGui::GetIO();
     const ImWchar* cprangePtr = io.Fonts->GetGlyphRangesDefault();
-    if (!cprange.empty())
-    {
-        cprange.push_back(0); // terminate
-        mCodePointRanges.push_back(cprange);
-        // ptr must persist until createFontTexture
-        cprangePtr = mCodePointRanges.back().data();
-    }
+    if (cprange.empty())
+        cprange = {32, 126}; // ogre default
+
+    cprange.push_back(0); // terminate
+    mCodePointRanges.push_back(cprange);
+    // ptr must persist until createFontTexture
+    cprangePtr = mCodePointRanges.back().data();
 
     float vpScale = OverlayManager::getSingleton().getPixelRatio();
 
     ImFontConfig cfg;
     strncpy(cfg.Name, name.c_str(), IM_ARRAYSIZE(cfg.Name) - 1);
-    return io.Fonts->AddFontFromMemoryTTF(ttfchunk.getPtr(), ttfchunk.size(), font->getTrueTypeSize() * vpScale, &cfg,
-                                          cprangePtr);
+    auto* ret = io.Fonts->AddFontFromMemoryTTF(ttfchunk.getPtr(), ttfchunk.size(), font->getTrueTypeSize() * vpScale,
+                                               &cfg, cprangePtr);
+
+    cfg.MergeMode = true;
+
+    for(const auto& mergeFont : font->getMergeFontList())
+    {
+        MemoryDataStream mergeTtfchunk(mergeFont->_getTTFData(), false); // transfer ownership to imgui
+
+        CodePointRange mergeCprange;
+        for (const auto& r : mergeFont->getCodePointRangeList())
+        {
+            mergeCprange.push_back(r.first);
+            mergeCprange.push_back(r.second);
+        }
+
+        OgreAssert(!mergeCprange.empty(), "merge font must have codepoint ranges");
+        mergeCprange.push_back(0); // terminate
+        mCodePointRanges.push_back(mergeCprange);
+        cprangePtr = mCodePointRanges.back().data();
+
+        cfg.MergeMode = true;
+        ret = io.Fonts->AddFontFromMemoryTTF(mergeTtfchunk.getPtr(), mergeTtfchunk.size(),
+                                             mergeFont->getTrueTypeSize() * vpScale, &cfg, cprangePtr);
+    }
+
+    return ret;
 }
 
-void ImGuiOverlay::ImGUIRenderable::createFontTexture()
-{
-    // Build texture atlas
-    ImGuiIO& io = ImGui::GetIO();
-    if (io.Fonts->Fonts.empty())
-        io.Fonts->AddFontDefault();
-    unsigned char* pixels;
-    int width, height;
-    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
-
-    mFontTex = TextureManager::getSingleton().createManual("ImGui/FontTex", RGN_INTERNAL, TEX_TYPE_2D,
-                                                           width, height, 1, 1, PF_BYTE_RGBA);
-
-    mFontTex->getBuffer()->blitFromMemory(PixelBox(Box(0, 0, width, height), PF_BYTE_RGBA, pixels));
-}
 void ImGuiOverlay::NewFrame()
 {
     static auto lastTime = Root::getSingleton().getTimer()->getMilliseconds();
@@ -153,12 +209,68 @@ void ImGuiOverlay::NewFrame()
     ImGui::NewFrame();
 }
 
+#if IMGUI_VERSION_NUM >= 19200
+static void updateTextureData(ImVector<ImTextureData*>& textures)
+{
+    static int texCounter = 0;
+
+    for (auto tex : textures)
+    {
+        if (tex->Status == ImTextureStatus_OK)
+            continue; // nothing to do
+
+        if (tex->Status == ImTextureStatus_WantCreate)
+        {
+            OgreAssert(tex->Format == ImTextureFormat_RGBA32, "ImGuiOverlay only supports RGBA32 textures");
+            auto otex = TextureManager::getSingleton().createManual(StringUtil::format("ImGui/Tex%d", texCounter++),
+                                                                    RGN_INTERNAL, TEX_TYPE_2D, tex->Width, tex->Height,
+                                                                    1, 0, PF_BYTE_RGBA);
+
+            otex->getBuffer()->blitFromMemory(
+                PixelBox(Box(0, 0, tex->Width, tex->Height), PF_BYTE_RGBA, tex->GetPixels()));
+
+            tex->SetTexID((ImTextureID)otex->getHandle());
+            tex->SetStatus(ImTextureStatus_OK);
+        }
+        else if (tex->Status == ImTextureStatus_WantUpdates)
+        {
+            auto otex =
+                static_pointer_cast<Texture>(TextureManager::getSingleton().getByHandle((ResourceHandle)tex->TexID));
+
+            auto r = tex->UpdateRect;
+            PixelBox pb(r.w, r.h, 1, PF_BYTE_RGBA, tex->GetPixelsAt(r.x, r.y));
+            pb.rowPitch = tex->Width;
+            otex->getBuffer()->blitFromMemory(pb, Box(r.x, r.y, r.x + r.w, r.y + r.h));
+
+            tex->SetStatus(ImTextureStatus_OK);
+        }
+        else if (tex->Status == ImTextureStatus_WantDestroy)
+        {
+            TextureManager::getSingleton().remove((ResourceHandle)tex->TexID);
+            tex->SetTexID(ImTextureID_Invalid);
+            tex->SetStatus(ImTextureStatus_Destroyed);
+        }
+    }
+}
+#endif
+
 void ImGuiOverlay::ImGUIRenderable::_update()
 {
     if (mMaterial->getSupportedTechniques().empty())
     {
         mMaterial->load(); // Support for adding lights run time
     }
+
+    ImGui::Render();
+    ImDrawData* draw_data = ImGui::GetDrawData();
+    updateVertexData(draw_data);
+
+#if IMGUI_VERSION_NUM >= 19200
+    if (draw_data->Textures)
+    {
+        updateTextureData(*draw_data->Textures);
+    }
+#endif
 
     RenderSystem* rSys = Root::getSingleton().getRenderSystem();
 
@@ -186,27 +298,25 @@ bool ImGuiOverlay::ImGUIRenderable::preRender(SceneManager* sm, RenderSystem* rs
     // Instruct ImGui to Render() and process the resulting CmdList-s
     // Adopted from https://bitbucket.org/ChaosCreator/imgui-ogre2.1-binding
     // ... Commentary on OGRE forums: http://www.ogre3d.org/forums/viewtopic.php?f=5&t=89081#p531059
-    ImGui::Render();
-    ImDrawData* draw_data = ImGui::GetDrawData();
     int vpWidth = vp->getActualWidth();
     int vpHeight = vp->getActualHeight();
 
     TextureUnitState* tu = mMaterial->getBestTechnique()->getPass(0)->getTextureUnitState(0);
 
-    updateVertexData(draw_data);
-
     mRenderOp.indexData->indexStart = 0;
-    mRenderOp.vertexData->vertexStart = 0;
+    size_t vtxOffset = 0;
 
-    for (int i = 0; i < draw_data->CmdListsCount; ++i)
+    ImDrawData* draw_data = ImGui::GetDrawData();
+    for (const ImDrawList* draw_list : draw_data->CmdLists)
     {
-        const ImDrawList* draw_list = draw_data->CmdLists[i];
         mRenderOp.vertexData->vertexCount = draw_list->VtxBuffer.size();
 
         for (int j = 0; j < draw_list->CmdBuffer.Size; ++j)
         {
             // Create a renderable and fill it's buffers
             const ImDrawCmd* drawCmd = &draw_list->CmdBuffer[j];
+
+            mRenderOp.vertexData->vertexStart = vtxOffset + drawCmd->VtxOffset;
 
             // Set scissoring
             Rect scissor(drawCmd->ClipRect.x, drawCmd->ClipRect.y, drawCmd->ClipRect.z,
@@ -215,14 +325,13 @@ bool ImGuiOverlay::ImGUIRenderable::preRender(SceneManager* sm, RenderSystem* rs
             // Clamp bounds to viewport dimensions
             scissor = scissor.intersect(Rect(0, 0, vpWidth, vpHeight));
 
-            if (drawCmd->TextureId)
+            if (auto handle = drawCmd->GetTexID())
             {
-                auto handle = (ResourceHandle)drawCmd->TextureId;
-                auto tex = static_pointer_cast<Texture>(TextureManager::getSingleton().getByHandle(handle));
+                auto tex = static_pointer_cast<Texture>(TextureManager::getSingleton().getByHandle((ResourceHandle)handle));
                 if (tex)
                 {
                     rsys->_setTexture(0, true, tex);
-                    rsys->_setSampler(0, *TextureManager::getSingleton().getDefaultSampler());
+                    rsys->_setSampler(0, *tu->getSampler());
                 }
             }
 
@@ -233,17 +342,15 @@ bool ImGuiOverlay::ImGUIRenderable::preRender(SceneManager* sm, RenderSystem* rs
 
             rsys->_render(mRenderOp);
 
-            if (drawCmd->TextureId)
-            {
-                // reset to pass state
-                rsys->_setTexture(0, true, mFontTex);
-                rsys->_setSampler(0, *tu->getSampler());
-            }
+#if IMGUI_VERSION_NUM < 19200
+            if (drawCmd->GetTexID()) // reset to pass state
+                tu->setTextureName("ImGui/FontTex");
+#endif
 
             // Update counts
             mRenderOp.indexData->indexStart += drawCmd->ElemCount;
         }
-        mRenderOp.vertexData->vertexStart += draw_list->VtxBuffer.size();
+        vtxOffset += draw_list->VtxBuffer.size();
     }
     rsys->setScissorTest(false);
     return false;
@@ -268,7 +375,19 @@ ImGuiOverlay::ImGUIRenderable::ImGUIRenderable()
 //-----------------------------------------------------------------------------------
 void ImGuiOverlay::ImGUIRenderable::initialise(void)
 {
-    createFontTexture();
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.Fonts->Fonts.empty())
+        io.Fonts->AddFontDefault();
+
+#if IMGUI_VERSION_NUM < 19200
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+    auto fontTex = TextureManager::getSingleton().createManual("ImGui/FontTex", RGN_INTERNAL, TEX_TYPE_2D,
+                                                           width, height, 1, 1, PF_BYTE_RGBA);
+    fontTex->getBuffer()->blitFromMemory(PixelBox(Box(0, 0, width, height), PF_BYTE_RGBA, pixels));
+#endif
+
     createMaterial();
 
     mRenderOp.vertexData = OGRE_NEW VertexData();
@@ -281,7 +400,7 @@ void ImGuiOverlay::ImGUIRenderable::initialise(void)
     mRenderOp.indexData->indexStart = 0;
     mRenderOp.operationType = RenderOperation::OT_TRIANGLE_LIST;
     mRenderOp.useIndexes = true;
-    mRenderOp.useGlobalInstancingVertexBufferIsAvailable = false;
+    mRenderOp.useGlobalInstancing = false;
 
     VertexDeclaration* decl = mRenderOp.vertexData->vertexDeclaration;
 
@@ -296,6 +415,12 @@ void ImGuiOverlay::ImGUIRenderable::initialise(void)
 //-----------------------------------------------------------------------------------
 ImGuiOverlay::ImGUIRenderable::~ImGUIRenderable()
 {
+#if IMGUI_VERSION_NUM < 19200
+    TextureManager::getSingleton().remove("ImGui/FontTex", RGN_INTERNAL);
+#endif
+
+    if(mMaterial)
+        MaterialManager::getSingleton().remove(mMaterial);
     OGRE_DELETE mRenderOp.vertexData;
     OGRE_DELETE mRenderOp.indexData;
 }
@@ -316,18 +441,20 @@ void ImGuiOverlay::ImGUIRenderable::updateVertexData(ImDrawData* draw_data)
         mRenderOp.indexData->indexBuffer->getNumIndexes() < size_t(draw_data->TotalIdxCount))
     {
         mRenderOp.indexData->indexBuffer = HardwareBufferManager::getSingleton().createIndexBuffer(
-            HardwareIndexBuffer::IT_16BIT, draw_data->TotalIdxCount, HBU_CPU_TO_GPU);
+            sizeof(ImDrawIdx) == 2 ? HardwareIndexBuffer::IT_16BIT : HardwareIndexBuffer::IT_32BIT,
+            draw_data->TotalIdxCount, HBU_CPU_TO_GPU);
     }
 
     // Copy all vertices
     size_t vtx_offset = 0;
     size_t idx_offset = 0;
-    for (int i = 0; i < draw_data->CmdListsCount; ++i)
+    for (const ImDrawList* draw_list : draw_data->CmdLists)
     {
-        const ImDrawList* draw_list = draw_data->CmdLists[i];
-        bind->getBuffer(0)->writeData(vtx_offset, draw_list->VtxBuffer.size_in_bytes(), draw_list->VtxBuffer.Data);
+        bool discard = vtx_offset == 0; // discard on first write
+        bind->getBuffer(0)->writeData(vtx_offset, draw_list->VtxBuffer.size_in_bytes(), draw_list->VtxBuffer.Data,
+                                      discard);
         mRenderOp.indexData->indexBuffer->writeData(idx_offset, draw_list->IdxBuffer.size_in_bytes(),
-                                                    draw_list->IdxBuffer.Data);
+                                                    draw_list->IdxBuffer.Data, discard);
         vtx_offset += draw_list->VtxBuffer.size_in_bytes();
         idx_offset += draw_list->IdxBuffer.size_in_bytes();
     }

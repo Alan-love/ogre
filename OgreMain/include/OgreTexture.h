@@ -62,21 +62,28 @@ namespace Ogre {
         /// Mipmaps will be automatically generated for this texture
         TU_AUTOMIPMAP = 0x10,
         /** This texture will be a render target, i.e. used as a target for render to texture
-            setting this flag will ignore all other texture usages except TU_AUTOMIPMAP, TU_UAV, TU_NOT_SRV */
+            setting this flag will ignore all other texture usages except TU_AUTOMIPMAP, TU_UNORDERED_ACCESS, TU_NOT_SAMPLED */
         TU_RENDERTARGET = 0x20,
-        /// Texture would not be used as Shader Resource View, i.e. as regular texture.
-        /// That flag could be combined with TU_RENDERTARGET or TU_UAV to remove possible limitations on some hardware
-        TU_NOT_SRV = 0x40,
+        /// Texture will not be sampled inside a shader i.e. used as regular texture.
+        /// When used with TU_RENDERTARGET this can improve performance and compatibility with FL9.1 hardware
+        TU_NOT_SAMPLED = 0x40,
         /// Texture can be bound as an Unordered Access View
         /// (imageStore/imageRead/glBindImageTexture in GL jargon)
-        TU_UAV = 0x80,
-        /// Texture can be used as an UAV, but not as a regular texture.
-        TU_UAV_NOT_SRV = TU_UAV | TU_NOT_SRV,
+        TU_UNORDERED_ACCESS = 0x80,
+        /// Create only a single render target which will be used for all layers
+        /// only relevant for layered textures like 2D arrays and cube maps
+        TU_TARGET_ALL_LAYERS = 0x100,
         /// Default to automatic mipmap generation static textures
         TU_DEFAULT = TU_AUTOMIPMAP | HBU_GPU_ONLY,
 
-        // deprecated
-        TU_NOTSHADERRESOURCE = TU_NOT_SRV
+        /// @deprecated
+        TU_UAV_NOT_SRV = TU_UNORDERED_ACCESS | TU_NOT_SAMPLED,
+        /// @deprecated
+        TU_NOT_SRV = TU_NOT_SAMPLED,
+        /// @deprecated
+        TU_NOTSHADERRESOURCE = TU_NOT_SAMPLED,
+        /// @deprecated
+        TU_UAV = TU_UNORDERED_ACCESS
     };
 
     /** Enum identifying the texture access privilege
@@ -103,8 +110,10 @@ namespace Ogre {
         TEX_TYPE_CUBE_MAP = 4,
         /// 2D texture array
         TEX_TYPE_2D_ARRAY = 5,
+        /// 2D texture with multiple samples per pixel, allows manual MSAA resolve
+        TEX_TYPE_2D_MULTISAMPLE = 6,
         /// GLES2 only OES texture type
-        TEX_TYPE_EXTERNAL_OES = 6
+        TEX_TYPE_EXTERNAL_OES = 7
     };
 
     /** Enum identifying special mipmap numbers
@@ -118,13 +127,13 @@ namespace Ogre {
     };
 
     /** Abstract class representing a Texture resource.
-        @remarks
-            The actual concrete subclass which will exist for a texture
-            is dependent on the rendering system in use (Direct3D, OpenGL etc).
-            This class represents the commonalities, and is the one 'used'
-            by programmers even though the real implementation could be
-            different in reality. Texture objects are created through
-            the 'create' method of the TextureManager concrete subclass.
+
+        The actual concrete subclass which will exist for a texture
+        is dependent on the rendering system in use (Direct3D, OpenGL etc).
+        This class represents the commonalities, and is the one 'used'
+        by programmers even though the real implementation could be
+        different in reality. Texture objects are created through
+        the 'create' method of the TextureManager concrete subclass.
      */
     class _OgreExport Texture : public Resource
     {
@@ -142,6 +151,12 @@ namespace Ogre {
         */
         TextureType getTextureType(void) const { return mTextureType; }
 
+        /** D3D11 only: set a shared surface to use for this texture before loading
+         *
+         * Useful for WPF interop
+         */
+        virtual void _setD3D11Surface(void* surface) {}
+
         /** Gets the number of mipmaps to be used for this texture.
         */
         uint32 getNumMipmaps(void) const {return mNumMipmaps;}
@@ -158,7 +173,7 @@ namespace Ogre {
         }
 
         /** Are mipmaps hardware generated?
-        @remarks
+
             Will only be accurate after texture load, or createInternalResources
         */
         bool getMipmapsHardwareGenerated(void) const { return mMipmapsHardwareGenerated; }
@@ -179,7 +194,7 @@ namespace Ogre {
 
         /** Sets whether this texture will be set up so that on sampling it, 
             hardware gamma correction is applied.
-        @remarks
+
             24-bit textures are often saved in gamma colour space; this preserves
             precision in the 'darks'. However, if you're performing blending on 
             the sampled colours, you really want to be doing it in linear space. 
@@ -268,13 +283,13 @@ namespace Ogre {
             
             @param u is a combination of TU_STATIC, TU_DYNAMIC, TU_WRITE_ONLY 
                 TU_AUTOMIPMAP and TU_RENDERTARGET (see TextureUsage enum). You are
-                strongly advised to use HBU_STATIC_WRITE_ONLY wherever possible, if you need to 
-                update regularly, consider HBU_DYNAMIC_WRITE_ONLY.
+                strongly advised to use HBU_GPU_ONLY wherever possible, if you need to
+                update regularly, consider HBU_CPU_TO_GPU.
         */
         void setUsage(int u) { mUsage = u; }
 
         /** Creates the internal texture resources for this texture. 
-        @remarks
+
             This method creates the internal texture resources (pixel buffers, 
             texture surfaces etc) required to begin using this texture. You do
             not need to call this method directly unless you are manually creating
@@ -285,10 +300,6 @@ namespace Ogre {
             called for you.
         */
         void createInternalResources(void);
-
-        /** Frees internal texture resources for this texture. 
-        */
-        void freeInternalResources(void);
         
         /** Copies (and maybe scales to fit) the contents of this texture to
             another texture. */
@@ -380,7 +391,13 @@ namespace Ogre {
         /** Return the number of faces this texture has. This will be 6 for a cubemap
             texture and 1 for a 1D, 2D or 3D one.
         */
-        uint32 getNumFaces() const;
+        uint32 getNumFaces() const { return mTextureType == TEX_TYPE_CUBE_MAP ? 6 : 1; }
+
+        /// Returns 6 for cubemaps and the the depth otherwise
+        uint32 getNumLayers() const { return mTextureType == TEX_TYPE_CUBE_MAP ? 6 : mDepth; }
+
+        /// Convenience method for unified cubemap and 2D array access
+        RenderTarget* getRenderTarget(size_t slice=0, size_t mipmap=0);
 
         /** Return hardware pixel buffer for a surface. This buffer can then
             be used to copy data from and to a particular level of the texture.
@@ -394,7 +411,7 @@ namespace Ogre {
             @remarks The buffer is invalidated when the resource is unloaded or destroyed.
             Do not use it after the lifetime of the containing texture.
         */
-        virtual const HardwarePixelBufferSharedPtr& getBuffer(size_t face=0, size_t mipmap=0);
+        virtual const HardwarePixelBufferPtr& getBuffer(size_t face=0, size_t mipmap=0);
 
 
         /** Populate an Image with the contents of this texture. 
@@ -460,25 +477,12 @@ namespace Ogre {
         PixelFormat mSrcFormat;
         uint32 mSrcWidth, mSrcHeight, mSrcDepth;
 
-        PixelFormat mDesiredFormat;
-        unsigned short mDesiredIntegerBitDepth;
-        unsigned short mDesiredFloatBitDepth;
-
         bool mTreatLuminanceAsAlpha;
         bool mInternalResourcesCreated;
         bool mMipmapsHardwareGenerated;
         bool mHwGamma;
 
-        /// vector of images that should be loaded (cubemap/ texture array)
-        std::vector<String> mLayerNames;
         String mFSAAHint;
-
-        /** Vector of images that were pulled from disk by
-            prepareLoad but have yet to be pushed into texture memory
-            by loadImpl.  Images should be deleted by loadImpl and unprepareImpl.
-        */
-        typedef std::vector<Image> LoadedImages;
-        LoadedImages mLoadedImages;
 
         /// Vector of pointers to subsurfaces
         typedef std::vector<HardwarePixelBufferSharedPtr> SurfaceList;
@@ -486,14 +490,12 @@ namespace Ogre {
 
         TextureType mTextureType;
 
-        void readImage(LoadedImages& imgs, const String& name, const String& ext, bool haveNPOT);
-
-        void prepareImpl();
-        void unprepareImpl();
-        void loadImpl();
+        void prepareImpl() override;
+        void unprepareImpl() override;
+        void loadImpl() override;
 
         /// @copydoc Resource::calculateSize
-        size_t calculateSize(void) const;
+        size_t calculateSize(void) const override;
         
 
         /** Implementation of creating internal texture resources 
@@ -504,15 +506,42 @@ namespace Ogre {
         */
         virtual void freeInternalResourcesImpl(void) = 0;
 
+        virtual HardwarePixelBufferPtr createSurface(uint32 face, uint32 mip, uint32 width, uint32 height, uint32 depth)
+        {
+            return nullptr;
+        }
+
+        /// internal method, create HardwarePixelBuffers for every face and
+        /// mipmap level. This method must be called after the texture object was created
+        void createSurfaceList(void);
+
         /** Default implementation of unload which calls freeInternalResources */
-        void unloadImpl(void);
+        void unloadImpl(void) override;
 
-        /** Identify the source file type as a string, either from the extension
-            or from a magic number.
+        /** Returns the maximum number of Mipmaps that can be generated until we reach
+        the mininum possible size. This does not count the base level.
+
+        @return how many times we can divide this texture in 2 until we reach 1x1.
         */
-        String getSourceFileType() const;
+        uint32 getMaxMipmaps() const;
 
-        static const char* CUBEMAP_SUFFIXES[6];
+    private:
+        uchar mDesiredIntegerBitDepth;
+        uchar mDesiredFloatBitDepth;
+        PixelFormat mDesiredFormat;
+
+        /// vector of images that should be loaded (cubemap/ texture array)
+        std::vector<String> mLayerNames;
+
+        /** Vector of images that were pulled from disk by
+            prepareLoad but have yet to be pushed into texture memory
+            by loadImpl.  Images should be deleted by loadImpl and unprepareImpl.
+        */
+        typedef std::vector<Image> LoadedImages;
+        LoadedImages mLoadedImages;
+
+        void readImage(LoadedImages& imgs, const String& name, const String& ext, bool haveNPOT);
+        void freeInternalResources(void);
     };
     /** @} */
     /** @} */

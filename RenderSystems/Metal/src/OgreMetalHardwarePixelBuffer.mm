@@ -39,7 +39,7 @@ namespace Ogre {
     MetalHardwarePixelBuffer::MetalHardwarePixelBuffer( uint32 width, uint32 height,
                                                         uint32 depth, PixelFormat format,
                                                         bool hwGamma, HardwareBuffer::Usage usage )
-        : HardwarePixelBuffer(width, height, depth, format, usage, false, false),
+        : HardwarePixelBuffer(width, height, depth, format, usage, false),
           mBuffer(width, height, depth, format)
     {
     }
@@ -268,8 +268,7 @@ namespace Ogre {
             mSliceTRT.reserve(mDepth);
             for(uint32 zoffset=0; zoffset<mDepth; ++zoffset)
             {
-                String name;
-                name = "rtt/" + StringConverter::toString((size_t)this) + "/" + baseName;
+                String name = getNameForRenderTexture(baseName, zoffset + face);
                 RenderTexture *trt = OGRE_NEW MetalRenderTexture( device, name, this,
                                                                   renderTexture, resolveTexture,
                                                                   mFormat, zoffset, mFace, fsaa, level,

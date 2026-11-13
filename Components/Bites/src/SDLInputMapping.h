@@ -68,6 +68,27 @@ namespace {
             out.type = OgreBites::TEXTINPUT;
             out.text.chars = in.text.text;
             break;
+        case SDL_JOYAXISMOTION:
+            out.type = OgreBites::JOYAXISMOTION;
+            out.axis.which = in.jaxis.which;
+            out.axis.axis = in.jaxis.axis;
+            out.axis.value = in.jaxis.value;
+            break;
+        case SDL_JOYBUTTONDOWN:
+            out.type = OgreBites::CONTROLLERBUTTONDOWN;
+            OGRE_FALLTHROUGH;
+        case SDL_JOYBUTTONUP:
+            if(!out.type)
+                out.type = OgreBites::CONTROLLERBUTTONUP;
+            out.cbutton.which = in.jbutton.which;
+            out.cbutton.button = in.jbutton.button;
+            break;
+        case SDL_JOYHATMOTION:
+            out.type = OgreBites::JOYHATMOTION;
+            out.hat.which = in.jhat.which;
+            out.hat.hat = in.jhat.hat;
+            out.hat.value = in.jhat.value;
+            break;
         case SDL_CONTROLLERAXISMOTION:
             out.type = OgreBites::CONTROLLERAXISMOTION;
             out.axis.which = in.caxis.which;

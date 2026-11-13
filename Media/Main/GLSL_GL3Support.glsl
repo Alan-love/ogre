@@ -4,6 +4,30 @@
 
 // @public-api
 
+#if defined(OGRE_FRAGMENT_SHADER) && (defined(OGRE_GLSLES) || defined(VULKAN))
+// define default precisions for ES fragement shaders
+precision mediump float;
+
+#if __VERSION__ > 100
+precision lowp sampler2DArray;
+precision lowp sampler2DShadow;
+precision lowp sampler3D;
+#endif
+#endif
+
+// GL_EXT_shader_explicit_arithmetic_types polyfill
+#if defined(VULKAN) || defined(OGRE_GLSLES) && (!defined(OGRE_FRAGMENT_SHADER) || __VERSION__ > 100)
+#define float32_t highp float
+#define f32vec2 highp vec2
+#define f32vec3 highp vec3
+#define f32vec4 highp vec4
+#else
+#define float32_t float
+#define f32vec2 vec2
+#define f32vec3 vec3
+#define f32vec4 vec4
+#endif
+
 #if __VERSION__ == 100
 mat2 transpose(mat2 m)
 {
@@ -60,5 +84,27 @@ mat4 transpose(mat4 m)
 #define IN(decl, loc) varying decl;
 #define OUT(decl, loc) out decl;
 #endif
+
+#endif
+
+#if defined(OGRE_FRAGMENT_SHADER) && (defined(OGRE_GLSLANG) || (__VERSION__ > 130))
+#define gl_FragColor FragColor
+OUT(vec4 FragColor, 0)
+#endif
+
+#ifdef OGRE_GLSLANG
+
+#ifdef OGRE_VERTEX_SHADER
+#define OGRE_UNIFORMS_BEGIN layout(binding = 0, row_major) uniform OgreUniforms {
+#else
+#define OGRE_UNIFORMS_BEGIN layout(binding = 1, row_major) uniform OgreUniforms {
+#endif
+
+#define OGRE_UNIFORMS_END };
+
+#else
+
+#define OGRE_UNIFORMS_BEGIN
+#define OGRE_UNIFORMS_END
 
 #endif

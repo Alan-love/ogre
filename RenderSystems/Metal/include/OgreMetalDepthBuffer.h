@@ -30,6 +30,7 @@ THE SOFTWARE.
 
 #include "OgreMetalPrerequisites.h"
 #include "OgreDepthBuffer.h"
+#include <Metal/MTLPixelFormat.h>
 
 namespace Ogre
 {
@@ -41,19 +42,22 @@ namespace Ogre
 
     protected:
         MetalDevice *mDevice;
+        MTLPixelFormat mFormat;
 
     public:
         MetalDepthBuffer( uint16 poolId, MetalRenderSystem *renderSystem,
-                          uint32 width, uint32 height, uint32 fsaa, uint32 multiSampleQuality,
-                          PixelFormat pixelFormat, bool isDepthTexture, bool _isManual,
+                          uint32 width, uint32 height, uint32 fsaa,
+                          MTLPixelFormat pixelFormat, bool _isManual,
                           id<MTLTexture> depthTexture, id<MTLTexture> stencilTexture,
                           MetalDevice *device );
         virtual ~MetalDepthBuffer();
 
         /// @copydoc DepthBuffer::isCompatible
-        virtual bool isCompatible( RenderTarget *renderTarget) const;
+        bool isCompatible( RenderTarget *renderTarget) const override;
 
         MetalDevice* getOwnerDevice(void) const     { return mDevice; }
+
+        MTLPixelFormat getFormat() const { return mFormat; }
 
     protected:
         virtual bool copyToImpl( DepthBuffer *destination );

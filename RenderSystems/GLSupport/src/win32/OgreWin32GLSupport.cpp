@@ -25,12 +25,9 @@
  THE SOFTWARE.
  -----------------------------------------------------------------------------
  */
-#include "OgreRoot.h"
 #include "OgreException.h"
 #include "OgreLogManager.h"
 #include "OgreStringConverter.h"
-
-#include <algorithm>
 
 #include "OgreWin32GLSupport.h"
 #include "OgreWin32Window.h"
@@ -40,6 +37,7 @@
 #include <GL/wglext.h>
 
 static PFNWGLCREATECONTEXTATTRIBSARBPROC _wglCreateContextAttribsARB = 0;
+static PFNWGLCHOOSEPIXELFORMATARBPROC _wglChoosePixelFormat = 0;
 
 static int glMajorMax = 0;
 static int glMinorMax = 0;
@@ -53,17 +51,10 @@ namespace Ogre {
     Win32GLSupport::Win32GLSupport(int profile)
         : GLNativeSupport(profile)
         , mInitialWindow(0)
-        , mHasPixelFormatARB(false)
-        , mHasMultisample(false)
-        , mHasHardwareGamma(false)
-        , mWglChoosePixelFormat(0)
     {
         // immediately test WGL_ARB_pixel_format and FSAA support
         // so we can set configuration options appropriately
         initialiseWGL();
-#if OGRE_NO_QUAD_BUFFER_STEREO == 0
-		mStereoMode = SMT_NONE;
-#endif
     } 
 
     ConfigOptionMap Win32GLSupport::getConfigOptions()
@@ -181,7 +172,11 @@ namespace Ogre {
 
         if(!mInitialWindow) {
             mInitialWindow = window;
-            initialiseExtensions();
+            auto stream = LogManager::getSingleton().stream();
+            stream << "Supported WGL extensions:";
+            for(auto& ext : extensionList)
+                stream << " " << ext;
+            stream <<  Log::Stream::Flush();
         }
 
         return window;
@@ -198,18 +193,14 @@ namespace Ogre {
         mInitialWindow = 0; // Since there is no removeWindow, although there should be...
     }
 
-    void Win32GLSupport::initialiseExtensions()
+    void Win32GLSupport::initialiseExtensions(HDC hdc)
     {
-        assert(mInitialWindow);
-
         // Check for W32 specific extensions probe function
         PFNWGLGETEXTENSIONSSTRINGARBPROC _wglGetExtensionsStringARB = 
             (PFNWGLGETEXTENSIONSSTRINGARBPROC)wglGetProcAddress("wglGetExtensionsStringARB");
         if(!_wglGetExtensionsStringARB)
             return;
-        const char *wgl_extensions = _wglGetExtensionsStringARB(mInitialWindow->getHDC());
-        LogManager::getSingleton().stream()
-            << "Supported WGL extensions: " << wgl_extensions;
+        const char *wgl_extensions = _wglGetExtensionsStringARB(hdc);
         // Parse them, and add them to the main list
         StringStream ext;
         String instr;
@@ -315,27 +306,10 @@ namespace Ogre {
             _wglCreateContextAttribsARB = (PFNWGLCREATECONTEXTATTRIBSARBPROC)
                 wglGetProcAddress("wglCreateContextAttribsARB");
 
-            PFNWGLGETEXTENSIONSSTRINGARBPROC _wglGetExtensionsStringARB =
-                (PFNWGLGETEXTENSIONSSTRINGARBPROC)
-                wglGetProcAddress("wglGetExtensionsStringARB");
-            
             // check for pixel format and multisampling support
-            if (_wglGetExtensionsStringARB)
-            {
-                std::istringstream wglexts(_wglGetExtensionsStringARB(hdc));
-                std::string ext;
-                while (wglexts >> ext)
-                {
-                    if (ext == "WGL_ARB_pixel_format")
-                        mHasPixelFormatARB = true;
-                    else if (ext == "WGL_ARB_multisample")
-                        mHasMultisample = true;
-                    else if (ext == "WGL_EXT_framebuffer_sRGB")
-                        mHasHardwareGamma = true;
-                }
-            }
+            initialiseExtensions(hdc);
 
-            if (mHasPixelFormatARB && mHasMultisample)
+            if (checkExtension("WGL_ARB_multisample"))
             {
                 // enumerate all formats w/ multisampling
                 static const int iattr[] = {
@@ -359,10 +333,10 @@ namespace Ogre {
                 // when a valid GL context does not exist and glew is not initialized yet.
                 PFNWGLGETPIXELFORMATATTRIBIVARBPROC wglGetPixelFormatAttribiv = (PFNWGLGETPIXELFORMATATTRIBIVARBPROC)wglGetProcAddress("wglGetPixelFormatAttribivARB");
 
-                mWglChoosePixelFormat = (PFNWGLCHOOSEPIXELFORMATARBPROC)wglGetProcAddress("wglChoosePixelFormatARB");
+                _wglChoosePixelFormat = (PFNWGLCHOOSEPIXELFORMATARBPROC)wglGetProcAddress("wglChoosePixelFormatARB");
 
 
-                if (mWglChoosePixelFormat(hdc, iattr, 0, 256, formats, &count))
+                if (_wglChoosePixelFormat(hdc, iattr, 0, 256, formats, &count))
                 {
                     // determine what multisampling levels are offered
                     int query = WGL_SAMPLES_ARB, samples;
@@ -391,7 +365,7 @@ namespace Ogre {
         return DefWindowProc(hwnd, umsg, wp, lp);
     }
 
-    bool Win32GLSupport::selectPixelFormat(HDC hdc, int colourDepth, int multisample, bool hwGamma)
+    bool Win32GLSupport::selectPixelFormat(HDC hdc, int colourDepth, int multisample, bool hwGamma, bool stereo, bool hdrDisplay)
     {
         PIXELFORMATDESCRIPTOR pfd;
         memset(&pfd, 0, sizeof(pfd));
@@ -405,7 +379,7 @@ namespace Ogre {
         pfd.cStencilBits = 8;
 
 #if OGRE_NO_QUAD_BUFFER_STEREO == 0
-		if (SMT_FRAME_SEQUENTIAL == mStereoMode)
+		if (stereo)
 			pfd.dwFlags |= PFD_STEREO;
 #endif
 
@@ -413,13 +387,16 @@ namespace Ogre {
 
         int useHwGamma = hwGamma;
 
-        if (multisample && (!mHasMultisample || !mHasPixelFormatARB))
+        if (multisample && !checkExtension("WGL_ARB_multisample"))
             return false;
 
-        if (hwGamma && !mHasHardwareGamma)
+        if (hwGamma && !checkExtension("WGL_EXT_framebuffer_sRGB"))
+            return false;
+
+        if (hdrDisplay && !checkExtension("WGL_ARB_pixel_format_float"))
             return false;
         
-        if ((multisample || hwGamma) && mWglChoosePixelFormat)
+        if (_wglChoosePixelFormat)
         {
 
             // Use WGL to test extended caps (multisample, sRGB)
@@ -427,20 +404,29 @@ namespace Ogre {
             attribList.push_back(WGL_DRAW_TO_WINDOW_ARB); attribList.push_back(true);
             attribList.push_back(WGL_SUPPORT_OPENGL_ARB); attribList.push_back(true);
             attribList.push_back(WGL_DOUBLE_BUFFER_ARB); attribList.push_back(true);
-            attribList.push_back(WGL_SAMPLE_BUFFERS_ARB); attribList.push_back(true);
             attribList.push_back(WGL_ACCELERATION_ARB); attribList.push_back(WGL_FULL_ACCELERATION_ARB);
             attribList.push_back(WGL_COLOR_BITS_ARB); attribList.push_back(pfd.cColorBits);
             attribList.push_back(WGL_ALPHA_BITS_ARB); attribList.push_back(pfd.cAlphaBits);
             attribList.push_back(WGL_DEPTH_BITS_ARB); attribList.push_back(24);
             attribList.push_back(WGL_STENCIL_BITS_ARB); attribList.push_back(8);
-            attribList.push_back(WGL_SAMPLES_ARB); attribList.push_back(multisample);
-			
+
+            if(multisample)
+            {
+                attribList.push_back(WGL_SAMPLE_BUFFERS_ARB); attribList.push_back(true);
+                attribList.push_back(WGL_SAMPLES_ARB); attribList.push_back(multisample);
+            }
+
+            if(hdrDisplay)
+            {
+                attribList.push_back(WGL_PIXEL_TYPE_ARB); attribList.push_back(WGL_TYPE_RGBA_FLOAT_ARB);
+            }
+
 #if OGRE_NO_QUAD_BUFFER_STEREO == 0
-			if (SMT_FRAME_SEQUENTIAL == mStereoMode)
+			if (stereo)
 				attribList.push_back(WGL_STEREO_ARB); attribList.push_back(true);
 #endif
 
-            if (useHwGamma && mHasHardwareGamma)
+            if (hwGamma)
             {
                 attribList.push_back(WGL_FRAMEBUFFER_SRGB_CAPABLE_EXT); attribList.push_back(true);
             }
@@ -451,7 +437,7 @@ namespace Ogre {
             UINT nformats;
             // ChoosePixelFormatARB proc address was obtained when setting up a dummy GL context in initialiseWGL()
             // since glew hasn't been initialized yet, we have to cheat and use the previously obtained address
-            if (!mWglChoosePixelFormat(hdc, &(attribList[0]), NULL, 1, &format, &nformats) || nformats <= 0)
+            if (!_wglChoosePixelFormat(hdc, attribList.data(), NULL, 1, &format, &nformats) || nformats <= 0)
                 return false;
         }
         else
@@ -459,8 +445,15 @@ namespace Ogre {
             format = ChoosePixelFormat(hdc, &pfd);
         }
 
+        if(!format)
+            return false;
 
-        return (format && SetPixelFormat(hdc, format, &pfd));
+        DescribePixelFormat(hdc, format, sizeof(PIXELFORMATDESCRIPTOR), &pfd);
+        LogManager::getSingleton().logMessage(
+            StringUtil::format("Win32GLSupport: colourBufferSize=%d/%d/%d/%d gamma=%d FSAA=%d", pfd.cRedBits,
+                               pfd.cGreenBits, pfd.cBlueBits, pfd.cAlphaBits, useHwGamma ? 1 : 0, multisample));
+
+        return SetPixelFormat(hdc, format, &pfd);
     }
 
     HGLRC Win32GLSupport::createNewContext(HDC hdc, HGLRC shareList)
@@ -482,8 +475,16 @@ namespace Ogre {
             break;
         default:
             profile = WGL_CONTEXT_CORE_PROFILE_BIT_ARB;
-            majorVersion = std::max(glMajorMax, 3);
-            minorVersion = std::max(glMinorMax, 3); // 3.1 would be sufficient per spec, but we need 3.3 anyway..
+            if (glMajorMax > 3)
+            {
+                majorVersion = glMajorMax;
+                minorVersion = glMinorMax;
+            }
+            else
+            {
+                majorVersion = 3;
+                minorVersion = 3; // 3.1 would be sufficient per spec, but we need 3.3 anyway..
+            }
             break;
         }
 
@@ -510,14 +511,6 @@ namespace Ogre {
         }
 
         return glrc;
-    }
-
-    unsigned int Win32GLSupport::getDisplayMonitorCount() const
-    {
-        if (mMonitorInfoList.empty())       
-            EnumDisplayMonitors(NULL, NULL, sCreateMonitorsInfoEnumProc, (LPARAM)&mMonitorInfoList);
-
-        return (unsigned int)mMonitorInfoList.size();
     }
 
     String translateWGLError()

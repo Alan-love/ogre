@@ -69,10 +69,23 @@ namespace Ogre
         samplerCi.unnormalizedCoordinates = VK_FALSE;
         samplerCi.maxLod = mMipFilter == FO_NONE ? 0 : VK_LOD_CLAMP_NONE;
 
+        bool reversedZ = Root::getSingleton().getRenderSystem()->isReverseDepthBufferEnabled();
+
+        auto borderBlack = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+        auto borderWhite = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+
+        if(reversedZ)
+            std::swap(borderBlack, borderWhite);
+
+        samplerCi.borderColor = mBorderColour.getAsRGBA() == 0x0000FF ? borderBlack : borderWhite;
+
         if (mCompareEnabled)
         {
+            auto cmpFunc = mCompareFunc;
+            if(reversedZ)
+                cmpFunc = VulkanRenderSystem::reverseCompareFunction(cmpFunc);
             samplerCi.compareEnable = VK_TRUE;
-            samplerCi.compareOp = VulkanMappings::get(mCompareFunc);
+            samplerCi.compareOp = VulkanMappings::get(cmpFunc);
         }
 
         OGRE_VK_CHECK(vkCreateSampler(mDevice, &samplerCi, 0, &mVkSampler));
@@ -129,7 +142,7 @@ namespace Ogre
     bool VulkanTextureGpuManager::checkSupport( PixelFormatGpu format, uint32 textureFlags ) const
     {
         OGRE_ASSERT_LOW(
-            textureFlags != TU_NOT_SRV &&
+            textureFlags != TU_NOT_SAMPLED &&
             "Invalid textureFlags combination. Asking to check if format is supported to do nothing" );
 
         const VkFormat vkFormat = VulkanMappings::get( format );
@@ -139,10 +152,10 @@ namespace Ogre
 
         uint32 features = 0;
 
-        if( !( textureFlags & TU_NOT_SRV ) )
+        if( !( textureFlags & TU_NOT_SAMPLED ) )
             features |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
 
-        if( textureFlags & TU_UAV )
+        if( textureFlags & TU_UNORDERED_ACCESS )
             features |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
 
         if( textureFlags & TU_RENDERTARGET )

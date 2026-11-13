@@ -40,11 +40,6 @@ THE SOFTWARE.
 
 namespace Ogre
 {
-    static uint32 getMaxMipmapCount(uint32 w, uint32 h, uint32 d) {
-        // see ARB_texture_non_power_of_two
-        return Bitwise::mostSignificantBitSet(std::max(w, std::max(h, d)));
-    }
-
     MetalTexture::MetalTexture( ResourceManager* creator, const String& name, ResourceHandle handle,
                                 const String& group, bool isManual, ManualResourceLoader* loader,
                                 MetalDevice *device ) :
@@ -87,16 +82,8 @@ namespace Ogre
         mFormat = TextureManager::getSingleton().getNativeFormat( mTextureType, mFormat, mUsage );
         const MTLTextureType texTarget = getMetalTextureTarget();
 
-        // Check requested number of mipmaps
-        const size_t maxMips = getMaxMipmapCount( mWidth, mHeight,
-                                                             mTextureType == TEX_TYPE_3D ? mDepth : 1 );
-
-        if( (PixelUtil::isCompressed(mFormat) && (mNumMipmaps == 0)) || mTextureType == TEX_TYPE_1D )
-            mNumRequestedMipmaps = 0;
-
-        mNumMipmaps = mNumRequestedMipmaps;
-        if( mNumMipmaps > maxMips )
-            mNumMipmaps = maxMips;
+        if(mTextureType == TEX_TYPE_1D )
+            mNumMipmaps = mNumRequestedMipmaps = 0;
 
         // If we can do automip generation and the user desires this, do so
         mMipmapsHardwareGenerated = !PixelUtil::isCompressed( mFormat );
@@ -122,10 +109,10 @@ namespace Ogre
         desc.usage = MTLTextureUsageShaderRead;
         if( mUsage & TU_RENDERTARGET )
             desc.usage |= MTLTextureUsageRenderTarget;
-        if( mUsage & TU_UAV )
+        if( mUsage & TU_UNORDERED_ACCESS )
             desc.usage |= MTLTextureUsageShaderWrite;
 
-        if( mUsage & (TU_UAV|TU_NOT_SRV|TU_RENDERTARGET) )
+        if( mUsage & (TU_UNORDERED_ACCESS|TU_NOT_SAMPLED|TU_RENDERTARGET) )
             desc.storageMode = MTLStorageModePrivate;
 
         mTexture = [mDevice->mDevice newTextureWithDescriptor:desc];
@@ -152,7 +139,7 @@ namespace Ogre
         createSurfaceList();
 
         if( (mUsage & TU_AUTOMIPMAP) &&
-            mNumRequestedMipmaps && mMipmapsHardwareGenerated )
+            mNumMipmaps && mMipmapsHardwareGenerated )
         {
             __unsafe_unretained id<MTLBlitCommandEncoder> blitEncoder = mDevice->getBlitEncoder();
             [blitEncoder generateMipmapsForTexture:mTexture];
@@ -163,10 +150,9 @@ namespace Ogre
         mTexture = 0;
     }
     //-----------------------------------------------------------------------------------
-    void MetalTexture::createSurfaceList(void)
+    HardwarePixelBufferPtr MetalTexture::createSurface(uint32 face, uint32 mipmap, uint32 width, uint32 height,
+                                                       uint32 depth)
     {
-        mSurfaceList.clear();
-
         __unsafe_unretained id<MTLTexture> renderTexture = mTexture;
         __unsafe_unretained id<MTLTexture> resolveTexture = 0;
 
@@ -176,24 +162,9 @@ namespace Ogre
             resolveTexture  = mTexture;
         }
 
-        for (size_t face = 0; face < getNumFaces(); face++)
-        {
-            uint32 width = mWidth;
-            uint32 height = mHeight;
-            uint32 depth = mDepth;
-
-            for (uint8 mip = 0; mip <= getNumMipmaps(); mip++)
-            {
-                MetalHardwarePixelBuffer *buf = OGRE_NEW MetalTextureBuffer(
-                            renderTexture, resolveTexture, mDevice, mName,
-                            getMetalTextureTarget(), width, height, depth, mFormat,
-                            static_cast<int32>(face), mip,
-                            static_cast<HardwareBuffer::Usage>(mUsage),
-                            mHwGamma, mFSAA );
-
-                mSurfaceList.push_back( HardwarePixelBufferSharedPtr(buf) );
-            }
-        }
+        return std::make_shared<MetalTextureBuffer>(renderTexture, resolveTexture, mDevice, mName,
+                                                    getMetalTextureTarget(), width, height, depth, mFormat, face,
+                                                    mipmap, mUsage, mHwGamma, mFSAA);
     }
     //-----------------------------------------------------------------------------------
     void MetalTexture::_autogenerateMipmaps(void)

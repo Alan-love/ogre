@@ -27,6 +27,8 @@ Copyright (c) 2000-2014 Torus Knot Software Ltd
 */
 
 #include "OgreGL3PlusHardwareBuffer.h"
+
+#include <memory>
 #include "OgreRoot.h"
 #include "OgreGL3PlusRenderSystem.h"
 #include "OgreGL3PlusStateCacheManager.h"
@@ -35,7 +37,7 @@ Copyright (c) 2000-2014 Torus Knot Software Ltd
 namespace Ogre {
 
     GL3PlusHardwareBuffer::GL3PlusHardwareBuffer(GLenum target, size_t sizeInBytes, uint32 usage, bool useShadowBuffer)
-    : HardwareBuffer(usage, false, useShadowBuffer), mTarget(target)
+    : HardwareBuffer(usage, useShadowBuffer), mTarget(target)
     {
         mSizeInBytes = sizeInBytes;
         mRenderSystem = static_cast<GL3PlusRenderSystem*>(Root::getSingleton().getRenderSystem());
@@ -51,7 +53,7 @@ namespace Ogre {
 
         if (useShadowBuffer)
         {
-            mShadowBuffer.reset(new DefaultHardwareBuffer(mSizeInBytes));
+            mShadowBuffer = std::make_unique<DefaultHardwareBuffer>(mSizeInBytes);
         }
     }
 
@@ -75,14 +77,11 @@ namespace Ogre {
 
         if (writeOnly)
         {
-            access |= GL_MAP_WRITE_BIT;
-            if(options == HardwareBuffer::HBL_DISCARD || options == HardwareBuffer::HBL_NO_OVERWRITE)
-            {
-                // Discard the buffer
-                access |= GL_MAP_INVALIDATE_RANGE_BIT;
-            }
+            if(options == HBL_DISCARD)
+                OGRE_CHECK_GL_ERROR(glBufferData(mTarget, mSizeInBytes, NULL, getGLUsage(mUsage)));
  
-            if(options == HardwareBuffer::HBL_NO_OVERWRITE)
+            access |= GL_MAP_WRITE_BIT;
+            if(options == HBL_NO_OVERWRITE)
                 access |= GL_MAP_UNSYNCHRONIZED_BIT;
         }
         else if (options == HardwareBuffer::HBL_READ_ONLY)
@@ -184,10 +183,6 @@ namespace Ogre {
             mShadowBuffer->copyData(srcBuffer, srcOffset, dstOffset, length, discardWholeBuffer);
         }
 
-        // Zero out this(destination) buffer
-        mRenderSystem->_getStateCacheManager()->bindGLBuffer(mTarget, mBufferId);
-        OGRE_CHECK_GL_ERROR(glBufferData(mTarget, length, 0, getGLUsage(mUsage)));
-
         // Do it the fast way.
         mRenderSystem->_getStateCacheManager()->bindGLBuffer(
             GL_COPY_READ_BUFFER, static_cast<GL3PlusHardwareBuffer&>(srcBuffer).getGLBufferId());
@@ -205,11 +200,11 @@ namespace Ogre {
                                          : (usage == HBU_GPU_ONLY) ? GL_STATIC_DRAW : GL_DYNAMIC_DRAW;
     }
 
-    void GL3PlusHardwareBuffer::setGLBufferBinding(GLint binding)
+    void GL3PlusHardwareBuffer::setGLBufferBinding(GLint binding, GLenum target)
     {
         mBindingPoint = binding;
 
         // Attach the buffer to the binding index.
-        OGRE_CHECK_GL_ERROR(glBindBufferBase(mTarget, mBindingPoint, mBufferId));
+        OGRE_CHECK_GL_ERROR(glBindBufferBase( target ? target : mTarget, mBindingPoint, mBufferId));
     }
 }

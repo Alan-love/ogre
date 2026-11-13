@@ -44,12 +44,7 @@ DLight::DLight(MaterialGenerator *sys, Ogre::Light* parentLight):
     updateFromParent();
 }
 //-----------------------------------------------------------------------
-DLight::~DLight()
-{
-    // need to release IndexData and vertexData created for renderable
-    delete mRenderOp.indexData;
-    delete mRenderOp.vertexData;
-}
+DLight::~DLight() = default;
 //-----------------------------------------------------------------------
 void DLight::setAttenuation(float c, float b, float a)
 {
@@ -111,6 +106,7 @@ void DLight::rebuildGeometry(float radius)
         createSphere(radius, 10, 10);
         ENABLE_BIT(mPermutation,LightMaterialGenerator::MI_POINT);
         break;
+    case Light::LT_RECTLIGHT:
     case Light::LT_SPOTLIGHT:
         Real height = mParentLight->getAttenuationRange();
         Radian coneRadiusAngle = mParentLight->getSpotlightOuterAngle() / 2;
@@ -125,11 +121,11 @@ void DLight::createRectangle2D()
 {
     /// XXX this RenderOp should really be re-used between DLight objects,
     /// not generated every time
-    delete mRenderOp.vertexData; 
-    delete mRenderOp.indexData; 
+    mVertexData = std::make_unique<VertexData>();
+    mIndexData.reset();
 
-    mRenderOp.vertexData = new VertexData();
-    mRenderOp.indexData = 0;
+    mRenderOp.vertexData = mVertexData.get();
+    mRenderOp.indexData = nullptr;
 
     GeomUtils::createQuad(mRenderOp.vertexData);
 
@@ -144,11 +140,11 @@ void DLight::createRectangle2D()
 //-----------------------------------------------------------------------
 void DLight::createSphere(float radius, int nRings, int nSegments)
 {
-    delete mRenderOp.vertexData; 
-    delete mRenderOp.indexData;
+    mIndexData = std::make_unique<IndexData>();
+    mVertexData = std::make_unique<VertexData>();
     mRenderOp.operationType = RenderOperation::OT_TRIANGLE_LIST;
-    mRenderOp.indexData = new IndexData();
-    mRenderOp.vertexData = new VertexData();
+    mRenderOp.indexData = mIndexData.get();
+    mRenderOp.vertexData = mVertexData.get();
     mRenderOp.useIndexes = true;
 
     GeomUtils::createSphere(mRenderOp.vertexData, mRenderOp.indexData
@@ -166,11 +162,11 @@ void DLight::createSphere(float radius, int nRings, int nSegments)
 //-----------------------------------------------------------------------
 void DLight::createCone(float radius, float height, int nVerticesInBase)
 {
-    delete mRenderOp.vertexData;
-    delete mRenderOp.indexData;
+    mIndexData = std::make_unique<IndexData>();
+    mVertexData = std::make_unique<VertexData>();
     mRenderOp.operationType = RenderOperation::OT_TRIANGLE_LIST;
-    mRenderOp.indexData = new IndexData();
-    mRenderOp.vertexData = new VertexData();
+    mRenderOp.indexData = mIndexData.get();
+    mRenderOp.vertexData = mVertexData.get();
     mRenderOp.useIndexes = true;
 
     GeomUtils::createCone(mRenderOp.vertexData, mRenderOp.indexData
@@ -300,9 +296,8 @@ void DLight::updateFromCamera(Ogre::Camera* camera)
     Ogre::Technique* tech = mat->getBestTechnique();
     Ogre::Vector3 farCorner = camera->getViewMatrix(true) * camera->getWorldSpaceCorners()[4];
 
-    for (unsigned short i=0; i<tech->getNumPasses(); i++) 
+    for (auto* pass : tech->getPasses())
     {
-        Ogre::Pass* pass = tech->getPass(i);
         // get the vertex shader parameters
         Ogre::GpuProgramParametersSharedPtr params = pass->getVertexProgramParameters();
         // set the camera's far-top-right corner
@@ -336,7 +331,7 @@ void DLight::updateFromCamera(Ogre::Camera* camera)
 
         SceneNode dummyNode(NULL);
         Camera shadowCam("ShadowCameraSetupCam", 0);
-        shadowCam._notifyAttached(&dummyNode);
+        dummyNode.attachObject(&shadowCam);
         shadowCam._notifyViewport(camera->getViewport());
         SceneManager* sm = mParentLight->_getManager();
         sm->getShadowCameraSetup()->getShadowCamera(sm, 

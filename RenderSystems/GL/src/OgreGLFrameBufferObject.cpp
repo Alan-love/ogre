@@ -39,38 +39,37 @@ THE SOFTWARE.
 namespace Ogre {
 
 //-----------------------------------------------------------------------------
-    GLFrameBufferObject::GLFrameBufferObject(GLFBOManager *manager, uint fsaa):
-        GLFrameBufferObjectCommon(fsaa), mManager(manager)
+GLFrameBufferObject::GLFrameBufferObject(uint fsaa)
+    : GLFrameBufferObjectCommon()
+{
+    auto* rs = static_cast<GLRenderSystemCommon*>(Root::getSingleton().getRenderSystem());
+    mContext = rs->_getCurrentContext();
+
+    mNumSamples = fsaa;
+    // Generate framebuffer object
+    glGenFramebuffersEXT(1, &mFB);
+    // check multisampling
+    if (GLAD_GL_EXT_framebuffer_blit && GLAD_GL_EXT_framebuffer_multisample)
     {
-        // Generate framebuffer object
-        glGenFramebuffersEXT(1, &mFB);
-        // check multisampling
-        if (GLEW_EXT_framebuffer_blit && GLEW_EXT_framebuffer_multisample)
-        {
-            // check samples supported
-            GLint maxSamples;
-            glGetIntegerv(GL_MAX_SAMPLES_EXT, &maxSamples);
-            mNumSamples = std::min(mNumSamples, (GLsizei)maxSamples);
-        }
-        else
-        {
-            mNumSamples = 0;
-        }
-        // will we need a second FBO to do multisampling?
-        if (mNumSamples)
-        {
-            glGenFramebuffersEXT(1, &mMultisampleFB);
-        }
-        else
-        {
-            mMultisampleFB = 0;
-        }
+        // check samples supported
+        GLint maxSamples;
+        glGetIntegerv(GL_MAX_SAMPLES_EXT, &maxSamples);
+        mNumSamples = std::min(mNumSamples, (GLsizei)maxSamples);
+    }
+    else
+    {
+        mNumSamples = 0;
+    }
+    // will we need a second FBO to do multisampling?
+    if (mNumSamples)
+    {
+        glGenFramebuffersEXT(1, &mMultisampleFB);
+    }
     }
     GLFrameBufferObject::~GLFrameBufferObject()
     {
-        mManager->releaseRenderBuffer(mDepth);
-        mManager->releaseRenderBuffer(mStencil);
-        mManager->releaseRenderBuffer(mMultisampleColourBuffer);
+        mRTTManager->releaseRenderBuffer(mDepth);
+        mRTTManager->releaseRenderBuffer(mStencil);
         // Delete framebuffer object
         glDeleteFramebuffersEXT(1, &mFB);        
         if (mMultisampleFB)
@@ -80,9 +79,10 @@ namespace Ogre {
     void GLFrameBufferObject::initialise()
     {
         // Release depth and stencil, if they were bound
-        mManager->releaseRenderBuffer(mDepth);
-        mManager->releaseRenderBuffer(mStencil);
-        mManager->releaseRenderBuffer(mMultisampleColourBuffer);
+        mRTTManager->releaseRenderBuffer(mDepth);
+        mRTTManager->releaseRenderBuffer(mStencil);
+        mRTTManager->releaseRenderBuffer(mMultisampleColourBuffer[0]);
+
         // First buffer must be bound
         if(!mColour[0].buffer)
         {
@@ -107,8 +107,6 @@ namespace Ogre {
         // Bind simple buffer to add colour attachments
         glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, mFB);
 
-        bool isDepth = PixelUtil::isDepth(getFormat());
-
         // Bind all attachment points to frame buffer
         for(unsigned int x=0; x<maxSupportedMRTs; ++x)
         {
@@ -124,13 +122,8 @@ namespace Ogre {
                     ss << ".";
                     OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, ss.str(), "GLFrameBufferObject::initialise");
                 }
-                if (!rsc->hasCapability(RSC_MRT_DIFFERENT_BIT_DEPTHS) && mColour[x].buffer->getGLFormat() != format)
-                {
-                    StringStream ss;
-                    ss << "Attachment " << x << " has incompatible format.";
-                    OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, ss.str(), "GLFrameBufferObject::initialise");
-                }
 
+                bool isDepth = PixelUtil::isDepth(mColour[x].buffer->getFormat());
                 mColour[x].buffer->bindToFramebuffer(
                     isDepth ? GL_DEPTH_ATTACHMENT_EXT : (GL_COLOR_ATTACHMENT0_EXT + x), mColour[x].zoffset);
             }
@@ -142,24 +135,11 @@ namespace Ogre {
             }
         }
 
-        // Now deal with depth / stencil
-        if (mMultisampleFB)
+        if (mMultisampleFB && !PixelUtil::isDepth(getFormat()))
         {
             // Bind multisample buffer
             glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, mMultisampleFB);
-
-            // Create AA render buffer (colour)
-            // note, this can be shared too because we blit it to the final FBO
-            // right after the render is finished
-            mMultisampleColourBuffer = mManager->requestRenderBuffer(format, width, height, mNumSamples);
-
-            // Attach it, because we won't be attaching below and non-multisample has
-            // actually been attached to other FBO
-            mMultisampleColourBuffer.buffer->bindToFramebuffer(GL_COLOR_ATTACHMENT0_EXT, 
-                mMultisampleColourBuffer.zoffset);
-
-            // depth & stencil will be dealt with below
-
+            createAndBindRenderBuffer(format, width, height);
         }
 
         // Depth buffer is not handled here anymore.
@@ -173,9 +153,11 @@ namespace Ogre {
             // Fill attached colour buffers
             if(mColour[x].buffer)
             {
-                bufs[x] = isDepth ? GL_DEPTH_ATTACHMENT_EXT : (GL_COLOR_ATTACHMENT0_EXT + x);
+                bool isDepth = PixelUtil::isDepth(mColour[x].buffer->getFormat());
+                bufs[x] = isDepth ? GL_NONE : (GL_COLOR_ATTACHMENT0_EXT + x);
                 // Keep highest used buffer + 1
-                n = x+1;
+                if(!isDepth)
+                    n = x+1;
             }
             else
             {
@@ -183,23 +165,17 @@ namespace Ogre {
             }
         }
 
-        if(!isDepth)
-        {
-            if(glDrawBuffers)
-                // Drawbuffer extension supported, use it
-                glDrawBuffers(n, bufs);
-            else
-                // In this case, the capabilities will not show more than 1 simultaneaous render target.
-                glDrawBuffer(bufs[0]);
-        }
+        if(glDrawBuffers)
+            // Drawbuffer extension supported, use it
+            glDrawBuffers(n, bufs);
+        else
+            // In this case, the capabilities will not show more than 1 simultaneaous render target.
+            glDrawBuffer(bufs[0]);
         
         // Check status
         GLuint status;
         status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
-        
-        // Bind main buffer
-        glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
-        
+
         switch(status)
         {
         case GL_FRAMEBUFFER_COMPLETE_EXT:

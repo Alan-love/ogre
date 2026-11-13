@@ -29,8 +29,6 @@ Copyright (c) 2000-2014 Torus Knot Software Ltd
 #include "OgreVulkanHardwareBufferManager.h"
 #include "OgreVulkanHardwareBuffer.h"
 
-#include <vulkan/vulkan_core.h>
-
 namespace Ogre
 {
     VulkanHardwareBufferManager::VulkanHardwareBufferManager( VulkanDevice *device) :
@@ -48,26 +46,18 @@ namespace Ogre
     {
         {
             OGRE_LOCK_MUTEX( mVertexBuffersMutex );
-            VertexBufferList::const_iterator itor = mVertexBuffers.begin();
-            VertexBufferList::const_iterator end = mVertexBuffers.end();
-
-            while( itor != end )
+            for (auto& b : mVertexBuffers)
             {
-                auto hwBuffer = (*itor)->_getImpl<VulkanHardwareBuffer>();
+                auto hwBuffer = b->_getImpl<VulkanHardwareBuffer>();
                 hwBuffer->_notifyDeviceStalled();
-                ++itor;
             }
         }
         {
             OGRE_LOCK_MUTEX( mIndexBuffersMutex );
-            IndexBufferList::const_iterator itor = mIndexBuffers.begin();
-            IndexBufferList::const_iterator end = mIndexBuffers.end();
-
-            while( itor != end )
+            for (auto& i : mIndexBuffers)
             {
-                auto hwBuffer = (*itor)->_getImpl<VulkanHardwareBuffer>();
+                auto hwBuffer = i->_getImpl<VulkanHardwareBuffer>();
                 hwBuffer->_notifyDeviceStalled();
-                ++itor;
             }
         }
     }

@@ -28,38 +28,11 @@ Copyright (c) 2000-2014 Torus Knot Software Ltd
 #ifndef __OgreGL3PlusFBORTT_H__
 #define __OgreGL3PlusFBORTT_H__
 
+#include "OgreGL3PlusPrerequisites.h"
 #include "OgreGLRenderTexture.h"
 #include "OgreGLContext.h"
-#include "OgreGL3PlusFrameBufferObject.h"
 
 namespace Ogre {
-    class GL3PlusFBOManager;
-    class GL3PlusRenderBuffer;
-    class GL3PlusStateCacheManager;
-
-    /** RenderTexture for GL FBO
-     */
-    class _OgreGL3PlusExport GL3PlusFBORenderTexture : public GLRenderTexture
-    {
-    public:
-        GL3PlusFBORenderTexture(GL3PlusFBOManager *manager, const String &name, const GLSurfaceDesc &target, bool writeGamma, uint fsaa);
-
-        virtual void getCustomAttribute(const String& name, void* pData);
-
-        /// Override needed to deal with multisample buffers
-        virtual void swapBuffers();
-
-        /// Override so we can attach the depth buffer to the FBO
-        virtual bool attachDepthBuffer( DepthBuffer *depthBuffer );
-        virtual void detachDepthBuffer();
-        virtual void _detachDepthBuffer();
-
-        GLContext* getContext() const { return mFB.getContext(); }
-        GLFrameBufferObjectCommon* getFBO() { return &mFB; }
-    protected:
-        GL3PlusFrameBufferObject mFB;
-    };
-
     /** Factory for GL Frame Buffer Objects, and related things.
      */
     class _OgreGL3PlusExport GL3PlusFBOManager: public GL3PlusRTTManager
@@ -70,18 +43,16 @@ namespace Ogre {
 
         /** Get best depth and stencil supported for given internalFormat
          */
-        void getBestDepthStencil(PixelFormat internalFormat, GLenum *depthFormat, GLenum *stencilFormat);
+        void getBestDepthStencil(PixelFormat internalFormat, GLenum *depthFormat, GLenum *stencilFormat) override;
 
         /** Create a texture rendertarget object
          */
-        virtual GL3PlusFBORenderTexture *createRenderTexture(const String &name,
-                                                             const GLSurfaceDesc &target, bool writeGamma, uint fsaa);
+        GLFBORenderTexture* createRenderTexture(const String& name, const GLSurfaceDesc& target,
+                                                bool writeGamma) override;
 
-        /** Request a render buffer. If format is GL_NONE, return a zero buffer.
-         */
-        GLSurfaceDesc requestRenderBuffer(GLenum format, uint32 width, uint32 height, uint fsaa);
+        GLHardwarePixelBufferCommon* createNewRenderBuffer(unsigned format, uint32 width, uint32 height,
+                                                           uint fsaa) override;
 
-        GL3PlusStateCacheManager* getStateCacheManager();
     private:
         GL3PlusRenderSystem* mRenderSystem;
 

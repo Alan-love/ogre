@@ -26,7 +26,6 @@ THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
 #include "OgreStableHeaders.h"
-#include "OgreCodec.h"
 
 namespace Ogre {
 
@@ -34,6 +33,8 @@ namespace Ogre {
 
     Codec::~Codec() {
     }
+
+    String Codec::magicNumberToFileExt(const char* magicNumberPtr, size_t maxbytes) const { return BLANKSTRING; }
 
     DataStreamPtr Codec::encode(const Any& input) const
     {
@@ -50,10 +51,9 @@ namespace Ogre {
     {
         StringVector result;
         result.reserve(msMapCodecs.size());
-        CodecList::const_iterator i;
-        for (i = msMapCodecs.begin(); i != msMapCodecs.end(); ++i)
+        for (auto& c : msMapCodecs)
         {
-            result.push_back(i->first);
+            result.push_back(c.first);
         }
         return result;
     }
@@ -83,30 +83,26 @@ namespace Ogre {
         }
 
         return i->second;
-
     }
 
     Codec* Codec::getCodec(char *magicNumberPtr, size_t maxbytes)
     {
-        for (CodecList::const_iterator i = msMapCodecs. begin(); 
-            i != msMapCodecs.end(); ++i)
+        for (auto& c : msMapCodecs)
         {
-            String ext = i->second->magicNumberToFileExt(magicNumberPtr, maxbytes);
+            String ext = c.second->magicNumberToFileExt(magicNumberPtr, maxbytes);
             if (!ext.empty())
             {
                 // check codec type matches
                 // if we have a single codec class that can handle many types, 
                 // and register many instances of it against different types, we
                 // can end up matching the wrong one here, so grab the right one
-                if (ext == i->second->getType())
-                    return i->second;
+                if (ext == c.second->getType())
+                    return c.second;
                 else
                     return getCodec(ext);
             }
         }
 
         return 0;
-
     }
-
 }

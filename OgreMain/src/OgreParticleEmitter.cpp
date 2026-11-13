@@ -146,7 +146,8 @@ namespace Ogre
     void ParticleEmitter::setAngle(const Radian& angle)
     {
         // Store as radians for efficiency
-        mAngle = angle;
+        // anything above 180 degrees already covers the whole sphere
+        mAngle = std::min(angle, Radian(Math::PI));
     }
     //-----------------------------------------------------------------------
     const Radian& ParticleEmitter::getAngle(void) const
@@ -286,7 +287,7 @@ namespace Ogre
         Real scalar;
         if (mMinSpeed != mMaxSpeed)
         {
-            scalar = mMinSpeed + (Math::UnitRandom() * (mMaxSpeed - mMinSpeed));
+            scalar = Math::RangeRandom(mMinSpeed, mMaxSpeed);
         }
         else
         {
@@ -300,7 +301,7 @@ namespace Ogre
     {
         if (mMaxTTL != mMinTTL)
         {
-            return mMinTTL + (Math::UnitRandom() * (mMaxTTL - mMinTTL));
+            return Math::RangeRandom(mMinTTL, mMaxTTL);
         }
         else
         {
@@ -318,10 +319,12 @@ namespace Ogre
                 setEnabled(false);
                 return mEmissionRate;
             }
-            // Keep fractions, otherwise a high frame rate will result in zero emissions!
-            mRemainder += mEmissionRate * timeElapsed;
+
             unsigned short intRequest = (unsigned short)mRemainder;
             mRemainder -= intRequest;
+
+            // Keep fractions, otherwise a high frame rate will result in zero emissions!
+            mRemainder += mEmissionRate * timeElapsed;
 
             // Check duration
             if (mDurationMax)
@@ -367,7 +370,7 @@ namespace Ogre
         {
             // Randomise
             ColourValue t(Math::UnitRandom(), Math::UnitRandom(), Math::UnitRandom(), Math::UnitRandom());
-            destColour = (mColourRangeStart + t * (mColourRangeEnd - mColourRangeStart)).getAsBYTE();
+            destColour = Math::lerp(mColourRangeStart, mColourRangeEnd, t).getAsBYTE();
         }
         else
         {
@@ -554,6 +557,7 @@ namespace Ogre
     void ParticleEmitter::setEnabled(bool enabled)
     {
         mEnabled = enabled;
+        mRemainder = 1.0f; // make sure we emit a particle on next update. Turns emission rate to (t0;r] interval
         // Reset duration & repeat
         initDurationRepeat();
     }
@@ -683,32 +687,28 @@ namespace Ogre
     //-----------------------------------------------------------------------
     ParticleEmitterFactory::~ParticleEmitterFactory()
     {
+        OGRE_IGNORE_DEPRECATED_BEGIN
         // Destroy all emitters
-        std::vector<ParticleEmitter*>::iterator i;
-        for (i = mEmitters.begin(); i != mEmitters.end(); ++i)
+        for (auto& e : mEmitters)
         {
-            OGRE_DELETE (*i);
+            OGRE_DELETE e;
         }
             
         mEmitters.clear();
-
+        OGRE_IGNORE_DEPRECATED_END
     }
     //-----------------------------------------------------------------------
     void ParticleEmitterFactory::destroyEmitter(ParticleEmitter* e)        
     {
-        std::vector<ParticleEmitter*>::iterator i;
-        for (i = mEmitters.begin(); i != mEmitters.end(); ++i)
-        {
-            if ((*i) == e)
-            {
-                mEmitters.erase(i);
-                OGRE_DELETE e;
-                break;
-            }
+        delete e;
+        OGRE_IGNORE_DEPRECATED_BEGIN
+        auto i = std::find(std::begin(mEmitters), std::end(mEmitters), e);
+        if (i != std::end(mEmitters)) {
+            mEmitters.erase(i);
         }
+        OGRE_IGNORE_DEPRECATED_END
     }
 
     //-----------------------------------------------------------------------
-
 }
 

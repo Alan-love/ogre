@@ -36,16 +36,17 @@ namespace Ogre {
 
 //-----------------------------------------------------------------------------  
     GLCopyingRenderTexture::GLCopyingRenderTexture(GLCopyingRTTManager *manager, 
-        const String &name, const GLSurfaceDesc &target, bool writeGamma, uint fsaa):
-        GLRenderTexture(name, target, writeGamma, fsaa)
+        const String &name, const GLSurfaceDesc &target, bool writeGamma):
+        GLRenderTexture(name, target, writeGamma)
     {
+        mDepthBufferPoolId = RBP_NONE; // not poolable
     }
     void GLCopyingRenderTexture::getCustomAttribute(const String& name, void* pData)
     {
         if( name == GLRenderTexture::CustomAttributeString_TARGET )
         {
             GLSurfaceDesc &target = *static_cast<GLSurfaceDesc*>(pData);
-            target.buffer = static_cast<GLHardwarePixelBuffer*>(mBuffer);
+            target.buffer = static_cast<GLHardwarePixelBufferCommon*>(mBuffer);
             target.zoffset = mZOffset;
         }
     }

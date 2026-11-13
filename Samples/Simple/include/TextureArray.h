@@ -16,18 +16,18 @@ public:
         mInfo["Title"] = "Texture Array";
         mInfo["Description"] = "Demonstrates texture array support.";
         mInfo["Thumbnail"] = "thumb_texarray.png";
-        mInfo["Category"] = "Unsorted";
+        mInfo["Category"] = "ShaderFeatures";
         mInfo["Help"] = "Top Left: Multi-frame\nTop Right: Scrolling\nBottom Left: Rotation\nBottom Right: Scaling";
     }
 
 protected:
 
-    void testCapabilities( const RenderSystemCapabilities* caps )
+    void testCapabilities( const RenderSystemCapabilities* caps ) override
     {
         requireMaterial("Examples/TextureArray");
     }
 
-    void setupContent()
+    void setupContent() override
     {
         mSceneMgr->setSkyBox(true, "Examples/TrippySkyBox");
 

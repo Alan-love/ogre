@@ -31,10 +31,8 @@ THE SOFTWARE.
 #endif
 #include "OgreWin32Window.h"
 #include "OgreRoot.h"
-#include "OgreViewport.h"
 #include "OgreLogManager.h"
 #include "OgreRenderSystem.h"
-#include "OgreImageCodec.h"
 #include "OgreStringConverter.h"
 #include "OgreException.h"
 #include "OgreWin32GLSupport.h"
@@ -94,7 +92,6 @@ namespace Ogre {
         mIsFullScreen = fullScreen;
         mClosed = false;        
         mDisplayFrequency = 0;
-        mDepthBufferPoolId = DepthBuffer::POOL_DEFAULT;
         mColourDepth = mIsFullScreen? 32 : GetDeviceCaps(GetDC(0), BITSPIXEL);
         int left = -1; // Defaults to screen center
         int top = -1; // Defaults to screen center
@@ -104,6 +101,7 @@ namespace Ogre {
         String border;
         bool outerSize = false;
         bool hwGamma = false;
+        bool hdrDisplay = false;
         bool enableDoubleClick = false;
         int monitorIndex = -1;
         HMONITOR hMonitor = NULL;
@@ -125,8 +123,8 @@ namespace Ogre {
 
             if ((opt = miscParams->find("depthBuffer")) != end)
             {
-                mDepthBufferPoolId = StringConverter::parseBool(opt->second) ?
-                                                DepthBuffer::POOL_DEFAULT : DepthBuffer::POOL_NO_DEPTH;
+                LogManager::getSingleton().logWarning(
+                    "Win32Window::create(): depthBuffer option is not supported on OpenGL.");
             }
 
             if ((opt = miscParams->find("vsync")) != end)
@@ -147,12 +145,13 @@ namespace Ogre {
             if ((opt = miscParams->find("gamma")) != end)
                 hwGamma = StringConverter::parseBool(opt->second);
 
+            if ((opt = miscParams->find("hdrDisplay")) != end)
+                StringConverter::parse(opt->second, hdrDisplay);
+
 #if OGRE_NO_QUAD_BUFFER_STEREO == 0
 			if ((opt = miscParams->find("stereoMode")) != end)
 			{
-				StereoModeType stereoMode = StringConverter::parseStereoMode(opt->second);
-				if (SMT_NONE != stereoMode)
-					mStereoEnabled = true;
+				mStereoEnabled = StringConverter::parseBool(opt->second);
 			}
 #endif
 
@@ -368,27 +367,7 @@ namespace Ogre {
 
             if (mIsFullScreen)
             {
-                DEVMODE displayDeviceMode;
-
-                memset(&displayDeviceMode, 0, sizeof(displayDeviceMode));
-                displayDeviceMode.dmSize = sizeof(DEVMODE);
-                displayDeviceMode.dmBitsPerPel = mColourDepth;
-                displayDeviceMode.dmPelsWidth = mWidth;
-                displayDeviceMode.dmPelsHeight = mHeight;
-                displayDeviceMode.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
-
-                if (mDisplayFrequency)
-                {
-                    displayDeviceMode.dmDisplayFrequency = mDisplayFrequency;
-                    displayDeviceMode.dmFields |= DM_DISPLAYFREQUENCY;
-                    if (ChangeDisplaySettingsEx(mDeviceName, &displayDeviceMode, NULL, CDS_FULLSCREEN | CDS_TEST, NULL) != DISP_CHANGE_SUCCESSFUL)
-                    {
-                        LogManager::getSingleton().logMessage(LML_NORMAL, "ChangeDisplaySettings with user display frequency failed");
-                        displayDeviceMode.dmFields ^= DM_DISPLAYFREQUENCY;
-                    }
-                }
-                if (ChangeDisplaySettingsEx(mDeviceName, &displayDeviceMode, NULL, CDS_FULLSCREEN, NULL) != DISP_CHANGE_SUCCESSFUL)                             
-                    LogManager::getSingleton().logMessage(LML_CRITICAL, "ChangeDisplaySettings failed");
+                switchMode(mWidth, mHeight, mDisplayFrequency);
             }
 
             // Pass pointer to self as WM_CREATE parameter
@@ -421,14 +400,32 @@ namespace Ogre {
         {
             int testFsaa = mFSAA;
             bool testHwGamma = hwGamma;
-            bool formatOk = mGLSupport.selectPixelFormat(mHDC, mColourDepth, testFsaa, testHwGamma);
+            bool testHdr = hdrDisplay;
+
+            if(testHdr)
+            {
+                // hdr typically does not support fsaa or hw gamma
+                testHwGamma = false;
+                testFsaa = 0;
+            }
+
+            bool formatOk = mGLSupport.selectPixelFormat(mHDC, mColourDepth, testFsaa, testHwGamma, mStereoEnabled, testHdr);
             if (!formatOk)
             {
-                if (mFSAA > 0)
+                if(testHdr)
+                {
+                    // try without HDR
+                    testHdr = false;
+                    testHwGamma = hwGamma;
+                    testFsaa = mFSAA;
+                    formatOk = mGLSupport.selectPixelFormat(mHDC, mColourDepth, testFsaa, testHwGamma, mStereoEnabled, testHdr);
+                }
+
+                if (!formatOk && mFSAA > 0)
                 {
                     // try without FSAA
                     testFsaa = 0;
-                    formatOk = mGLSupport.selectPixelFormat(mHDC, mColourDepth, testFsaa, testHwGamma);
+                    formatOk = mGLSupport.selectPixelFormat(mHDC, mColourDepth, testFsaa, testHwGamma, mStereoEnabled, testHdr);
                 }
 
                 if (!formatOk && hwGamma)
@@ -436,7 +433,7 @@ namespace Ogre {
                     // try without sRGB
                     testHwGamma = false;
                     testFsaa = mFSAA;
-                    formatOk = mGLSupport.selectPixelFormat(mHDC, mColourDepth, testFsaa, testHwGamma);
+                    formatOk = mGLSupport.selectPixelFormat(mHDC, mColourDepth, testFsaa, testHwGamma, mStereoEnabled, testHdr);
                 }
 
                 if (!formatOk && hwGamma && (mFSAA > 0))
@@ -444,7 +441,7 @@ namespace Ogre {
                     // try without both
                     testHwGamma = false;
                     testFsaa = 0;
-                    formatOk = mGLSupport.selectPixelFormat(mHDC, mColourDepth, testFsaa, testHwGamma);
+                    formatOk = mGLSupport.selectPixelFormat(mHDC, mColourDepth, testFsaa, testHwGamma, mStereoEnabled, testHdr);
                 }
 
                 if (!formatOk)
@@ -454,7 +451,7 @@ namespace Ogre {
             }
             // record what gamma option we used in the end
             // this will control enabling of sRGB state flags when used
-            mHwGamma = testHwGamma;
+            mHwGamma = testHwGamma || testHdr; // hdr implies hw gamma
             mFSAA = testFsaa;
         }
         if (mOwnsGLContext)
@@ -519,6 +516,30 @@ namespace Ogre {
 
     }
 
+    void Win32Window::switchMode(uint width, uint height, uint frequency)
+    {
+        DEVMODE displayDeviceMode = {};
+
+        displayDeviceMode.dmSize = sizeof(DEVMODE);
+        displayDeviceMode.dmBitsPerPel = mColourDepth;
+        displayDeviceMode.dmPelsWidth = width;
+        displayDeviceMode.dmPelsHeight = height;
+        displayDeviceMode.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
+
+        if (frequency)
+        {
+            displayDeviceMode.dmDisplayFrequency = frequency;
+            displayDeviceMode.dmFields |= DM_DISPLAYFREQUENCY;
+            if (ChangeDisplaySettingsEx(mDeviceName, &displayDeviceMode, NULL, CDS_FULLSCREEN | CDS_TEST, NULL) != DISP_CHANGE_SUCCESSFUL)
+            {
+                LogManager::getSingleton().logWarning("ChangeDisplaySettings with user display frequency failed");
+                displayDeviceMode.dmFields ^= DM_DISPLAYFREQUENCY;
+            }
+        }
+        if (ChangeDisplaySettingsEx(mDeviceName, &displayDeviceMode, NULL, CDS_FULLSCREEN, NULL) != DISP_CHANGE_SUCCESSFUL)
+            LogManager::getSingleton().logError("ChangeDisplaySettings failed");
+    }
+
     void Win32Window::setFullscreen(bool fullScreen, unsigned int width, unsigned int height)
     {
         if(mIsExternal)
@@ -530,49 +551,7 @@ namespace Ogre {
             
             if (mIsFullScreen)
             {
-                
-                DEVMODE displayDeviceMode;
-
-                memset(&displayDeviceMode, 0, sizeof(displayDeviceMode));
-                displayDeviceMode.dmSize = sizeof(DEVMODE);
-                displayDeviceMode.dmBitsPerPel = mColourDepth;
-                displayDeviceMode.dmPelsWidth = width;
-                displayDeviceMode.dmPelsHeight = height;
-                displayDeviceMode.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
-                if (mDisplayFrequency)
-                {
-                    displayDeviceMode.dmDisplayFrequency = mDisplayFrequency;
-                    displayDeviceMode.dmFields |= DM_DISPLAYFREQUENCY;
-
-                    if (ChangeDisplaySettingsEx(mDeviceName, &displayDeviceMode, NULL, 
-                        CDS_FULLSCREEN | CDS_TEST, NULL) != DISP_CHANGE_SUCCESSFUL)                 
-                    {
-                        LogManager::getSingleton().logMessage(LML_NORMAL, "ChangeDisplaySettings with user display frequency failed");
-                        displayDeviceMode.dmFields ^= DM_DISPLAYFREQUENCY;
-                    }
-                }
-                else
-                {
-                    // try a few
-                    displayDeviceMode.dmDisplayFrequency = 100;
-                    displayDeviceMode.dmFields |= DM_DISPLAYFREQUENCY;
-                    if (ChangeDisplaySettingsEx(mDeviceName, &displayDeviceMode, NULL, 
-                        CDS_FULLSCREEN | CDS_TEST, NULL) != DISP_CHANGE_SUCCESSFUL)     
-                    {
-                        displayDeviceMode.dmDisplayFrequency = 75;
-                        if (ChangeDisplaySettingsEx(mDeviceName, &displayDeviceMode, NULL, 
-                            CDS_FULLSCREEN | CDS_TEST, NULL) != DISP_CHANGE_SUCCESSFUL)     
-                        {
-                            displayDeviceMode.dmFields ^= DM_DISPLAYFREQUENCY;
-                        }
-                    }
-
-                }
-                // move window to 0,0 before display switch
-                SetWindowPos(mHWnd, HWND_TOPMOST, 0, 0, mWidth, mHeight, SWP_NOACTIVATE);
-
-                if (ChangeDisplaySettingsEx(mDeviceName, &displayDeviceMode, NULL, CDS_FULLSCREEN, NULL) != DISP_CHANGE_SUCCESSFUL)             
-                    LogManager::getSingleton().logMessage(LML_CRITICAL, "ChangeDisplaySettings failed");
+                switchMode(width, height, mDisplayFrequency);
 
                 // Get the nearest monitor to this window.
                 HMONITOR hMonitor = MonitorFromWindow(mHWnd, MONITOR_DEFAULTTONEAREST);
@@ -791,16 +770,9 @@ namespace Ogre {
         unsigned int width = rc.right - rc.left;
         unsigned int height = rc.bottom - rc.top;
 
-        // Case window resized.
         if (width != mWidth || height != mHeight)
         {
-            mWidth  = rc.right - rc.left;
-            mHeight = rc.bottom - rc.top;
-
-            // Notify viewports of resize
-            ViewportList::iterator it = mViewportList.begin();
-            while( it != mViewportList.end() )
-                (*it++).second->_updateDimensions();            
+            RenderWindow::resize(rc.right - rc.left, rc.bottom - rc.top);
         }
     }
 
@@ -852,23 +824,8 @@ namespace Ogre {
                 ShowWindow(mHWnd, SW_SHOWMINNOACTIVE);
             }
             else
-            {   //Restore App
-                ShowWindow(mHWnd, SW_SHOWNORMAL);
-
-                DEVMODE displayDeviceMode;
-
-                memset(&displayDeviceMode, 0, sizeof(displayDeviceMode));
-                displayDeviceMode.dmSize = sizeof(DEVMODE);
-                displayDeviceMode.dmBitsPerPel = mColourDepth;
-                displayDeviceMode.dmPelsWidth = mWidth;
-                displayDeviceMode.dmPelsHeight = mHeight;
-                displayDeviceMode.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
-                if (mDisplayFrequency)
-                {
-                    displayDeviceMode.dmDisplayFrequency = mDisplayFrequency;
-                    displayDeviceMode.dmFields |= DM_DISPLAYFREQUENCY;
-                }
-                ChangeDisplaySettingsEx(mDeviceName, &displayDeviceMode, NULL, CDS_FULLSCREEN, NULL);
+            {
+                switchMode(mWidth, mHeight, mDisplayFrequency);
             }
         }
     }

@@ -114,7 +114,7 @@ namespace Ogre  {
             {GL_NONE},                                           // PF_PVRTC_RGBA4
             {GL_NONE},                                           // PF_PVRTC2_2BPP
             {GL_NONE},                                           // PF_PVRTC2_4BPP
-            {GL_BGR, GL_UNSIGNED_INT_10F_11F_11F_REV, GL_R11F_G11F_B10F}, // PF_R11G11B10_FLOAT
+            {GL_RGB, GL_UNSIGNED_INT_10F_11F_11F_REV, GL_R11F_G11F_B10F}, // PF_R11G11B10_FLOAT
             {GL_RED_INTEGER, GL_UNSIGNED_BYTE, GL_R8UI},         // PF_R8_UINT
             {GL_RG_INTEGER, GL_UNSIGNED_BYTE, GL_RG8UI},         // PF_R8G8_UINT
             {GL_RGB_INTEGER, GL_UNSIGNED_BYTE, GL_RGB8UI},       // PF_R8G8B8_UINT
@@ -180,6 +180,7 @@ namespace Ogre  {
             {GL_NONE, GL_NONE, GL_COMPRESSED_RGBA_ASTC_12x12_KHR},// PF_ASTC_RGBA_12X12_LDR
             {GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, GL_DEPTH_COMPONENT32}, // PF_DEPTH32
             {GL_DEPTH_COMPONENT, GL_FLOAT, GL_DEPTH_COMPONENT32F}, // PF_DEPTH32F
+            {GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, GL_DEPTH24_STENCIL8}, // PF_DEPTH24_STENCIL8
     };
 
     GLenum GL3PlusPixelUtil::getGLOriginFormat(PixelFormat pf)
@@ -328,7 +329,7 @@ namespace Ogre  {
     GLenum GL3PlusPixelUtil::getClosestGLImageInternalFormat(PixelFormat format)
     {
         GLenum GLformat = getGLImageInternalFormat(format);
-        return (format == GL_NONE ? GL_RGBA8 : GLformat);
+        return (GLformat == GL_NONE ? GL_RGBA8 : GLformat);
     }
 
 

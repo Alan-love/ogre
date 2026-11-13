@@ -27,25 +27,12 @@ public:
         mInfo["Help"] = "Top Left: Multi-frame\nTop Right: Scrolling\nBottom Left: Rotation\nBottom Right: Scaling";
     }
 
-    void testCapabilities(const RenderSystemCapabilities* caps)
+    void testCapabilities(const RenderSystemCapabilities* caps) override
     {
-        if (!caps->hasCapability(RSC_TESSELLATION_HULL_PROGRAM) || !caps->hasCapability(RSC_TESSELLATION_DOMAIN_PROGRAM))
-        {
-            OGRE_EXCEPT(Exception::ERR_INVALID_STATE, "Your graphics card does not support tessellation shaders. Sorry!",
-                "Sample_PNTrianglesTessellation:testCapabilities");
-        }
-        if (!GpuProgramManager::getSingleton().isSyntaxSupported("vs_5_0") &&
-            !GpuProgramManager::getSingleton().isSyntaxSupported("hs_5_0") &&
-            !GpuProgramManager::getSingleton().isSyntaxSupported("ds_5_0") &&
-            !GpuProgramManager::getSingleton().isSyntaxSupported("ps_5_0") &&
-            !GpuProgramManager::getSingleton().isSyntaxSupported("hlsl"))
-        {
-            OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED, "Your card does not support the shader model 5.0 needed for this sample, "
-                "so you cannot run this sample. Sorry!", "Sample_PNTrianglesTessellation::testCapabilities");
-        }
+        requireMaterial("Ogre/SimpleTessellation");
     }
 
-    bool frameRenderingQueued(const FrameEvent& evt)
+    bool frameRenderingQueued(const FrameEvent& evt) override
     {
         if (mMoveLights)
         {
@@ -57,7 +44,7 @@ public:
         return SdkSample::frameRenderingQueued(evt);  // don't forget the parent class updates!
     }
 
-    void itemSelected(SelectMenu* menu)
+    void itemSelected(SelectMenu* menu) override
     {
         if (menu == mMeshMenu)
         {
@@ -85,7 +72,7 @@ public:
         }
     }
 
-    void checkBoxToggled(CheckBox* box)
+    void checkBoxToggled(CheckBox* box) override
     {
         if (box->getName() == "Wire")
         {
@@ -107,7 +94,7 @@ public:
         }
     }
 
-    void sliderMoved(Slider* slider)
+    void sliderMoved(Slider* slider) override
     {
         if( slider->getName() == "tessellationAmount" )
         {
@@ -118,7 +105,7 @@ public:
 
 protected:
 
-    void setupContent()
+    void setupContent() override
     {
         // create our main node to attach our entities to
         mObjectNode = mSceneMgr->getRootSceneNode()->createChildSceneNode();
@@ -126,14 +113,14 @@ protected:
         setupModels();
         setupLights();
         setupControls();
-        
+
         // set our camera
         mCamera->setFOVy(Ogre::Degree(50.0));
         mCamera->setFOVy(Ogre::Degree(50.0));
         mCamera->setNearClipDistance(0.01f);
         mCameraNode->lookAt(Ogre::Vector3::ZERO, Ogre::Node::TS_PARENT);
         mCameraNode->setPosition(0, 0, 500);
-        
+
 
         // Set our camera to orbit around the origin at a suitable distance
         mCameraMan->setStyle(CS_ORBIT);
@@ -142,7 +129,7 @@ protected:
         mTrayMgr->showCursor();
     }
 
-    void unloadResources()
+    void unloadResources() override
     {
 
     }
@@ -156,35 +143,29 @@ protected:
         matNames.push_back("Ogre/SimpleTessellation");
         //matNames.push_back("Ogre/AdaptiveTessellation");
         matNames.push_back("Ogre/AdaptivePNTrianglesTessellation");
-        
+
         mPossibilities["ogrehead.mesh"] = matNames;
         mPossibilities["knot.mesh"] = matNames;
         mPossibilities["uv_sphere.mesh"] = matNames;
 
-        for (std::map<String, StringVector>::iterator it = mPossibilities.begin(); it != mPossibilities.end(); it++)
+        for (const auto& p : mPossibilities)
         {
             // load each mesh with non-default hardware buffer usage options
-            MeshPtr mesh = MeshManager::getSingleton().load(it->first, ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
-                HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY);
+            MeshPtr mesh = MeshManager::getSingleton().load(p.first, RGN_DEFAULT,
+                HBU_CPU_TO_GPU);
 
             // build tangent vectors for our mesh
-            unsigned short src, dest;
-            if (!mesh->suggestTangentVectorBuildParams(VES_TANGENT, src, dest))
-            {
-                mesh->buildTangentVectors(VES_TANGENT, src, dest);
-                // this version cleans mirrored and rotated UVs but requires quality models
-                // mesh->buildTangentVectors(VES_TANGENT, src, dest, true, true);
-            }
+            mesh->buildTangentVectors();
 
             // create an entity from the mesh and set the first available material
             Entity* ent = mSceneMgr->createEntity(mesh->getName(), mesh->getName());
-            ent->setMaterialName(it->second.front());
+            ent->setMaterialName(p.second.front());
         }
     }
 
     void setupLights()
     {
-        mSceneMgr->setAmbientLight(ColourValue::Black); 
+        mSceneMgr->setAmbientLight(ColourValue::Black);
         mViewport->setBackgroundColour(ColourValue(0.41f, 0.41f, 0.41f));
 
         // create pivot nodes
@@ -194,7 +175,7 @@ protected:
         mLightPivot1->setPosition(Vector3(200, 0, 0));
         mLightPivot2->setPosition(Vector3(-200, 0, 0));
 
-        mLightPivot1->setDirection(-Vector3::UNIT_X);        
+        mLightPivot1->setDirection(-Vector3::UNIT_X);
         mLightPivot2->setDirection(Vector3::UNIT_X);
 
         Light* l;
@@ -236,18 +217,18 @@ protected:
 
         // create a menu to choose the model displayed
         mMeshMenu = mTrayMgr->createLongSelectMenu(TL_BOTTOM, "Mesh", "Mesh", 370, 290, 10);
-        for (std::map<String, StringVector>::iterator it = mPossibilities.begin(); it != mPossibilities.end(); it++)
-            mMeshMenu->addItem(it->first);
+        for (const auto& p : mPossibilities)
+            mMeshMenu->addItem(p.first);
 
         // create a menu to choose the material used by the model
         mMaterialMenu = mTrayMgr->createLongSelectMenu(TL_BOTTOM, "Material", "Material", 370, 290, 10);
-        
+
         mTrayMgr->createCheckBox(TL_TOPLEFT, "Wire", "Wire Frame")->setChecked(false, false);
         // create checkboxes to toggle lights
         mTrayMgr->createCheckBox(TL_TOPLEFT, "Light1", "Light A")->setChecked(true, false);
         mTrayMgr->createCheckBox(TL_TOPLEFT, "Light2", "Light B")->setChecked(true, false);
         mTrayMgr->createCheckBox(TL_TOPLEFT, "MoveLights", "Move Lights")->setChecked(true, false);
-        
+
         mTessellationAmount = mTrayMgr->createThickSlider(TL_TOPLEFT, "tessellationAmount", "Tessellation Amount", 200, 40, 1, 8, 8);
         mTessellationAmount->hide();
 
@@ -259,11 +240,11 @@ protected:
         mMeshMenu->selectItem(0);  // select first mesh
     }
 
-    void cleanupContent()
+    void cleanupContent() override
     {
         // clean up properly to avoid interfering with subsequent samples
-        for (std::map<String, StringVector>::iterator it = mPossibilities.begin(); it != mPossibilities.end(); it++)
-            MeshManager::getSingleton().unload(it->first, ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+        for (const auto& p : mPossibilities)
+            MeshManager::getSingleton().unload(p.first, RGN_DEFAULT);
         mPossibilities.clear();
     }
 

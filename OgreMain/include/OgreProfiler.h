@@ -52,9 +52,9 @@ Ogre-dependent is in the visualization/logging routines and the use of the Timer
 #   define OgreProfileGroup( a, g ) Ogre::Profile OGRE_TOKEN_PASTE(_OgreProfileInstance, __LINE__) ( (a), (g) )
 #   define OgreProfileBeginGroup( a, g ) Ogre::Profiler::getSingleton().beginProfile( (a), (g) )
 #   define OgreProfileEndGroup( a, g ) Ogre::Profiler::getSingleton().endProfile( (a), (g) )
-#   define OgreProfileBeginGPUEvent( g ) Ogre::Profiler::getSingleton().beginGPUEvent(g)
-#   define OgreProfileEndGPUEvent( g ) Ogre::Profiler::getSingleton().endGPUEvent(g)
-#   define OgreProfileMarkGPUEvent( e ) Ogre::Profiler::getSingleton().markGPUEvent(e)
+#   define OgreProfileBeginGPUEvent( g ) Ogre::Root::getSingleton().getRenderSystem()->beginProfileEvent(g)
+#   define OgreProfileEndGPUEvent( g ) Ogre::Root::getSingleton().getRenderSystem()->endProfileEvent()
+#   define OgreProfileMarkGPUEvent( e ) Ogre::Root::getSingleton().getRenderSystem()->markProfileEvent(e)
 #else
 #   define OgreProfile( a )
 #   define OgreProfileBegin( a )
@@ -220,12 +220,12 @@ namespace Ogre {
     };
 
     /** The profiler allows you to measure the performance of your code
-        @remarks
-            Do not create profiles directly from this unless you want a profile to last
-            outside of its scope (i.e. the main game loop). For most cases, use the macro
-            OgreProfile(name) and braces to limit the scope. You must enable the Profile
-            before you can used it with setEnabled(true). If you want to disable profiling
-            in Ogre, simply set the macro OGRE_PROFILING to 0.
+
+        Do not create profiles directly from this unless you want a profile to last
+        outside of its scope (i.e. the main game loop). For most cases, use the macro
+        OgreProfile(name) and braces to limit the scope. You must enable the Profile
+        before you can used it with setEnabled(true). If you want to disable profiling
+        in Ogre, simply set the macro OGRE_PROFILING to 0.
         @author Amit Mathew (amitmathew (at) yahoo (dot) com)
         @todo resolve artificial cap on number of profiles displayed
         @todo fix display ordering of profiles not called every frame
@@ -245,10 +245,10 @@ namespace Ogre {
             Timer* getTimer();
 
             /** Begins a profile
-            @remarks 
+
                 Use the macro OgreProfileBegin(name) instead of calling this directly 
                 so that profiling can be ignored in the release version of your app. 
-            @remarks 
+
                 You only use the macro (or this) if you want a profile to last outside
                 of its scope (i.e. the main game loop). If you use this function, make sure you 
                 use a corresponding OgreProfileEnd(name). Usually you would use the macro 
@@ -260,10 +260,10 @@ namespace Ogre {
             void beginProfile(const String& profileName, uint32 groupID = (uint32)OGREPROF_USER_DEFAULT);
 
             /** Ends a profile
-            @remarks 
+
                 Use the macro OgreProfileEnd(name) instead of calling this directly so that
                 profiling can be ignored in the release version of your app.
-            @remarks
+
                 This function is usually not called directly unless you want a profile to
                 last outside of its scope. In most cases, using the macro OgreProfile(name) 
                 which will call this function automatically when it goes out of scope. Make 
@@ -274,21 +274,6 @@ namespace Ogre {
             @param groupID A profile group identifier, which can allow you to mask profiles
             */
             void endProfile(const String& profileName, uint32 groupID = (uint32)OGREPROF_USER_DEFAULT);
-
-            /** Mark the beginning of a GPU event group
-             @remarks Can be safely called in the middle of the profile.
-             */
-            void beginGPUEvent(const String& event);
-
-            /** Mark the end of a GPU event group
-             @remarks Can be safely called in the middle of the profile.
-             */
-            void endGPUEvent(const String& event);
-
-            /** Mark a specific, ungrouped, GPU event
-             @remarks Can be safely called in the middle of the profile.
-             */
-            void markGPUEvent(const String& event);
 
             /** Sets whether this profiler is enabled. Only takes effect after the
                 the frame has ended.
@@ -356,7 +341,7 @@ namespace Ogre {
             uint getUpdateDisplayFrequency() const;
 
             /**
-            @remarks
+
                 Register a ProfileSessionListener from the Profiler
             @param listener
                 A valid listener derived class
@@ -364,7 +349,7 @@ namespace Ogre {
             void addListener(ProfileSessionListener* listener);
 
             /**
-            @remarks
+
                 Unregister a ProfileSessionListener from the Profiler
             @param listener
                 A valid listener derived class
@@ -443,13 +428,13 @@ namespace Ogre {
     }; // end class
 
     /** An individual profile that will be processed by the Profiler
-        @remarks
-            Use the macro OgreProfile(name) instead of instantiating this profile directly
-        @remarks
-            We use this Profile to allow scoping rules to signify the beginning and end of
-            the profile. Use the Profiler singleton (through the macro OgreProfileBegin(name)
-            and OgreProfileEnd(name)) directly if you want a profile to last
-            outside of a scope (i.e. the main game loop).
+
+        Use the macro OgreProfile(name) instead of instantiating this profile directly
+
+        We use this Profile to allow scoping rules to signify the beginning and end of
+        the profile. Use the Profiler singleton (through the macro OgreProfileBegin(name)
+        and OgreProfileEnd(name)) directly if you want a profile to last
+        outside of a scope (i.e. the main game loop).
         @author Amit Mathew (amitmathew (at) yahoo (dot) com)
     */
     class Profile : public ProfilerAlloc

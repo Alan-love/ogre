@@ -37,18 +37,11 @@ THE SOFTWARE.
 #include "OgreVulkanMappings.h"
 #include "OgreVulkanUtils.h"
 
-#if OGRE_DEBUG_MODE && OGRE_PLATFORM == OGRE_PLATFORM_LINUX
-#    include <execinfo.h>  //backtrace
-#endif
-
-#define TODO_use_render_pass_that_can_load
-
 namespace Ogre
 {
     VulkanRenderPassDescriptor::VulkanRenderPassDescriptor( VulkanQueue *graphicsQueue,
                                                             VulkanRenderSystem *renderSystem ) :
         mSharedFboItor( renderSystem->_getFrameBufferDescMap().end() ),
-        mSharedFboFlushItor( renderSystem->_getFlushOnlyDescMap().end() ),
         mTargetWidth( 0u ),
         mTargetHeight( 0u ),
         mQueue( graphicsQueue ),
@@ -58,34 +51,21 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     VulkanRenderPassDescriptor::~VulkanRenderPassDescriptor() { releaseFbo(); }
     //-----------------------------------------------------------------------------------
-    void VulkanRenderPassDescriptor::checkRenderWindowStatus( void )
-    {
-        if( ( mNumColourEntries > 0 && mColour[0]->isRenderWindowSpecific() ) ||
-            ( mDepth && mDepth->isRenderWindowSpecific() ) )
-        {
-            if( mNumColourEntries > 1u )
-            {
-                OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS,
-                             "Cannot use RenderWindow as MRT with other colour textures",
-                             "VulkanRenderPassDescriptor::colourEntriesModified" );
-            }
-        }
-
-        calculateSharedKey();
-    }
-    //-----------------------------------------------------------------------------------
     void VulkanRenderPassDescriptor::calculateSharedKey( void )
     {
-        VulkanFrameBufferDescKey key( *this );
+        uint32 hash = FastHash((const char*)mColour, mNumColourEntries * sizeof(mColour[0]));
+        hash = HashCombine(hash, mDepth);
+        hash = HashCombine(hash, mSlice);
+
         VulkanFrameBufferDescMap &frameBufferDescMap = mRenderSystem->_getFrameBufferDescMap();
-        VulkanFrameBufferDescMap::iterator newItor = frameBufferDescMap.find( key );
+        VulkanFrameBufferDescMap::iterator newItor = frameBufferDescMap.find( hash );
 
         if( newItor == frameBufferDescMap.end() )
         {
             VulkanFrameBufferDescValue value;
             value.refCount = 0;
-            frameBufferDescMap[key] = value;
-            newItor = frameBufferDescMap.find( key );
+            frameBufferDescMap[hash] = value;
+            newItor = frameBufferDescMap.find(hash);
         }
 
         ++newItor->second.refCount;
@@ -93,26 +73,6 @@ namespace Ogre
         releaseFbo();
 
         mSharedFboItor = newItor;
-        calculateSharedFlushOnlyKey();
-    }
-    //-----------------------------------------------------------------------------------
-    void VulkanRenderPassDescriptor::calculateSharedFlushOnlyKey( void )
-    {
-        FrameBufferDescKey key( *this );
-        VulkanFlushOnlyDescMap &frameBufferDescMap = mRenderSystem->_getFlushOnlyDescMap();
-        VulkanFlushOnlyDescMap::iterator newItor = frameBufferDescMap.find( key );
-
-        if( newItor == frameBufferDescMap.end() )
-        {
-            VulkanFlushOnlyDescValue value;
-            value.refCount = 0;
-            frameBufferDescMap[key] = value;
-            newItor = frameBufferDescMap.find( key );
-        }
-
-        ++newItor->second.refCount;
-
-        mSharedFboFlushItor = newItor;
     }
     //-----------------------------------------------------------------------------------
     VkClearColorValue VulkanRenderPassDescriptor::getClearColour( const ColourValue &clearColour,
@@ -198,7 +158,7 @@ namespace Ogre
         }
 
         VkAttachmentDescription &attachment = attachments[currAttachmIdx];
-        attachment.format = VulkanMappings::get( texture->getFormat() );
+        attachment.format = VulkanMappings::get( texture->getFormat(), texture->isHardwareGammaEnabled() );
         attachment.samples = bResolveTex ? VK_SAMPLE_COUNT_1_BIT : VkSampleCountFlagBits(colour->getFSAA());
         attachment.loadOp = bResolveTex ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_CLEAR;// TODO colour.loadAction );
         attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE; // TODO colour.storeAction
@@ -206,14 +166,17 @@ namespace Ogre
         attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         if( !bResolveTex )
         {
+            attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // TODO VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             if (texture->isRenderWindowSpecific() && !texture->isMultisample())
             {
-                attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // TODO VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                 attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            }
+            else if(!texture->isMultisample())
+            {
+                attachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
             else
             {
-                attachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                 attachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             }
         }
@@ -227,11 +190,11 @@ namespace Ogre
         }
 
         const uint8 mipLevel = 0;//bResolveTex ? colour.resolveMipLevel : colour.mipLevel;
-        const uint16 slice = 0;//bResolveTex ? colour.resolveSlice : colour.slice;
+        //mSlice = bResolveTex ? colour.resolveSlice : colour.slice;
 
         if( !texture->isRenderWindowSpecific() || ( texture->isMultisample() && !bResolveTex ) )
         {
-            fboDesc.mImageViews[currAttachmIdx] = texture->_createView(mipLevel, 0, slice, 1u, texName);
+            fboDesc.mImageViews[currAttachmIdx] = texture->_createView(mipLevel, 1, mSlice, 1u, texName);
         }
         else
         {
@@ -277,21 +240,22 @@ namespace Ogre
             attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         }
 
-        if(0) // mDepth.readOnly )
+        attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if(mNumColourEntries == 0)
         {
-            attachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-            attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+            // assume depth will be read
+            attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            attachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
         else
         {
-            attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         }
 
         VulkanTextureGpu *texture = mDepth;
         VkImage texName =
             texture->getMsaaTextureName() ? texture->getMsaaTextureName() : texture->getFinalTextureName();
-        return texture->_createView(0, 0, 0, 1u, texName);
+        return texture->_createView(0, 1, mSlice, 1, texName);
     }
     //-----------------------------------------------------------------------------------
     void VulkanRenderPassDescriptor::setupFbo( VulkanFrameBufferDescValue &fboDesc )
@@ -299,27 +263,13 @@ namespace Ogre
         if( fboDesc.mRenderPass )
             return;  // Already initialized
 
-#if 0
-        if( mDepth.texture && mDepth.texture->getResidencyStatus() != GpuResidency::Resident )
-        {
-            OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS,
-                         "RenderTexture '" + mDepth.texture->getName() + "' must be resident!",
-                         "VulkanRenderPassDescriptor::updateFbo" );
-        }
-
-        if( mStencil.texture && mStencil.texture->getResidencyStatus() != GpuResidency::Resident )
-        {
-            OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS,
-                         "RenderTexture '" + mStencil.texture->getName() + "' must be resident!",
-                         "VulkanRenderPassDescriptor::updateFbo" );
-        }
-#endif
         bool hasRenderWindow = false;
 
         uint32 attachmentIdx = 0u;
         uint32 numColourAttachments = 0u;
         uint32 windowAttachmentIdx = std::numeric_limits<uint32>::max();
         bool usesResolveAttachments = false;
+        uint32 layers = 1;
 
         // 1 per MRT
         // 1 per MRT MSAA resolve
@@ -337,6 +287,9 @@ namespace Ogre
 
             if( mColour[i]->getFormat() == PF_UNKNOWN )
                 continue;
+
+            if (mColour[i]->getUsage() & TU_TARGET_ALL_LAYERS)
+                layers = mColour[i]->getNumLayers();
 
             OGRE_ASSERT_HIGH( dynamic_cast<VulkanTextureGpu *>( mColour[i] ) );
             VulkanTextureGpu *textureVulkan = static_cast<VulkanTextureGpu *>( mColour[i] );
@@ -365,6 +318,9 @@ namespace Ogre
             else
                 depthAttachRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             ++attachmentIdx;
+
+            if (mDepth->getUsage() & TU_TARGET_ALL_LAYERS)
+                layers = mDepth->getNumLayers();
         }
 
         VkSubpassDescription subpass = {VK_PIPELINE_BIND_POINT_GRAPHICS};
@@ -376,11 +332,44 @@ namespace Ogre
 
         fboDesc.mNumImageViews = attachmentIdx;
 
+		// Use subpass dependencies for layout transitions for RenderTextures
+        auto accessMask =
+            mNumColourEntries ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+        auto srcStageMask = mNumColourEntries ? VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+                                              : VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+
+        std::array<VkSubpassDependency, 2> dependencies;
+        dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        dependencies[0].dstSubpass = 0;
+        dependencies[0].srcStageMask = srcStageMask;
+        dependencies[0].dstStageMask = mNumColourEntries ? VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+                                                         : VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        dependencies[0].srcAccessMask =
+            mNumColourEntries ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        dependencies[0].dstAccessMask = accessMask;
+        dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+        dependencies[1].srcSubpass = 0;
+        dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        dependencies[1].srcStageMask = srcStageMask;
+        dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        dependencies[1].srcAccessMask = accessMask;
+        dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
         VkRenderPassCreateInfo renderPassCreateInfo = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
         renderPassCreateInfo.attachmentCount = attachmentIdx;
         renderPassCreateInfo.pAttachments = attachments;
         renderPassCreateInfo.subpassCount = 1u;
         renderPassCreateInfo.pSubpasses = &subpass;
+
+        if(!hasRenderWindow)
+        {
+            renderPassCreateInfo.dependencyCount = dependencies.size();
+            renderPassCreateInfo.pDependencies = dependencies.data();
+        }
+
         OGRE_VK_CHECK(vkCreateRenderPass( mQueue->mDevice, &renderPassCreateInfo, 0, &fboDesc.mRenderPass ));
 
         VkFramebufferCreateInfo fbCreateInfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
@@ -389,7 +378,7 @@ namespace Ogre
         fbCreateInfo.pAttachments = fboDesc.mImageViews;
         fbCreateInfo.width = mTargetWidth;
         fbCreateInfo.height = mTargetHeight;
-        fbCreateInfo.layers = 1u;
+        fbCreateInfo.layers = layers;
 
         const size_t numFramebuffers = std::max<size_t>( fboDesc.mWindowImageViews.size(), 1u );
         fboDesc.mFramebuffers.resize( numFramebuffers );
@@ -405,28 +394,16 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     void VulkanRenderPassDescriptor::releaseFbo( void )
     {
+        VulkanFrameBufferDescMap &frameBufferDescMap = mRenderSystem->_getFrameBufferDescMap();
+        if( mSharedFboItor != frameBufferDescMap.end() )
         {
-            VulkanFrameBufferDescMap &frameBufferDescMap = mRenderSystem->_getFrameBufferDescMap();
-            if( mSharedFboItor != frameBufferDescMap.end() )
+            --mSharedFboItor->second.refCount;
+            if( !mSharedFboItor->second.refCount )
             {
-                --mSharedFboItor->second.refCount;
-                if( !mSharedFboItor->second.refCount )
-                {
-                    destroyFbo( mQueue, mSharedFboItor->second );
-                    frameBufferDescMap.erase( mSharedFboItor );
-                }
-                mSharedFboItor = frameBufferDescMap.end();
+                destroyFbo( mQueue, mSharedFboItor->second );
+                frameBufferDescMap.erase( mSharedFboItor );
             }
-        }
-        {
-            VulkanFlushOnlyDescMap &frameBufferDescMap = mRenderSystem->_getFlushOnlyDescMap();
-            if( mSharedFboFlushItor != frameBufferDescMap.end() )
-            {
-                --mSharedFboFlushItor->second.refCount;
-                if( !mSharedFboFlushItor->second.refCount )
-                    frameBufferDescMap.erase( mSharedFboFlushItor );
-                mSharedFboFlushItor = frameBufferDescMap.end();
-            }
+            mSharedFboItor = frameBufferDescMap.end();
         }
     }
     //-----------------------------------------------------------------------------------
@@ -457,31 +434,9 @@ namespace Ogre
         fboDesc.mRenderPass = 0;
     }
     //-----------------------------------------------------------------------------------
-    void VulkanRenderPassDescriptor::notifySwapchainCreated( VulkanWindow *window )
+    void VulkanRenderPassDescriptor::entriesModified( bool createFbo )
     {
-        mNumColourEntries = 1;
-        mColour[0] = window->getTexture(); // FIXME
-        mDepth = window->getDepthTexture();
-        //if( mNumColourEntries > 0 && mColour[0].texture->isRenderWindowSpecific() &&
-        //    mColour[0].texture == window->getTexture() )
-        {
-            entriesModified( RenderPassDescriptor::All );
-        }
-    }
-    //-----------------------------------------------------------------------------------
-    void VulkanRenderPassDescriptor::notifySwapchainDestroyed( VulkanWindow *window )
-    {
-        if (mNumColourEntries > 0 && mColour[0]->isRenderWindowSpecific() && mColour[0] == window->getTexture())
-        {
-            releaseFbo();
-        }
-    }
-    //-----------------------------------------------------------------------------------
-    void VulkanRenderPassDescriptor::entriesModified( uint32 entryTypes )
-    {
-        //RenderPassDescriptor::entriesModified( entryTypes );
-
-        checkRenderWindowStatus();
+        calculateSharedKey();
 
         TextureGpu *anyTargetTexture = 0;
         const uint8 numColourEntries = mNumColourEntries;
@@ -498,7 +453,7 @@ namespace Ogre
             mTargetHeight = anyTargetTexture->getHeight();
         }
 
-        if( entryTypes & RenderPassDescriptor::All )
+        if( createFbo )
             setupFbo( mSharedFboItor->second );
     }
     //-----------------------------------------------------------------------------------
@@ -518,17 +473,17 @@ namespace Ogre
             getClearColour( clearColour, mColour[idx]->getFormat() );
     }
     //-----------------------------------------------------------------------------------
-    void VulkanRenderPassDescriptor::setClearDepth( Real clearDepth )
+    void VulkanRenderPassDescriptor::setClearDepth( float clearDepth )
     {
         //RenderPassDescriptor::setClearDepth( clearDepth );
         if( mDepth && mSharedFboItor != mRenderSystem->_getFrameBufferDescMap().end() )
         {
             size_t attachmentIdx = mSharedFboItor->second.mNumImageViews - 1u;
             if( !mRenderSystem->isReverseDepthBufferEnabled() )
-                mClearValues[attachmentIdx].depthStencil.depth = static_cast<float>(clearDepth);
+                mClearValues[attachmentIdx].depthStencil.depth = clearDepth;
             else
             {
-                mClearValues[attachmentIdx].depthStencil.depth = static_cast<float>(Real(1.0) - clearDepth);
+                mClearValues[attachmentIdx].depthStencil.depth = 1.0f - clearDepth;
             }
         }
     }
@@ -555,30 +510,13 @@ namespace Ogre
                 ++attachmentIdx;
         }
     }
-    //-----------------------------------------------------------------------------------
-    uint32 VulkanRenderPassDescriptor::willSwitchTo( VulkanRenderPassDescriptor *newDesc,
-                                                     bool warnIfRtvWasFlushed ) const
+    VkRenderPass VulkanRenderPassDescriptor::getRenderPass() const
     {
-        uint32 entriesToFlush = 0;
-
-        if( !newDesc ||                                                   //
-            this->mSharedFboFlushItor != newDesc->mSharedFboFlushItor ||  //
-            this->mInformationOnly || newDesc->mInformationOnly )
-        {
-            entriesToFlush = RenderPassDescriptor::All;
-        }
-
-        if( warnIfRtvWasFlushed )
-            newDesc->checkWarnIfRtvWasFlushed( entriesToFlush );
-
-        return entriesToFlush;
+        return mSharedFboItor->second.mRenderPass;
     }
     //-----------------------------------------------------------------------------------
     void VulkanRenderPassDescriptor::performLoadActions()
     {
-        if( mInformationOnly )
-            return;
-
         VkCommandBuffer cmdBuffer = mQueue->mCurrentCmdBuffer;
 
         const VulkanFrameBufferDescValue &fboDesc = mSharedFboItor->second;
@@ -612,9 +550,6 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     void VulkanRenderPassDescriptor::performStoreActions()
     {
-        if( mInformationOnly )
-            return;
-
         if( mQueue->getEncoderState() != VulkanQueue::EncoderGraphicsOpen )
             return;
 
@@ -627,24 +562,6 @@ namespace Ogre
     }
     //-----------------------------------------------------------------------------------
     //-----------------------------------------------------------------------------------
-    //-----------------------------------------------------------------------------------
-    VulkanFrameBufferDescKey::VulkanFrameBufferDescKey() {}
-    //-----------------------------------------------------------------------------------
-    VulkanFrameBufferDescKey::VulkanFrameBufferDescKey( const RenderPassDescriptor &desc )
-    {
-    }
-    //-----------------------------------------------------------------------------------
-    bool VulkanFrameBufferDescKey::operator<( const VulkanFrameBufferDescKey &other ) const
-    {
-        if( this->numColourEntries != other.numColourEntries )
-            return this->numColourEntries < other.numColourEntries;
-
-        return false;
-    }
-    //-----------------------------------------------------------------------------------
-    //-----------------------------------------------------------------------------------
-    //-----------------------------------------------------------------------------------
-    VulkanFlushOnlyDescValue::VulkanFlushOnlyDescValue() : refCount( 0 ) {}
     //-----------------------------------------------------------------------------------
     VulkanFrameBufferDescValue::VulkanFrameBufferDescValue() :
         refCount( 0u ),

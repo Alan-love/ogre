@@ -18,6 +18,8 @@ same license as the rest of the engine.
 #include "OgreSimpleRenderable.h"
 #include "MaterialGenerator.h"
 
+#include <memory>
+
 /** Deferred light geometry. Each instance matches a normal light.
     Should not be created by the user.
     XXX support other types of light other than point lights.
@@ -41,13 +43,13 @@ public:
     virtual bool getCastChadows() const;
 
     /** @copydoc MovableObject::getBoundingRadius */
-    virtual Ogre::Real getBoundingRadius(void) const;
+    Ogre::Real getBoundingRadius(void) const override;
     /** @copydoc Renderable::getSquaredViewDepth */
-    virtual Ogre::Real getSquaredViewDepth(const Ogre::Camera*) const;
+    Ogre::Real getSquaredViewDepth(const Ogre::Camera*) const override;
     /** @copydoc Renderable::getMaterial */
-    virtual const Ogre::MaterialPtr& getMaterial(void) const;
+    const Ogre::MaterialPtr& getMaterial(void) const override;
     /** @copydoc Renderable::getBoundingRadius */
-    virtual void getWorldTransforms(Ogre::Matrix4* xform) const;
+    void getWorldTransforms(Ogre::Matrix4* xform) const override;
 protected:
 
     /** Check if the camera is inside a light
@@ -78,6 +80,8 @@ protected:
      */
     void setSpecularColour(const Ogre::ColourValue &col);
 
+    std::unique_ptr<Ogre::IndexData> mIndexData;
+    std::unique_ptr<Ogre::VertexData> mVertexData;
     /// The light that this DLight renders
     Ogre::Light* mParentLight;
     /// Mode to ignore world orientation/position

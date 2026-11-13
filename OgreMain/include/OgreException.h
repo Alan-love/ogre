@@ -79,13 +79,13 @@ namespace Ogre {
     *  @{
     */
     /** When thrown, provides information about an error that has occurred inside the engine.
-        @remarks
-            OGRE never uses return values to indicate errors. Instead, if an
-            error occurs, an exception is thrown, and this is the object that
-            encapsulates the detail of the problem. The application using
-            OGRE should always ensure that the exceptions are caught, so all
-            OGRE engine functions should occur within a
-            try{} catch(Ogre::Exception& e) {} block.
+
+        OGRE never uses return values to indicate errors. Instead, if an
+        error occurs, an exception is thrown, and this is the object that
+        encapsulates the detail of the problem. The application using
+        OGRE should always ensure that the exceptions are caught, so all
+        OGRE engine functions should occur within a
+        try{} catch(Ogre::Exception& e) {} block.
         @par
             The user application should never create any instances of this
             object unless it wishes to unify its error handling using the
@@ -136,14 +136,14 @@ namespace Ogre {
         ~Exception() throw() {}
 
         /** Returns a string with the full description of this error.
-            @remarks
-                The description contains the error number, the description
-                supplied by the thrower, what routine threw the exception,
-                and will also supply extra platform-specific information
-                where applicable. For example - in the case of a rendering
-                library error, the description of the error will include both
-                the place in which OGRE found the problem, and a text
-                description from the 3D rendering library, if available.
+
+            The description contains the error number, the description
+            supplied by the thrower, what routine threw the exception,
+            and will also supply extra platform-specific information
+            where applicable. For example - in the case of a rendering
+            library error, the description of the error will include both
+            the place in which OGRE found the problem, and a text
+            description from the 3D rendering library, if available.
         */
         const String& getFullDescription(void) const { return fullDesc; }
 
@@ -165,8 +165,7 @@ namespace Ogre {
         */
         const String &getDescription(void) const { return description; }
 
-        /// Override std::exception::what
-        const char* what() const throw() { return fullDesc.c_str(); }
+        const char* what() const throw() override { return fullDesc.c_str(); }
         
     };
 
@@ -240,7 +239,7 @@ namespace Ogre {
 
     /** Class implementing dispatch methods in order to construct by-value
         exceptions of a derived type based just on an exception code.
-    @remarks
+
         This nicely handles construction of derived Exceptions by value (needed
         for throwing) without suffering from ambiguity - each code is turned into
         a distinct type so that methods can be overloaded. This allows OGRE_EXCEPT

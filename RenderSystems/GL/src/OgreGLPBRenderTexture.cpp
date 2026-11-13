@@ -37,11 +37,12 @@ THE SOFTWARE.
 namespace Ogre {
 //-----------------------------------------------------------------------------  
     GLPBRenderTexture::GLPBRenderTexture(GLPBRTTManager *manager, const String &name, 
-        const GLSurfaceDesc &target, bool writeGamma, uint fsaa):
-        GLRenderTexture(name, target, writeGamma, fsaa),
+        const GLSurfaceDesc &target, bool writeGamma):
+        GLRenderTexture(name, target, writeGamma),
         mManager(manager)
     {
         mPBFormat = PixelUtil::getComponentType(target.buffer->getFormat());
+        mDepthBufferPoolId = RBP_NONE; // not poolable
         
         mManager->requestPBuffer(mPBFormat, mWidth, mHeight);
     }
@@ -55,7 +56,7 @@ namespace Ogre {
         if( name == GLRenderTexture::CustomAttributeString_TARGET )
         {
             GLSurfaceDesc &target = *static_cast<GLSurfaceDesc*>(pData);
-            target.buffer = static_cast<GLHardwarePixelBuffer*>(mBuffer);
+            target.buffer = static_cast<GLHardwarePixelBufferCommon*>(mBuffer);
             target.zoffset = mZOffset;
         }
         else if (name == GLRenderTexture::CustomAttributeString_GLCONTEXT )
@@ -81,16 +82,16 @@ namespace Ogre {
     GLPBRTTManager::~GLPBRTTManager()
     {
         // Delete remaining PBuffers
-        for(size_t x=0; x<PCT_COUNT; ++x)
+        for(auto & mPBuffer : mPBuffers)
         {
-            delete mPBuffers[x].pb;
+            delete mPBuffer.pb;
         }
     }
 
     RenderTexture *GLPBRTTManager::createRenderTexture(const String &name, 
-        const GLSurfaceDesc &target, bool writeGamma, uint fsaa)
+        const GLSurfaceDesc &target, bool writeGamma)
     {
-        return new GLPBRenderTexture(this, name, target, writeGamma, fsaa);
+        return new GLPBRenderTexture(this, name, target, writeGamma);
     }
     
     bool GLPBRTTManager::checkFormat(PixelFormat format) 

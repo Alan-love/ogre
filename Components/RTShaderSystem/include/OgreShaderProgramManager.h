@@ -36,6 +36,7 @@ namespace Ogre {
 namespace RTShader {
 
     class ProgramWriter;
+    class ProgramProcessor;
 
 /** \addtogroup Optional
 *  @{
@@ -59,7 +60,7 @@ public:
 
 
     /** Override standard Singleton retrieval.
-    @remarks
+
     Why do we do this? Well, it's because the Singleton
     implementation is in a .h file, which means it gets compiled
     into anybody who includes it. This is needed for the
@@ -99,7 +100,6 @@ private:
     typedef ProgramList::iterator                       ProgramListIterator;
     typedef std::map<String, ProgramWriter*>           ProgramWriterMap;
     typedef ProgramWriterMap::iterator                  ProgramWriterIterator;
-    typedef std::vector<ProgramWriterFactory*>         ProgramWriterFactoryList;
     
     //-----------------------------------------------------------------------------
     typedef std::map<String, ProgramProcessor*>        ProgramProcessorMap;
@@ -150,43 +150,17 @@ private:
         const String& language,
         const String& profiles,
         const String& cachePath);
-
-    /** 
-    Add program processor instance to this manager.
-    @param processor The instance to add.
-    */
-    void addProgramProcessor(const String& lang, ProgramProcessor* processor);
-
-    /** 
-    Remove program processor instance from this manager. 
-    @param processor The instance to remove.
-    */
-    void removeProgramProcessor(const String& lang);
-
-    /** Destroy a GPU program by name.
-    @param gpuProgram The program to destroy.
-    */
-    void destroyGpuProgram(GpuProgramPtr& gpuProgram);
-
-    /** Flush the local GPU programs cache.
-    @param gpuProgramsMap The GPU programs cache.
-    */
-    void flushGpuProgramsCache(GpuProgramsMap& gpuProgramsMap);
     
     /** Return the number of created shaders. */
     size_t getShaderCount(GpuProgramType type) const;
 
     /** Fix the input of the pixel shader to be the same as the output of the vertex shader */
-    void synchronizePixelnToBeVertexOut(ProgramSet* programSet);
+    void matchVStoPSInterface(ProgramSet* programSet);
 
     // Map between target language and shader program processor.    
     ProgramProcessorMap mProgramProcessorsMap;
-    // Holds standard shader writer factories
-    ProgramWriterFactoryList mProgramWriterFactories;
-    // The generated vertex shaders.
-    GpuProgramsMap mVertexShaderMap;
-    // The generated fragment shaders.
-    GpuProgramsMap mFragmentShaderMap;
+    // The generated shaders.
+    std::vector<GpuProgramPtr> mShaderList;
     // The default program processors.
     ProgramProcessorList mDefaultProgramProcessors;
 

@@ -32,6 +32,10 @@ THE SOFTWARE.
 #include "OgrePrerequisites.h"
 #include "OgreHeaderPrefix.h"
 
+#if defined(__FAST_MATH__) || defined(_M_FP_FAST)
+#define OGRE_FAST_MATH
+#endif
+
 namespace Ogre
 {
     /** \addtogroup Core
@@ -51,7 +55,7 @@ namespace Ogre
     typedef std::pair<bool, Real> RayTestResult;
 
     /** Wrapper class which indicates a given angle value is in Radians.
-    @remarks
+
         Radian values are interchangeable with Degree values, and conversions
         will be done automatically between them.
     */
@@ -62,9 +66,9 @@ namespace Ogre
     public:
         explicit Radian ( float r=0 ) : mRad(r) {}
         Radian ( const Degree& d );
-        Radian (const Ogre::Radian& rhs) : mRad(rhs.mRad) {}
-        Radian& operator = ( const float& f ) { mRad = f; return *this; }
-        Radian& operator = ( const Radian& r ) { mRad = r.mRad; return *this; }
+        Radian (const Radian& rhs) = default;
+        Radian& operator = ( float f ) { mRad = f; return *this; }
+        Radian& operator = ( const Radian& r ) = default;
         Radian& operator = ( const Degree& d );
 
         float valueDegrees() const; // see bottom of this file
@@ -93,17 +97,10 @@ namespace Ogre
         bool operator != ( const Radian& r ) const { return mRad != r.mRad; }
         bool operator >= ( const Radian& r ) const { return mRad >= r.mRad; }
         bool operator >  ( const Radian& r ) const { return mRad >  r.mRad; }
-
-        inline friend std::ostream& operator <<
-            ( std::ostream& o, const Radian& v )
-        {
-            o << "Radian(" << v.valueRadians() << ")";
-            return o;
-        }
     };
 
     /** Wrapper class which indicates a given angle value is in Degrees.
-    @remarks
+
         Degree values are interchangeable with Radian values, and conversions
         will be done automatically between them.
     */
@@ -113,10 +110,10 @@ namespace Ogre
 
     public:
         explicit Degree ( float d=0 ) : mDeg(d) {}
-        Degree ( const Radian& r ) : mDeg(r.valueDegrees()) {}
-        Degree (const Ogre::Degree& rhs) : mDeg(rhs.mDeg) {}
-        Degree& operator = ( const float& f ) { mDeg = f; return *this; }
-        Degree& operator = ( const Degree& d ) { mDeg = d.mDeg; return *this; }
+        Degree (Radian r ) : mDeg(r.valueDegrees()) {}
+        Degree (const Degree& rhs) = default;
+        Degree& operator = ( float f ) { mDeg = f; return *this; }
+        Degree& operator = ( const Degree& d ) = default;
         Degree& operator = ( const Radian& r ) { mDeg = r.valueDegrees(); return *this; }
 
         float valueDegrees() const { return mDeg; }
@@ -145,18 +142,14 @@ namespace Ogre
         bool operator != ( const Degree& d ) const { return mDeg != d.mDeg; }
         bool operator >= ( const Degree& d ) const { return mDeg >= d.mDeg; }
         bool operator >  ( const Degree& d ) const { return mDeg >  d.mDeg; }
-
-        inline friend std::ostream& operator <<
-            ( std::ostream& o, const Degree& v )
-        {
-            o << "Degree(" << v.valueDegrees() << ")";
-            return o;
-        }
     };
+
+    _OgreExport std::ostream& operator<<(std::ostream& o, const Radian& v);
+    _OgreExport std::ostream& operator<<(std::ostream& o, const Degree& v);
 
     /** Wrapper class which identifies a value as the currently default angle 
         type, as defined by Math::setAngleUnit.
-    @remarks
+
         Angle values will be automatically converted between radians and degrees,
         as appropriate.
     */
@@ -192,13 +185,13 @@ namespace Ogre
     }
 
     /** Class to provide access to common mathematical functions.
-        @remarks
-            Most of the maths functions are aliased versions of the C runtime
-            library functions. They are aliased here to provide future
-            optimisation opportunities, either from faster RTLs or custom
-            math approximations.
+
+        Most of the maths functions are aliased versions of the C runtime
+        library functions. They are aliased here to provide future
+        optimisation opportunities, either from faster RTLs or custom
+        math approximations.
         @note
-            <br>This is based on MgcMath.h from
+            This is based on MgcMath.h from
             <a href="http://www.geometrictools.com/">Wild Magic</a>.
     */
     class _OgreExport Math 
@@ -262,9 +255,7 @@ namespace Ogre
         static inline int IAbs (int iValue) { return ( iValue >= 0 ? iValue : -iValue ); }
         static inline int ICeil (float fValue) { return int(std::ceil(fValue)); }
         static inline int IFloor (float fValue) { return int(std::floor(fValue)); }
-        static int ISign (int iValue) {
-            return ( iValue > 0 ? +1 : ( iValue < 0 ? -1 : 0 ) );
-        }
+        static int ISign(int iValue) { return (iValue > 0) - (iValue < 0); }
 
         /** Absolute value function
             @param
@@ -317,12 +308,15 @@ namespace Ogre
                 The value to round up to the nearest integer.
          */
         static inline Real Ceil (Real fValue) { return std::ceil(fValue); }
+
+#ifndef OGRE_FAST_MATH
         static inline bool isNaN(Real f)
         {
-            // std::isnan() is C99, not supported by all compilers
+            // std::isnan() has non-portable behaviour on MSVC
             // However NaN always fails this next test, no other number does.
             return f != f;
         }
+#endif
 
         /** Cosine function.
             @param fValue
@@ -358,22 +352,15 @@ namespace Ogre
         static inline Real Log (Real fValue) { return std::log(fValue); }
 
         /// Stored value of log(2) for frequent use
-        static constexpr Real LOG2 = 0.69314718055994530942;
+        static constexpr Real LOG2 = static_cast<Real> (0.69314718055994530942);
 
-        static inline Real Log2 (Real fValue) { return std::log(fValue)/LOG2; }
+        static inline Real Log2 (Real fValue) { return std::log2(fValue); }
 
         static inline Real LogN (Real base, Real fValue) { return std::log(fValue)/std::log(base); }
 
         static inline Real Pow (Real fBase, Real fExponent) { return std::pow(fBase,fExponent); }
 
-        static Real Sign(Real fValue)
-        {
-            if (fValue > 0.0)
-                return 1.0;
-            if (fValue < 0.0)
-                return -1.0;
-            return 0.0;
-        }
+        static Real Sign(Real fValue) { return Real((fValue > 0) - (fValue < 0)); }
 
         static inline Radian Sign ( const Radian& rValue )
         {
@@ -385,11 +372,11 @@ namespace Ogre
         }
 
         /// Simulate the shader function saturate that clamps a parameter value between 0 and 1
-        static inline float saturate(float t) { return (t < 0) ? 0 : ((t > 1) ? 1 : t); }
-        static inline double saturate(double t) { return (t < 0) ? 0 : ((t > 1) ? 1 : t); }
+        static inline float saturate(float t) { return Clamp(t, 0.0f, 1.0f); }
+        static inline double saturate(double t) { return Clamp(t, 0.0, 1.0); }
 
         /// saturated cast of size_t to uint16
-        static inline uint16 uint16Cast(size_t t) { return t < UINT16_MAX ? uint16(t) : UINT16_MAX; }
+        static inline uint16 uint16Cast(size_t t) { return t <= UINT16_MAX ? uint16(t) : UINT16_MAX; }
 
         /** Simulate the shader function lerp which performers linear interpolation
 
@@ -399,7 +386,18 @@ namespace Ogre
         */
         template <typename V, typename T> static V lerp(const V& v0, const V& v1, const T& t)
         {
-            return v0 * (1 - t) + v1 * t;
+            return v0 + t * (v1 - v0);
+        }
+
+        /** Inverse linear interpolation.
+
+           Returns the fraction t such that lerp(v0, v1, t) == val.
+           t = (val - v0) / (v1 - v0).
+           Result is not clamped.
+        */
+        template <typename V> static V inverseLerp(const V& v0, const V& v1, const V& val)
+        {
+            return (val - v0) / (v1 - v0);
         }
 
         /** Sine function.
@@ -464,7 +462,7 @@ namespace Ogre
             @return
                 A random number in the range from [0,1].
         */
-        static Real UnitRandom ();
+        static float UnitRandom() { return mRandProvider ? mRandProvider->getRandomUnit() : rand() / float(RAND_MAX); }
 
         /** Generate a random number within the range provided.
             @param fLow
@@ -474,17 +472,13 @@ namespace Ogre
             @return
                 A random number in the range from [fLow,fHigh].
          */
-        static Real RangeRandom (Real fLow, Real fHigh) {
-            return (fHigh-fLow)*UnitRandom() + fLow;
-        }
+        static float RangeRandom(float fLow, float fHigh) { return lerp(fLow, fHigh, UnitRandom()); }
 
         /** Generate a random number in the range [-1,1].
             @return
                 A random number in the range from [-1,1].
          */
-        static Real SymmetricRandom () {
-            return 2.0f * UnitRandom() - 1.0f;
-        }
+        static float SymmetricRandom() { return 2.0f * UnitRandom() - 1.0f; }
 
         static void SetRandomValueProvider(RandomValueProvider* provider);
        
@@ -533,10 +527,10 @@ namespace Ogre
 
        /** Checks whether a given point is inside a triangle, in a
             2-dimensional (Cartesian) space.
-            @remarks
-                The vertices of the triangle must be given in either
-                trigonometrical (anticlockwise) or inverse trigonometrical
-                (clockwise) order.
+
+            The vertices of the triangle must be given in either
+            trigonometrical (anticlockwise) or inverse trigonometrical
+            (clockwise) order.
             @param p
                 The point.
             @param a
@@ -556,7 +550,7 @@ namespace Ogre
             const Vector2& b, const Vector2& c);
 
        /** Checks whether a given 3D point is inside a triangle.
-       @remarks
+
             The vertices of the triangle must be given in either
             trigonometrical (anticlockwise) or inverse trigonometrical
             (clockwise) order, and the point must be guaranteed to be in the
@@ -651,9 +645,6 @@ namespace Ogre
         @param normalIsOutside Does the normal point outside the volume
         */
         static RayTestResult intersects(const Ray& ray, const std::vector<Plane>& planeList, bool normalIsOutside);
-        /// @deprecated migrate to @ref PlaneList
-        OGRE_DEPRECATED static RayTestResult intersects(const Ray& ray, const std::list<Plane>& planeList,
-                                                             bool normalIsOutside);
 
         /** Sphere / plane intersection test. 
         @remarks NB just do a plane.getDistance(sphere.getCenter()) for more detail!
@@ -667,8 +658,8 @@ namespace Ogre
             return std::abs(b-a) <= tolerance;
         }
 
-        /** Calculates the tangent space vector for a given set of positions / texture coords. */
-        static Vector3 calculateTangentSpaceVector(
+        /// @deprecated use @ref TangentSpaceCalc
+        OGRE_DEPRECATED static Vector3 calculateTangentSpaceVector(
             const Vector3& position1, const Vector3& position2, const Vector3& position3,
             Real u1, Real v1, Real u2, Real v2, Real u3, Real v3);
 
@@ -740,7 +731,7 @@ namespace Ogre
 
         static constexpr Real POS_INFINITY = std::numeric_limits<Real>::infinity();
         static constexpr Real NEG_INFINITY = -std::numeric_limits<Real>::infinity();
-        static constexpr Real PI = 3.14159265358979323846;
+        static constexpr Real PI = static_cast<Real> (3.14159265358979323846);
         static constexpr Real TWO_PI = Real( 2.0 * PI );
         static constexpr Real HALF_PI = Real( 0.5 * PI );
         static constexpr float fDeg2Rad = PI / Real(180.0);

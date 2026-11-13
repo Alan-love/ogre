@@ -67,7 +67,7 @@ TEST_F(ZipArchiveTests,ListNonRecursive)
     EXPECT_EQ(String("rootfile.txt"), vec->at(0));
     EXPECT_EQ(String("rootfile2.txt"), vec->at(1));
 
-
+    EXPECT_EQ("rootfile.txt", arch->open("rootfile.txt")->getName());
 }
 //--------------------------------------------------------------------------
 TEST_F(ZipArchiveTests,ListRecursive)
@@ -150,6 +150,14 @@ TEST_F(ZipArchiveTests,FindNonRecursive)
     EXPECT_EQ((size_t)2, vec->size());
     EXPECT_EQ(String("rootfile.txt"), vec->at(0));
     EXPECT_EQ(String("rootfile2.txt"), vec->at(1));
+}
+//--------------------------------------------------------------------------
+TEST_F(ZipArchiveTests,FindExactNonRecursive)
+{
+    StringVectorPtr vec = arch->find("rootfile.txt", false);
+
+    EXPECT_EQ((size_t)1, vec->size());
+    EXPECT_EQ(String("rootfile.txt"), vec->at(0));
 }
 //--------------------------------------------------------------------------
 TEST_F(ZipArchiveTests,FindRecursive)

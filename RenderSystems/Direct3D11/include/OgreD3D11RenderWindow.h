@@ -82,7 +82,7 @@ namespace Ogre
         /** Overridden - see RenderTarget. */
         virtual void updateImpl();
 
-        virtual DXGI_FORMAT _getBasicFormat()                   { return DXGI_FORMAT_B8G8R8A8_UNORM; } // preferred since Win8
+        DXGI_FORMAT _getBasicFormat()                   { return mHdrDisplay ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM; } // preferred since Win8
         DXGI_FORMAT _getRenderFormat()                          { return D3D11Mappings::_getGammaFormat(_getBasicFormat(), isHardwareGammaEnabled()); }
         void _createSizeDependedD3DResources();                 // assumes mpBackBuffer is already initialized
         void _destroySizeDependedD3DResources();
@@ -90,13 +90,12 @@ namespace Ogre
         ComPtr<IDXGIDeviceN> _queryDxgiDevice()                 { ComPtr<IDXGIDeviceN> res; _queryDxgiDeviceImpl(res.GetAddressOf()); return res; }
         void _queryDxgiDeviceImpl(IDXGIDeviceN** dxgiDevice);   // release after use
 
-        void _updateViewportsDimensions();
-
     protected:
         D3D11Device & mDevice;          // D3D11 driver
         bool    mIsExternal;            // window not created by Ogre
         bool    mSizing;
         bool    mHidden;
+        bool    mHdrDisplay;
 
         DXGI_SAMPLE_DESC mFSAAType;     // Effective FSAA mode, limited by hardware capabilities
 
@@ -189,7 +188,6 @@ namespace Ogre
     protected:
         void notifyDeviceRestored(D3D11Device* device);
 
-        DXGI_FORMAT _getBasicFormat()                           { return DXGI_FORMAT_R8G8B8A8_UNORM; } // be compatible with pre-Win8 D3D11
         virtual HRESULT _createSwapChainImpl(IDXGIDeviceN* pDXGIDevice);
 
         /// Indicate that fullscreen / windowed switching has finished

@@ -83,10 +83,6 @@ include_directories("include/Threading" "src/")
 if (OGRE_THREAD_PROVIDER EQUAL 0)
 	list(APPEND THREAD_HEADER_FILES
 		include/Threading/OgreThreadDefinesNone.h
-		include/Threading/OgreDefaultWorkQueueStandard.h
-	)
-	set(THREAD_SOURCE_FILES
-		src/Threading/OgreDefaultWorkQueueStandard.cpp
 	)
 elseif (OGRE_THREAD_PROVIDER EQUAL 1)
   include_directories(${Boost_INCLUDE_DIRS})
@@ -95,37 +91,16 @@ elseif (OGRE_THREAD_PROVIDER EQUAL 1)
 	list(APPEND THREAD_HEADER_FILES
 		include/Threading/OgreThreadDefinesBoost.h
 		include/Threading/OgreThreadHeadersBoost.h
-		include/Threading/OgreDefaultWorkQueueStandard.h
-	)
-	set(THREAD_SOURCE_FILES
-		src/Threading/OgreDefaultWorkQueueStandard.cpp
 	)
 elseif (OGRE_THREAD_PROVIDER EQUAL 2)
 	list(APPEND THREAD_HEADER_FILES
 		include/Threading/OgreThreadDefinesPoco.h
 		include/Threading/OgreThreadHeadersPoco.h
-		include/Threading/OgreDefaultWorkQueueStandard.h
-	)
-	set(THREAD_SOURCE_FILES
-		src/Threading/OgreDefaultWorkQueueStandard.cpp
-	)
-elseif (OGRE_THREAD_PROVIDER EQUAL 3)
-	list(APPEND THREAD_HEADER_FILES
-		include/Threading/OgreThreadDefinesTBB.h
-		include/Threading/OgreThreadHeadersTBB.h
-		include/Threading/OgreDefaultWorkQueueTBB.h
-	)
-	set(THREAD_SOURCE_FILES
-		src/Threading/OgreDefaultWorkQueueTBB.cpp
 	)
 elseif (OGRE_THREAD_PROVIDER EQUAL 4)
 	list(APPEND THREAD_HEADER_FILES
 		include/Threading/OgreThreadDefinesSTD.h
 		include/Threading/OgreThreadHeadersSTD.h
-		include/Threading/OgreDefaultWorkQueueStandard.h
-	)
-	list(APPEND THREAD_SOURCE_FILES
-		src/Threading/OgreDefaultWorkQueueStandard.cpp
 	)
 endif ()
 
@@ -155,21 +130,21 @@ if (OGRE_CONFIG_ENABLE_ASTC)
 endif ()
 
 if (OGRE_CONFIG_ENABLE_ZIP)
-  include_directories(src/zip)
   list(APPEND HEADER_FILES include/OgreZip.h)
   list(APPEND SOURCE_FILES src/OgreZip.cpp src/zip/zip.c)
+
+  set_source_files_properties(src/zip/zip.c
+    PROPERTIES COMPILE_DEFINITIONS MINIZ_NO_STDIO)
+
+  if(UNIX)
+    set_source_files_properties(src/OgreDeflate.cpp
+      PROPERTIES COMPILE_FLAGS -Wno-unused-function)
+  endif()
 
   if(ANDROID)
     list(APPEND PLATFORM_SOURCE_FILES src/Android/OgreAPKZipArchive.cpp)
   endif()
 endif ()
-
-if(OGRE_CONFIG_FILESYSTEM_UNICODE)
-  set_source_files_properties(src/OgreFileSystem.cpp
-    PROPERTIES COMPILE_DEFINITIONS _OGRE_FILESYSTEM_ARCHIVE_UNICODE)
-  set_source_files_properties(src/OgreZip.cpp
-    PROPERTIES COMPILE_DEFINITIONS _OGRE_FILESYSTEM_ARCHIVE_UNICODE)
-endif()
 
 if(OGRE_PROFILING_REMOTERY_PATH)
   list(APPEND SOURCE_FILES ${OGRE_PROFILING_REMOTERY_PATH}/Remotery.c)
@@ -182,7 +157,7 @@ set (TARGET_LINK_FLAGS "")
 # setup OgreMain target
 
 get_native_precompiled_header(OgreMain)
-add_library(OgreMain ${OGRE_LIB_TYPE} ${OgreMain_pch} ${HEADER_FILES} ${SOURCE_FILES} ${PLATFORM_HEADERS} ${PLATFORM_SOURCE_FILES} ${THREAD_HEADER_FILES} ${THREAD_SOURCE_FILES})
+add_library(OgreMain ${OGRE_LIB_TYPE} ${OgreMain_pch} ${HEADER_FILES} ${SOURCE_FILES} ${PLATFORM_HEADERS} ${PLATFORM_SOURCE_FILES} ${THREAD_HEADER_FILES})
 
 if (WINDOWS_STORE OR WINDOWS_PHONE)
 	set_target_properties(OgreMain PROPERTIES VS_WINRT_COMPONENT "true")
@@ -197,11 +172,12 @@ generate_export_header(OgreMain
 target_include_directories(OgreMain PUBLIC 
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>" 
   "$<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>"
+  "$<IF:$<BOOL:OGRE_CONFIG_ENABLE_ZIP>,$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/zip>,>"
   $<INSTALL_INTERFACE:include/OGRE>
   PRIVATE "${OGRE_PROFILING_REMOTERY_PATH}")
 
 # In visual studio 2010 - 64 bit we get this error: "LINK : fatal error LNK1210: exceeded internal ILK size limit; link with /INCREMENTAL:NO"
-if(WIN32 AND MSVC10 AND CMAKE_CL_64)
+if(WIN32 AND MSVC10 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
   set_target_properties(OgreMain PROPERTIES 
                         VERSION ${OGRE_SOVERSION}
                         LINK_FLAGS "/INCREMENTAL:NO"
@@ -242,8 +218,14 @@ if (APPLE)
 endif ()
 target_link_libraries(OgreMain PUBLIC ${PLATFORM_LIBS} PRIVATE ${LIBRARIES} ${CMAKE_DL_LIBS})
 
+if(ANDROID)
+  target_link_libraries(OgreMain PRIVATE $<BUILD_INTERFACE:cpufeatures> log z)
+endif()
+
 # specify a precompiled header to use
 add_native_precompiled_header(OgreMain "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/OgreStableHeaders.h>")
+
+target_compile_options(OgreMain PRIVATE ${OGRE_FP_FLAGS})
 
 # install OgreMain
 ogre_config_lib(OgreMain TRUE)

@@ -44,7 +44,6 @@ namespace Ogre
     * Implementation of DirectX9 as a rendering system.
     *  @{
     */
-#define MAX_LIGHTS 8
 
     class D3D9DriverList;
     class D3D9Driver;
@@ -107,13 +106,11 @@ namespace Ogre
             const Frustum *frustum;
             /// texture 
             IDirect3DBaseTexture9 *pTex;
-            /// vertex texture 
-            IDirect3DBaseTexture9 *pVertexTex;
         } mTexStageDesc[OGRE_MAX_TEXTURE_LAYERS];
 
-        // Array of up to 8 lights, indexed as per API
-        // Note that a null value indicates a free slot
-        Light* mLights[MAX_LIGHTS];     
+        /// Saved manual colour blends
+        ColourValue mManualBlendColours[OGRE_MAX_TEXTURE_LAYERS][2];
+
         D3D9DriverList* getDirect3DDrivers();
         void refreshD3DSettings();
         void refreshFSAAOptions();
@@ -154,7 +151,7 @@ namespace Ogre
         RenderSystemCapabilities* updateRenderSystemCapabilities(D3D9RenderWindow* renderWindow);
 
         /** See RenderSystem definition */
-        virtual void initialiseFromRenderSystemCapabilities(RenderSystemCapabilities* caps, RenderTarget* primary);
+        virtual void initialiseFromRenderSystemCapabilities(RenderSystemCapabilities* caps, RenderTarget* = NULL);
 
 
         void convertVertexShaderCaps(RenderSystemCapabilities* rsc);
@@ -216,16 +213,15 @@ namespace Ogre
          */
         DepthBuffer* _addManualDepthBuffer( IDirect3DDevice9* depthSurfaceDevice, IDirect3DSurface9 *surf );
 
+        using RenderSystem::_cleanupDepthBuffers;
         /**
          * This function does NOT override RenderSystem::_cleanupDepthBuffers(bool) functionality.
          * On multi monitor setups, when a device becomes "inactive" (it has no RenderWindows; like
          * when the window was moved from one monitor to another); the Device will be destroyed,
          * meaning all it's depth buffers (auto & manual) should be removed from the pool,
          * but only selectively removing those created by that D3D9Device.
-         * @param:
-         *      Creator device to compare against. Shouldn't be null
+         * @param creator device to compare against. Shouldn't be null
          */
-        using RenderSystem::_cleanupDepthBuffers;
         void _cleanupDepthBuffers( IDirect3DDevice9 *creator );
 
         /**
@@ -279,19 +275,14 @@ namespace Ogre
         void _setPointParameters(bool attenuationEnabled, Real minSize, Real maxSize);
         void _setTexture(size_t unit, bool enabled, const TexturePtr& texPtr);
         void _setSampler(size_t unit, Sampler& sampler);
-        void _setVertexTexture(size_t unit, const TexturePtr& tex);
-        void _disableTextureUnit(size_t texUnit);
         void _setTextureCoordSet( size_t unit, size_t index );
         void _setTextureCoordCalculation(size_t unit, TexCoordCalcMethod m, 
             const Frustum* frustum = 0);
         void _setTextureBlendMode( size_t unit, const LayerBlendModeEx& bm );
-        void _setTextureAddressingMode(size_t stage, const Sampler::UVWAddressingMode& uvw);
         void _setTextureMatrix( size_t unit, const Matrix4 &xform );
         void _setAlphaRejectSettings( CompareFunction func, unsigned char value, bool alphaToCoverage );
         void _setViewport( Viewport *vp );      
         void _beginFrame();
-        virtual RenderSystemContext* _pauseFrame(void);
-        virtual void _resumeFrame(RenderSystemContext* context);
         void _endFrame();       
         void _setCullingMode( CullingMode mode );
         void _setDepthBufferParams( bool depthTest = true, bool depthWrite = true, CompareFunction depthFunction = CMPF_LESS_EQUAL );
@@ -304,11 +295,8 @@ namespace Ogre
         void _convertProjectionMatrix(const Matrix4& matrix,
             Matrix4& dest, bool forGpuProgram = false);
         void _setPolygonMode(PolygonMode level);
-        void _setTextureUnitFiltering(size_t unit, FilterType ftype, FilterOptions filter);
         void setVertexDeclaration(VertexDeclaration* decl);
-        void setVertexDeclaration(VertexDeclaration* decl, bool useGlobalInstancingVertexBufferIsAvailable);
-        void setVertexBufferBinding(VertexBufferBinding* binding);
-        void setVertexBufferBinding(VertexBufferBinding* binding, size_t numberOfInstances, bool useGlobalInstancingVertexBufferIsAvailable, bool indexesUsed);
+        void setVertexBufferBinding(VertexBufferBinding* binding, int numberOfInstances, bool indexesUsed);
         void _render(const RenderOperation& op);
 
         void bindGpuProgram(GpuProgram* prg);
@@ -360,9 +348,6 @@ namespace Ogre
         void determineFSAASettings(IDirect3DDevice9* d3d9Device, size_t fsaa, const String& fsaaHint, D3DFORMAT d3dPixelFormat, 
             bool fullScreen, D3DMULTISAMPLE_TYPE *outMultisampleType, DWORD *outMultisampleQuality);
 
-        /// @copydoc RenderSystem::getDisplayMonitorCount
-        unsigned int getDisplayMonitorCount() const;
-
         /// @copydoc RenderSystem::beginProfileEvent
         virtual void beginProfileEvent( const String &eventName );
 
@@ -386,10 +371,7 @@ namespace Ogre
         void createStereoDriver(const NameValuePairList* miscParams);
 #endif
 
-    protected:  
-        /// Returns the sampler id for a given unit texture number
-        DWORD getSamplerId(size_t unit);
-
+    protected:
         /// Notify when a device has been lost.
         void notifyOnDeviceLost(D3D9Device* device);
 

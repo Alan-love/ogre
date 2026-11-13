@@ -33,37 +33,20 @@ THE SOFTWARE.
 #include "OgreGLContext.h"
 
 namespace Ogre {
-    
-    class GL3PlusFBOManager;
-
     /** Frame Buffer Object abstraction.
     */
     class _OgreGL3PlusExport GL3PlusFrameBufferObject : public GLFrameBufferObjectCommon
     {
     public:
-        GL3PlusFrameBufferObject(GL3PlusFBOManager *manager, uint fsaa);
+        GL3PlusFrameBufferObject();
         ~GL3PlusFrameBufferObject();
 
-        bool bind(bool recreateIfNeeded);
-
-        /** Swap buffers - only useful when using multisample buffers.
-        */
-        void swapBuffers();
-
-        /** This function acts very similar to @see GL3PlusFBORenderTexture::attachDepthBuffer
-            The difference between D3D & OGL is that D3D setups the DepthBuffer before rendering,
-            while OGL setups the DepthBuffer per FBO. So the DepthBuffer (RenderBuffer) needs to
-            be attached for OGL.
-        */
-        void attachDepthBuffer( DepthBuffer *depthBuffer );
-        void detachDepthBuffer();
-
-        GL3PlusFBOManager *getManager() { return mManager; }
+        bool bind(bool recreateIfNeeded) override;
+        void swapBuffers() override;
+        void attachDepthBuffer( DepthBuffer *depthBuffer ) override;
+        void detachDepthBuffer() override;
     private:
-        GL3PlusFBOManager *mManager;
-        GLSurfaceDesc mMultisampleColourBuffer;
-
-        void initialise();
+        void initialise() override;
     };
 
 }

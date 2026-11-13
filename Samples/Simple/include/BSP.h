@@ -20,7 +20,7 @@ class _OgreSampleClassExport Sample_BSP : public SdkSample
         mInfo["Category"] = "Geometry";
     }
 
-    StringVector getRequiredPlugins()
+    StringVector getRequiredPlugins() override
     {
         StringVector names;
         names.push_back("BSP Scene Manager");
@@ -28,21 +28,14 @@ class _OgreSampleClassExport Sample_BSP : public SdkSample
     }
 
  protected:
-
-    void locateResources()
-    {
-    	// Pick a new resource group so Q3Shader parser is correctly registered
-    	ResourceGroupManager::getSingleton().setWorldResourceGroupName("BSPWorld");
-    }
-
-    void createSceneManager()
+    void createSceneManager() override
     {
         mSceneMgr = mRoot->createSceneManager("BspSceneManager");   // the BSP scene manager is required for this sample
 #ifdef INCLUDE_RTSHADER_SYSTEM
         mShaderGenerator->addSceneManager(mSceneMgr);
 #endif
-        if(mOverlaySystem)
-            mSceneMgr->addRenderQueueListener(mOverlaySystem);
+        if(auto overlaySystem = mContext->getOverlaySystem())
+            mSceneMgr->addRenderQueueListener(overlaySystem);
     }
 
     void loadResources()
@@ -53,6 +46,10 @@ class _OgreSampleClassExport Sample_BSP : public SdkSample
 
         // associate the world geometry with the world resource group, and then load the group
         ResourceGroupManager& rgm = ResourceGroupManager::getSingleton();
+
+        // Pick a new resource group so Q3Shader parser is correctly registered
+        rgm.setWorldResourceGroupName("BSPWorld");
+
         rgm.setCustomStagesForResourceGroup("BSPWorld", mSceneMgr->estimateWorldGeometry("maps/oa_rpg3dm2.bsp"));
         rgm.initialiseResourceGroup("BSPWorld");
         rgm.loadResourceGroup("BSPWorld");
@@ -62,16 +59,18 @@ class _OgreSampleClassExport Sample_BSP : public SdkSample
         mTrayMgr->hideLoadingBar();
     }
 
-    void unloadResources()
+    void unloadResources() override
     {
         // unload the map so we don't interfere with subsequent samples
         ResourceGroupManager& rgm = ResourceGroupManager::getSingleton();
         rgm.clearResourceGroup(rgm.getWorldResourceGroupName());
-        rgm.setWorldResourceGroupName(ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+        rgm.setWorldResourceGroupName(RGN_DEFAULT);
     }
 
-    void setupContent()
+    void setupContent() override
     {
+        loadResources();
+
         // modify camera for close work
         mCamera->setNearClipDistance(4);
         mCamera->setFarClipDistance(4000);

@@ -38,7 +38,7 @@ namespace Ogre {
 
     /** Specialization of HighLevelGpuProgram to provide support for D3D11 
     High-Level Shader Language (HLSL).
-    @remarks
+
     Note that the syntax of D3D11 HLSL is identical to nVidia's Cg language, therefore
     unless you know you will only ever be deploying on Direct3D, or you have some specific
     reason for not wanting to use the Cg plugin, I suggest you use Cg instead since that
@@ -71,6 +71,8 @@ namespace Ogre {
             void doSet(void* target, const String& val);
         };
 
+        typedef std::vector<D3D11_SIGNATURE_PARAMETER_DESC> D3d11ShaderParameters;
+        typedef std::map<String, int> BufferInfoMap;
     protected:
 
         static CmdTarget msCmdTarget;
@@ -86,12 +88,8 @@ namespace Ogre {
         void unloadHighLevelImpl(void) override;
         void unprepareImpl() override;
 
-        // Recursive utility method for populateParameterNames
-        void processParamElement(String prefix, String paramName, ID3D11ShaderReflectionType* varRefType);
+        static void populateDef(D3D11_SHADER_TYPE_DESC& d3dDesc, GpuConstantDefinition& def);
 
-        void populateDef(D3D11_SHADER_TYPE_DESC& d3dDesc, GpuConstantDefinition& def) const;
-
-        String mTarget;
         bool mColumnMajorMatrices;
         bool mEnableBackwardsCompatibility;
 
@@ -105,11 +103,8 @@ namespace Ogre {
         ComPtr<ID3D11DomainShader> mDomainShader;
         ComPtr<ID3D11HullShader> mHullShader;
         ComPtr<ID3D11ComputeShader> mComputeShader;
-        
-        HardwareBufferPtr mDefaultBuffer; // for $Globals OR $Params
 
         // Make sure that objects have index and name, or some search will fail
-        typedef std::map<String, int> BufferInfoMap;
         BufferInfoMap mBufferInfoMap;
 
         // Map to store interface slot position. 
@@ -118,26 +113,16 @@ namespace Ogre {
         typedef std::map<String, unsigned int>::const_iterator SlotIterator;
         SlotMap mSlotMap;
 
-        typedef std::vector<D3D11_SIGNATURE_PARAMETER_DESC> D3d11ShaderParameters;
         typedef D3d11ShaderParameters::iterator D3d11ShaderParametersIter; 
 
 
         typedef std::vector<D3D11_SHADER_VARIABLE_DESC> D3d11ShaderVariables;
         typedef D3d11ShaderVariables::iterator D3d11ShaderVariablesIter; 
 
-        struct GpuConstantDefinitionWithName : GpuConstantDefinition
-        {
-            String                  Name;
-        };
-        typedef std::vector<GpuConstantDefinitionWithName> D3d11ShaderVariableSubparts;
-        typedef D3d11ShaderVariableSubparts::iterator D3d11ShaderVariableSubpartsIter; 
-
         struct MemberTypeName
         {
             String                  Name;
         };
-
-        std::vector<String *> mSerStrings;
 
         typedef std::vector<D3D11_SHADER_BUFFER_DESC> D3d11ShaderBufferDescs;
         typedef std::vector<D3D11_SHADER_TYPE_DESC> D3d11ShaderTypeDescs;
@@ -150,7 +135,6 @@ namespace Ogre {
         D3d11ShaderParameters mD3d11ShaderInputParameters;
         D3d11ShaderParameters mD3d11ShaderOutputParameters;
         D3d11ShaderVariables mD3d11ShaderVariables;
-        D3d11ShaderVariableSubparts mD3d11ShaderVariableSubparts;
         D3d11ShaderBufferDescs mD3d11ShaderBufferDescs;
         D3d11ShaderVariables mVarDescBuffer;
         D3d11ShaderVariables mVarDescPointer;
@@ -170,7 +154,7 @@ namespace Ogre {
         /** Sets the shader target to compile down to, e.g. 'vs_1_1'. */
         void setTarget(const String& target);
         /** Gets the shader target to compile down to, e.g. 'vs_1_1'. */
-        const String& getTarget(void) const { return mTarget; }
+        const String& getTarget(void) const { return mSyntaxCode; }
         /** Gets the shader target promoted to the first compatible, e.g. 'vs_4_0' or 'ps_4_0' if backward compatibility is enabled. */
         const char* getCompatibleTarget(void) const;
 
@@ -182,8 +166,6 @@ namespace Ogre {
         void setEnableBackwardsCompatibility(bool enableBackwardsCompatibility) { mEnableBackwardsCompatibility = enableBackwardsCompatibility; }
         /** Gets whether backwards compatibility is enabled. */
         bool getEnableBackwardsCompatibility(void) const { return mEnableBackwardsCompatibility; }
-        /// Overridden from GpuProgram
-        bool isSupported(void) const;
         /// Overridden from GpuProgram
         GpuProgramParametersSharedPtr createParameters(void);
         /// Overridden from GpuProgram
@@ -198,7 +180,7 @@ namespace Ogre {
         ID3D11ComputeShader* getComputeShader(void) const;
         const MicroCode &  getMicroCode(void) const;  
 
-        std::vector<ID3D11Buffer*> getConstantBuffers(const GpuProgramParametersPtr& params);
+        const BufferInfoMap& getBufferInfoMap() const { return mBufferInfoMap; }
 
         // Get slot for a specific interface
         unsigned int getSubroutineSlot(const String& subroutineSlotName) const;
@@ -222,13 +204,9 @@ namespace Ogre {
         void reinterpretGSForStreamOut(void);
         bool mReinterpretingGS;
         
-        unsigned int getNumInputs(void)const;
-        unsigned int getNumOutputs(void)const;
-
         uint32 getNameForMicrocodeCache();
 
-        const D3D11_SIGNATURE_PARAMETER_DESC & getInputParamDesc(unsigned int index) const;
-        const D3D11_SIGNATURE_PARAMETER_DESC & getOutputParamDesc(unsigned int index) const;    
+        const D3d11ShaderParameters& getInputParams() const { return mD3d11ShaderInputParameters; }
     };
 }
 

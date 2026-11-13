@@ -29,6 +29,7 @@ THE SOFTWARE.
 #define _COLOURVALUE_H__
 
 #include "OgrePrerequisites.h"
+#include "OgreMath.h"
 
 namespace Ogre {
     /** \addtogroup Core
@@ -44,9 +45,9 @@ namespace Ogre {
     typedef uint32 BGRA;
 
     /** Class representing colour.
-        @remarks
-            Colour is represented as 4 components, each of which is a
-            floating-point value from 0.0 to 1.0.
+
+        Colour is represented as 4 components, each of which is a
+        floating-point value from 0.0 to 1.0.
         @par
             The 3 'normal' colour components are red, green and blue, a higher
             number indicating greater amounts of that component in the colour.
@@ -57,14 +58,14 @@ namespace Ogre {
     class _OgreExport ColourValue
     {
     public:
-        static const ColourValue ZERO;
-        static const ColourValue Black;
-        static const ColourValue White;
-        static const ColourValue Red;
-        static const ColourValue Green;
-        static const ColourValue Blue;
+        static const ColourValue &ZERO;
+        static const ColourValue &Black;
+        static const ColourValue &White;
+        static const ColourValue &Red;
+        static const ColourValue &Green;
+        static const ColourValue &Blue;
 
-        explicit ColourValue( float red = 1.0f,
+        explicit constexpr ColourValue( float red = 1.0f,
                     float green = 1.0f,
                     float blue = 1.0f,
                     float alpha = 1.0f ) : r(red), g(green), b(blue), a(alpha)
@@ -125,25 +126,10 @@ namespace Ogre {
         */
         void saturate(void)
         {
-            if (r < 0)
-                r = 0;
-            else if (r > 1)
-                r = 1;
-
-            if (g < 0)
-                g = 0;
-            else if (g > 1)
-                g = 1;
-
-            if (b < 0)
-                b = 0;
-            else if (b > 1)
-                b = 1;
-
-            if (a < 0)
-                a = 0;
-            else if (a > 1)
-                a = 1;
+            r = Math::saturate(r);
+            g = Math::saturate(g);
+            b = Math::saturate(b);
+            a = Math::saturate(a);
         }
 
         /** As saturate, except that this colour value is unaffected and
@@ -154,6 +140,9 @@ namespace Ogre {
             ret.saturate();
             return ret;
         }
+
+        /// Convert from gamma space to linear space
+        ColourValue gammaToLinear() const { return ColourValue(powf(r, 2.2f), powf(g, 2.2f), powf(b, 2.2f), a); }
 
         /// Array accessor operator
         float operator [] ( const size_t i ) const
@@ -334,17 +323,11 @@ namespace Ogre {
         {
             getHSB(*hue, *saturation, *brightness);
         }
-
-        /** Function for writing to a stream.
-        */
-        inline friend std::ostream& operator <<
-            ( std::ostream& o, const ColourValue& c )
-        {
-            o << "ColourValue(" << c.r << ", " << c.g << ", " << c.b << ", " << c.a << ")";
-            return o;
-        }
-
     };
+
+    /** Function for writing to a stream.
+    */
+    _OgreExport std::ostream& operator<<(std::ostream& o, const ColourValue& c);
     /** @} */
     /** @} */
 

@@ -43,7 +43,7 @@ bool Context::mouseWheelRolled(const OgreBites::MouseWheelEvent& evt) {
     OgreBites::MouseWheelEvent _evt = evt;
     // chrome reports values of 53 here
     _evt.y = std::min(3, std::max(-3, evt.y));
-    return OgreBites::SampleContext::mouseWheelRolled(evt);
+    return OgreBites::SampleContext::mouseWheelRolled(_evt);
 }
 
 void Context::_mainLoop(void* target)
@@ -64,9 +64,9 @@ void Context::_mainLoop(void* target)
 	    }
 	    catch (Ogre::Exception& e)
 	    {
-            size_t length = emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_DEMANGLE | EM_LOG_NO_PATHS | EM_LOG_FUNC_PARAMS,0,0) + 50;
+            size_t length = emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_NO_PATHS,0,0) + 50;
             std::vector<char> buffer(length);
-            emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_DEMANGLE | EM_LOG_NO_PATHS | EM_LOG_FUNC_PARAMS, buffer.data(), length);
+            emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_NO_PATHS, buffer.data(), length);
             Ogre::LogManager::getSingleton().logMessage(buffer.data());
 
             emscripten_pause_main_loop();
@@ -109,9 +109,9 @@ void Context::destroyMaterials( const Ogre::String& resourceGroupID )
             }
         }
 
-        for( size_t i = 0; i < materialNamesToRemove.size(); ++i )
+        for( const auto& materialName : materialNamesToRemove )
         {
-            materialManager->remove( materialNamesToRemove[i], resourceGroupID );
+            materialManager->remove( materialName, resourceGroupID );
         }
         materialManager->removeUnreferencedResources();
     }
@@ -143,9 +143,9 @@ void Context::destroyTextures( const Ogre::String& resourceGroupID )
             }
         }
 
-        for( size_t i = 0; i < textureNamesToRemove.size(); ++i )
+        for( const auto& textureName : textureNamesToRemove )
         {
-            textureManager->remove( textureNamesToRemove[i], resourceGroupID );
+            textureManager->remove( textureName, resourceGroupID );
         }
     }
     catch( ... )
@@ -223,7 +223,5 @@ void Context::setup() {
     addInputListener(this);
 
     mCurrentSample = new Sample_Character();
-    mCurrentSample->setShaderGenerator(mShaderGenerator);
-    mCurrentSample->_setupTrays(mWindow);
-    mCurrentSample->_setup(mWindow, mFSLayer, mOverlaySystem);
+    mCurrentSample->_setup(this);
 }

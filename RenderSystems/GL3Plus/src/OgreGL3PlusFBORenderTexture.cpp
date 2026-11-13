@@ -31,72 +31,11 @@ Copyright (c) 2000-2014 Torus Knot Software Ltd
 #include "OgreGL3PlusPixelFormat.h"
 #include "OgreLogManager.h"
 #include "OgreGL3PlusHardwarePixelBuffer.h"
-#include "OgreGL3PlusFBOMultiRenderTarget.h"
 #include "OgreGL3PlusRenderSystem.h"
 #include "OgreGL3PlusStateCacheManager.h"
+#include "OgreGL3PlusFrameBufferObject.h"
 
 namespace Ogre {
-
-    GL3PlusFBORenderTexture::GL3PlusFBORenderTexture(
-        GL3PlusFBOManager *manager, const String &name,
-        const GLSurfaceDesc &target, bool writeGamma, uint fsaa):
-        GLRenderTexture(name, target, writeGamma, fsaa),
-        mFB(manager, fsaa)
-    {
-        // Bind target to surface 0 and initialise
-        mFB.bindSurface(0, target);
-
-        // Get attributes
-        mWidth = mFB.getWidth();
-        mHeight = mFB.getHeight();
-    }
-
-    void GL3PlusFBORenderTexture::getCustomAttribute(const String& name, void* pData)
-    {
-        if(name == GLRenderTexture::CustomAttributeString_FBO)
-        {
-            *static_cast<GL3PlusFrameBufferObject **>(pData) = &mFB;
-        }
-        else if(name == GLRenderTexture::CustomAttributeString_GLCONTEXT)
-        {
-            *static_cast<GLContext**>(pData) = getContext();
-        }
-        else if (name == "GL_FBOID")
-        {
-            *static_cast<GLuint*>(pData) = mFB.getGLFBOID();
-        }
-        else if (name == "GL_MULTISAMPLEFBOID")
-        {
-            *static_cast<GLuint*>(pData) = mFB.getGLMultisampleFBOID();
-        }
-    }
-
-    void GL3PlusFBORenderTexture::swapBuffers()
-    {
-        mFB.swapBuffers();
-    }
-
-    bool GL3PlusFBORenderTexture::attachDepthBuffer( DepthBuffer *depthBuffer )
-    {
-        bool result;
-        if( (result = GLRenderTexture::attachDepthBuffer( depthBuffer )) )
-            mFB.attachDepthBuffer( depthBuffer );
-
-        return result;
-    }
-
-    void GL3PlusFBORenderTexture::detachDepthBuffer()
-    {
-        mFB.detachDepthBuffer();
-        GLRenderTexture::detachDepthBuffer();
-    }
-
-    void GL3PlusFBORenderTexture::_detachDepthBuffer()
-    {
-        mFB.detachDepthBuffer();
-        GLRenderTexture::_detachDepthBuffer();
-    }
-
     // Size of probe texture
 #define PROBE_SIZE 16
 
@@ -142,11 +81,6 @@ namespace Ogre {
         {
             LogManager::getSingleton().logWarning("GL3PlusFBOManager destructor called, but not all renderbuffers were released.");
         }
-    }
-
-    GL3PlusStateCacheManager* GL3PlusFBOManager::getStateCacheManager()
-    {
-        return mRenderSystem->_getStateCacheManager();
     }
 
     void GL3PlusFBOManager::_createTempFramebuffer(GLuint internalFormat, GLuint fmt, GLenum dataType, GLuint &fb, GLuint &tid)
@@ -462,41 +396,15 @@ namespace Ogre {
         *stencilFormat = requestDepthOnly ? 0 : stencilFormats[props.modes[bestmode].stencil];
     }
 
-    GL3PlusFBORenderTexture *GL3PlusFBOManager::createRenderTexture(const String &name,
-                                                                    const GLSurfaceDesc &target, bool writeGamma, uint fsaa)
+    GLFBORenderTexture* GL3PlusFBOManager::createRenderTexture(const String& name, const GLSurfaceDesc& target,
+                                                               bool writeGamma)
     {
-        GL3PlusFBORenderTexture *retval = new GL3PlusFBORenderTexture(this, name, target, writeGamma, fsaa);
-        return retval;
+        return new GLFBORenderTexture(name, target, writeGamma, new GL3PlusFrameBufferObject());
     }
 
-    GLSurfaceDesc GL3PlusFBOManager::requestRenderBuffer(GLenum format, uint32 width, uint32 height, uint fsaa)
+    GLHardwarePixelBufferCommon* GL3PlusFBOManager::createNewRenderBuffer(unsigned format, uint32 width, uint32 height,
+                                                                          uint fsaa)
     {
-        GLSurfaceDesc retval;
-        retval.buffer = 0; // Return 0 buffer if GL_NONE is requested
-        if(format != GL_NONE)
-        {
-            RBFormat key(format, width, height, fsaa);
-            RenderBufferMap::iterator it = mRenderBufferMap.find(key);
-            if(it != mRenderBufferMap.end())
-            {
-                retval.buffer = it->second.buffer;
-                retval.zoffset = 0;
-                retval.numSamples = fsaa;
-                // Increase refcount
-                ++it->second.refcount;
-            }
-            else
-            {
-                // New one
-                GL3PlusRenderBuffer *rb = new GL3PlusRenderBuffer(format, width, height, fsaa);
-                mRenderBufferMap[key] = RBRef(rb);
-                retval.buffer = rb;
-                retval.zoffset = 0;
-                retval.numSamples = fsaa;
-            }
-        }
-        //        std::cerr << "Requested renderbuffer with format " << std::hex << format << std::dec << " of " << width << "x" << height << " :" << retval.buffer << std::endl;
-        return retval;
+        return new GL3PlusRenderBuffer(format, width, height, fsaa);
     }
-
 }

@@ -32,6 +32,8 @@ THE SOFTWARE.
 
 #include "OgreRay.h"
 
+#include <memory>
+
 using namespace Ogre;
 using namespace OgreBites;
 using namespace Ogre::Volume;
@@ -63,11 +65,8 @@ void Sample_VolumeTerrain::setupContent(void)
     mVolumeRoot->load(mVolumeRootNode, mSceneMgr, "volumeTerrain.cfg", true);
     LogManager::getSingleton().stream() << "Loaded volume terrain in " << t.getMillisecondsCPU() << " ms";
 
-#if defined(INCLUDE_RTSHADER_SYSTEM)
     // Make this viewport work with shader generator scheme.
-    mShaderGenerator->invalidateScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
-    mViewport->setMaterialScheme(RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
-#endif
+    mViewport->setMaterialScheme(MSN_SHADERGEN);
 
     // Camera
     mCameraNode->setPosition((Real)3264, (Real)2700, (Real)3264);
@@ -82,9 +81,7 @@ void Sample_VolumeTerrain::setupControls(void)
 {
     mMouseState = 0;
     mTrayMgr->showCursor();
-#if OGRE_PLATFORM != OGRE_PLATFORM_APPLE_IOS
-        setDragLook(true);
-#endif
+    setDragLook(true);
     mCameraMan->setTopSpeed((Real)100.0);
     // make room for the volume
     mTrayMgr->showLogo(TL_TOPRIGHT);
@@ -156,13 +153,17 @@ void Sample_VolumeTerrain::shootRay(Ray ray, bool doUnion)
     {
         Real radius = (Real)2.5;
         CSGSphereSource sphere(radius, intersection);
-        CSGOperationSource *operation = doUnion ? static_cast<CSGOperationSource*>(new CSGUnionSource()) : new CSGDifferenceSource();
-        static_cast<TextureSource*>(mVolumeRoot->getChunkParameters()->src)->combineWithSource(operation, &sphere, intersection, radius * (Real)1.5);
+        std::unique_ptr<CSGOperationSource> operation;
+        if (doUnion)
+            operation = std::make_unique<CSGUnionSource>();
+        else
+            operation = std::make_unique<CSGDifferenceSource>();
+
+        static_cast<TextureSource*>(mVolumeRoot->getChunkParameters()->src)->combineWithSource(operation.get(), &sphere, intersection, radius * (Real)1.5);
         
         mVolumeRoot->getChunkParameters()->updateFrom = intersection - radius * (Real)1.5;
         mVolumeRoot->getChunkParameters()->updateTo = intersection + radius * (Real)1.5;
         mVolumeRoot->load(mVolumeRootNode, Vector3::ZERO, Vector3(384), 5, mVolumeRoot->getChunkParameters());
-        delete operation;
     }
 }
 

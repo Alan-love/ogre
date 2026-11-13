@@ -126,9 +126,16 @@ namespace Ogre {
         /// combined with filtering.
         TAM_CLAMP,
         /// %Texture coordinates outside the range [0.0, 1.0] are set to the border colour.
-        TAM_BORDER,
-        /// Unknown
-        TAM_UNKNOWN = 99
+        TAM_BORDER
+    };
+
+    /// Strategies for allocating and managing render buffers.
+    enum RenderBufferPool : uint16
+    {
+        /// No automatic allocation. Use this when the buffer is not needed, or when it will be managed explicitly by the user.
+        RBP_NONE    = 0,
+        /// Automatically allocated and managed from the default shared pool (pool ID = 1)
+        RBP_DEFAULT = 1
     };
 
     /** %Light shading modes. */
@@ -308,14 +315,12 @@ namespace Ogre {
     enum SortMode : uint8
     {
 
-        /** Sort by direction of the camera
-         *
+        /** Sort by direction of the camera.
          * The distance along the camera view as in `cam->getDerivedDirection().dotProduct(diff)`
          * Best for @ref PT_ORTHOGRAPHIC
          */
         SM_DIRECTION,
-        /** Sort by distance from the camera
-         *
+        /** Sort by distance from the camera.
          * The euclidean distance as in `diff.squaredLength()`
          * Best for @ref PT_PERSPECTIVE
          */
@@ -335,13 +340,6 @@ namespace Ogre {
       CBT_BACK = 0x0,
       CBT_BACK_LEFT,
       CBT_BACK_RIGHT
-    };
-	
-	/** Defines the stereo mode types. */
-    enum StereoModeType
-    {
-      SMT_NONE = 0x0,
-      SMT_FRAME_SEQUENTIAL
     };
 
     /** Flags for the Instance Manager when calculating ideal number of instances per batch */
@@ -371,221 +369,8 @@ namespace Ogre {
         IM_USEALL       = IM_USE16BIT|IM_VTFBESTFIT|IM_USEONEWEIGHT
     };
     
-    
-    /** A hashed vector.
-    */
-    template <typename T>
-    class HashedVector
-    {
-    public:
-        typedef typename std::vector<T> VectorImpl;
-    protected:
-        VectorImpl mList;
-        mutable uint32 mListHash;
-        mutable bool mListHashDirty;
-
-        void addToHash(const T& newPtr) const
-        {
-            mListHash = FastHash((const char*)&newPtr, sizeof(T), mListHash);
-        }
-        void recalcHash() const
-        {
-            mListHash = 0;
-            for (const_iterator i = mList.begin(); i != mList.end(); ++i)
-                addToHash(*i);
-            mListHashDirty = false;
-            
-        }
-
-    public:
-        typedef typename VectorImpl::value_type value_type;
-        typedef typename VectorImpl::pointer pointer;
-        typedef typename VectorImpl::reference reference;
-        typedef typename VectorImpl::const_reference const_reference;
-        typedef typename VectorImpl::size_type size_type;
-        typedef typename VectorImpl::difference_type difference_type;
-        typedef typename VectorImpl::iterator iterator;
-        typedef typename VectorImpl::const_iterator const_iterator;
-        typedef typename VectorImpl::reverse_iterator reverse_iterator;
-        typedef typename VectorImpl::const_reverse_iterator const_reverse_iterator;
-
-        void dirtyHash()
-        {
-            mListHashDirty = true;
-        }
-        bool isHashDirty() const
-        {
-            return mListHashDirty;
-        }
-
-        iterator begin() 
-        { 
-            // we have to assume that hash needs recalculating on non-const
-            dirtyHash();
-            return mList.begin(); 
-        }
-        iterator end() { return mList.end(); }
-        const_iterator begin() const { return mList.begin(); }
-        const_iterator end() const { return mList.end(); }
-        reverse_iterator rbegin() 
-        { 
-            // we have to assume that hash needs recalculating on non-const
-            dirtyHash();
-            return mList.rbegin(); 
-        }
-        reverse_iterator rend() { return mList.rend(); }
-        const_reverse_iterator rbegin() const { return mList.rbegin(); }
-        const_reverse_iterator rend() const { return mList.rend(); }
-        size_type size() const { return mList.size(); }
-        size_type max_size() const { return mList.max_size(); }
-        size_type capacity() const { return mList.capacity(); }
-        bool empty() const { return mList.empty(); }
-        reference operator[](size_type n) 
-        { 
-            // we have to assume that hash needs recalculating on non-const
-            dirtyHash();
-            return mList[n]; 
-        }
-        const_reference operator[](size_type n) const { return mList[n]; }
-        reference at(size_type n) 
-        { 
-            // we have to assume that hash needs recalculating on non-const
-            dirtyHash();
-            return mList.const_iterator(n); 
-        }
-        const_reference at(size_type n) const { return mList.at(n); }
-        HashedVector() : mListHash(0), mListHashDirty(false) {}
-        HashedVector(size_type n) : mList(n), mListHash(0), mListHashDirty(n > 0) {}
-        HashedVector(size_type n, const T& t) : mList(n, t), mListHash(0), mListHashDirty(n > 0) {}
-        HashedVector(const HashedVector<T>& rhs) 
-            : mList(rhs.mList), mListHash(rhs.mListHash), mListHashDirty(rhs.mListHashDirty) {}
-
-        template <class InputIterator>
-        HashedVector(InputIterator a, InputIterator b)
-            : mList(a, b), mListHash(0), mListHashDirty(false)
-        {
-            dirtyHash();
-        }
-
-        ~HashedVector() {}
-        HashedVector<T>& operator=(const HashedVector<T>& rhs)
-        {
-            mList = rhs.mList;
-            mListHash = rhs.mListHash;
-            mListHashDirty = rhs.mListHashDirty;
-            return *this;
-        }
-
-        void reserve(size_t t) { mList.reserve(t); }
-        reference front() 
-        { 
-            // we have to assume that hash needs recalculating on non-const
-            dirtyHash();
-            return mList.front(); 
-        }
-        const_reference front() const { return mList.front(); }
-        reference back()  
-        { 
-            // we have to assume that hash needs recalculating on non-const
-            dirtyHash();
-            return mList.back(); 
-        }
-        const_reference back() const { return mList.back(); }
-        void push_back(const T& t)
-        { 
-            mList.push_back(t);
-            // Quick progressive hash add
-            if (!isHashDirty())
-                addToHash(t);
-        }
-        void pop_back()
-        {
-            mList.pop_back();
-            dirtyHash();
-        }
-        void swap(HashedVector<T>& rhs)
-        {
-            mList.swap(rhs.mList);
-            dirtyHash();
-        }
-        iterator insert(iterator pos, const T& t)
-        {
-            bool recalc = (pos != end());
-            iterator ret = mList.insert(pos, t);
-            if (recalc)
-                dirtyHash();
-            else
-                addToHash(t);
-            return ret;
-        }
-
-        template <class InputIterator>
-        void insert(iterator pos,
-            InputIterator f, InputIterator l)
-        {
-            mList.insert(pos, f, l);
-            dirtyHash();
-        }
-
-        void insert(iterator pos, size_type n, const T& x)
-        {
-            mList.insert(pos, n, x);
-            dirtyHash();
-        }
-
-        iterator erase(iterator pos)
-        {
-            iterator ret = mList.erase(pos);
-            dirtyHash();
-            return ret;
-        }
-        iterator erase(iterator first, iterator last)
-        {
-            iterator ret = mList.erase(first, last);
-            dirtyHash();
-            return ret;
-        }
-        void clear()
-        {
-            mList.clear();
-            mListHash = 0;
-            mListHashDirty = false;
-        }
-
-        void resize(size_type n, const T& t = T())
-        {
-            bool recalc = false;
-            if (n != size())
-                recalc = true;
-
-            mList.resize(n, t);
-            if (recalc)
-                dirtyHash();
-        }
-
-        bool operator==(const HashedVector<T>& b)
-        { return mListHash == b.mListHash; }
-
-        bool operator<(const HashedVector<T>& b)
-        { return mListHash < b.mListHash; }
-
-
-        /// Get the hash value
-        uint32 getHash() const 
-        { 
-            if (isHashDirty())
-                recalcHash();
-
-            return mListHash; 
-        }
-    public:
-
-
-
-    };
-
     class Light;
-    typedef HashedVector<Light*> LightList;
+    typedef std::vector<Light*> LightList;
 
 
     /// Constant blank string, useful for returning by ref where local does not exist
@@ -607,18 +392,6 @@ namespace Ogre {
           TRect( T const & l, T const & t, T const & r, T const & b )
             : left( l ), top( t ), right( r ), bottom( b )
           {
-          }
-          TRect( TRect const & o )
-            : left( o.left ), top( o.top ), right( o.right ), bottom( o.bottom )
-          {
-          }
-          TRect & operator=( TRect const & o )
-          {
-            left = o.left;
-            top = o.top;
-            right = o.right;
-            bottom = o.bottom;
-            return *this;
           }
           T width() const
           {
@@ -697,11 +470,11 @@ namespace Ogre {
           }
           bool operator!=(const TRect& rhs) const { return !(*this == rhs); }
         };
-        template<typename T>
-        std::ostream& operator<<(std::ostream& o, const TRect<T>& r)
+        template <typename CharT, typename TraitsT, typename T>
+        std::basic_ostream<CharT, TraitsT>& operator<<(std::basic_ostream<CharT, TraitsT>& o, const TRect<T>& r)
         {
-            o << "TRect<>(l:" << r.left << ", t:" << r.top << ", r:" << r.right << ", b:" << r.bottom << ")";
-            return o;
+          o << "TRect<>(l:" << r.left << ", t:" << r.top << ", r:" << r.right << ", b:" << r.bottom << ")";
+          return o;
         }
 
         /** Structure used to define a rectangle in a 2-D floating point space.

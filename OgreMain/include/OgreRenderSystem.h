@@ -31,8 +31,8 @@ THE SOFTWARE.
 // Precompiler options
 #include "OgrePrerequisites.h"
 
-#include "OgreTextureUnitState.h"
 #include "OgreCommon.h"
+#include "OgreBlendMode.h"
 
 #include "OgreRenderSystemCapabilities.h"
 #include "OgreConfigOptionMap.h"
@@ -43,6 +43,9 @@ THE SOFTWARE.
 
 namespace Ogre
 {
+    class Sampler;
+    class TextureUnitState;
+
     /** \addtogroup Core
     *  @{
     */
@@ -51,21 +54,23 @@ namespace Ogre
     */
 
     typedef std::vector<DepthBuffer*> DepthBufferVec;
-    typedef std::map< uint16, DepthBufferVec > DepthBufferMap;
+    typedef std::map< uint32, DepthBufferVec > DepthBufferMap;
     typedef std::map< String, RenderTarget * > RenderTargetMap;
     typedef std::multimap<uchar, RenderTarget * > RenderTargetPriorityMap;
 
     class TextureManager;
     /// Enum describing the ways to generate texture coordinates
-    enum TexCoordCalcMethod
+    enum TexCoordCalcMethod : uint8
     {
         /// No calculated texture coordinates
         TEXCALC_NONE,
-        /// Environment map based on vertex normals
+        /// 2D texture coordinates using spherical reflection mapping based on vertex normals.
         TEXCALC_ENVIRONMENT_MAP,
-        /// Environment map based on vertex positions
+        /// 2D texture coordinates using view space position. Same as #TEXCALC_ENVIRONMENT_MAP on all backends.
         TEXCALC_ENVIRONMENT_MAP_PLANAR,
+        /// 3D texture coordinates using the reflection vector.
         TEXCALC_ENVIRONMENT_MAP_REFLECTION,
+        /// 3D texture coordinates using the normal vector.
         TEXCALC_ENVIRONMENT_MAP_NORMAL,
         /// Projective texture
         TEXCALC_PROJECTIVE_TEXTURE
@@ -138,8 +143,15 @@ namespace Ogre
         }
     };
 
+    struct _OgreExport GlobalInstancingData
+    {
+        HardwareVertexBufferPtr vertexBuffer;
+        VertexDeclaration* vertexDecl = nullptr;
+        uint32 instanceCount = 1;
+    };
+
     /** Defines the functionality of a 3D API
-    @remarks
+
     The RenderSystem class provides a base interface
     which abstracts the general functionality of the 3D API
     e.g. Direct3D or OpenGL. Whilst a few of the general
@@ -158,8 +170,6 @@ namespace Ogre
     of exactly which 3D API is in use.
     @author
     Steven Streeting
-    @version
-    1.0
     */
     class _OgreExport RenderSystem : public RenderSysAlloc
     {
@@ -177,7 +187,7 @@ namespace Ogre
         virtual const String& getName(void) const = 0;
 
         /** Returns the details of this API's configuration options
-        @remarks
+
         Each render system must be able to inform the world
         of what options must/can be specified for it's
         operation.
@@ -204,7 +214,7 @@ namespace Ogre
         Used to confirm the settings (normally chosen by the user) in
         order to make the renderer able to initialise with the settings as required.
         This may initialise the @ref RenderWindowDescription or set some RenderSystem
-        specific paramters.
+        specific parameters.
         Called automatically by the default configuration
         dialog, and by the restoration of saved settings.
         These settings are stored and only activated when
@@ -223,6 +233,7 @@ namespace Ogre
         | VSync | true | "vsync" in  @ref _createRenderWindow |
         | VSync Interval | 1 | "vsyncInterval" in  @ref _createRenderWindow |
         | sRGB Gamma Conversion | false | "gamma" in  @ref _createRenderWindow  |
+        | HDR Display | false | "hdrDisplay" in  @ref _createRenderWindow  |
         | FSAA | 0 | concatenation of "FSAA" and "FSAAHint" as in  @ref _createRenderWindow  |
         | Video Mode | - | Window resolution |
         | Display Frequency | - | "displayFrequency" in  @ref _createRenderWindow |
@@ -258,12 +269,9 @@ namespace Ogre
         directly, although  this can be done if the app wants to.
         */
         virtual void _initialise();
-
-        /** Query the real capabilities of the GPU and driver in the RenderSystem*/
-        virtual RenderSystemCapabilities* createRenderSystemCapabilities() const = 0;
  
         /** Get a pointer to the current capabilities being used by the RenderSystem.
-        @remarks
+
         The capabilities may be modified using this pointer, this will only have an effect
         before the RenderSystem has been initialised. It's intended use is to allow a
         listener of the RenderSystemCapabilitiesCreated event to customise the capabilities
@@ -348,7 +356,7 @@ namespace Ogre
         virtual void setLightingEnabled(bool enabled) {}
 
         /** Creates a new rendering window.
-        @remarks
+
         This method creates a new rendering window as specified
         by the paramteters. The rendering system could be
         responible for only a single window (e.g. in the case
@@ -380,17 +388,21 @@ namespace Ogre
         | title | String | RenderTarget name | The title of the window that will appear in the title bar |  |
         | left | Positive integers | Centred | Screen x coordinate from left |  |
         | top | Positive integers | Centred | Screen y coordinate from left |  |
-        | border | none, fixed, resize | resize | The type of window border (in windowed mode) |  |
         | hidden | true, false | false | hide the created window | |
         | FSAA | Positive integer (usually 0, 2, 4, 8, 16) | 0 | Full screen antialiasing factor |  |
         | gamma | true, false | false | Enable hardware conversion from linear colour space to gamma colour space on rendering to the window. |  |
+        | hdrDisplay | true, false | false | Enable hardware HDR display output if available. This enables rendering to 10bit or higher formats where supported by the hardware and OS. Note that this does not enable HDR rendering within the frame, only the final output conversion. |  |
         | vsync | true, false | false | Synchronize buffer swaps to monitor vsync, eliminating tearing at the expense of a fixed frame rate |  |
         | vsyncInterval | 1, 2, 3, 4 | 1 | If vsync is enabled, the minimum number of vertical blanks that should occur between renders. For example if vsync is enabled, the refresh rate is 60 and this is set to 2, then the frame rate will be locked at 30. |  |
         | Full Screen | true, false | false | Specify whether to create the window in full screen mode | |
+        | border | none, fixed, resize | resize | The type of window border (in windowed mode) | Windows, OSX |
         | displayFrequency | Refresh rate in Hertz (e.g. 60, 75, 100) | Desktop vsync rate | Display frequency rate, for fullscreen mode |  |
         | externalWindowHandle | <ul><li>Win32: HWND as int<li>Linux: X11 Window as ulong<li>OSX: OgreGLView address as an integer. You can pass NSView or NSWindow too, but should perform OgreGLView callbacks into the Ogre manually<li>iOS: UIWindow address as an integer<li>Emscripten: canvas selector String ("#canvas")</ul> | 0 (none) | External window handle, for embedding the OGRE render in an existing window |  |
         | externalGLControl | true, false | false | Let the external window control OpenGL i.e. don't select a pixel format for the window, do not change v-sync and do not swap buffer. When set to true, the calling application is responsible of OpenGL initialization and buffer swapping. It should also create an OpenGL context for its own rendering, Ogre will create one for its use. Then the calling application must also enable Ogre OpenGL context before calling any Ogre function and restore its OpenGL context after these calls. | OpenGL |
+        | externalWlDisplay | wl_display address as an integer | 0 (none) | Wayland display connection | Linux |
+        | externalWlSurface | wl_surface address as an integer | 0 (none) | Wayland onscreen surface | Linux |
         | currentGLContext | true, false | false | Use an externally created GL context. (Must be current) | OpenGL |
+        | currentEGLSurface | true, false | false | Use an externally created EGL surface. | Android |
         | minColourBufferSize | Positive integer (usually 16, 32) | 16 | Min total colour buffer size. See EGL_BUFFER_SIZE | OpenGL |
         | windowProc | WNDPROC | DefWindowProc | function that processes window messages | Win 32 |
         | colourDepth | 16, 32 | Desktop depth | Colour depth of the resulting rendering window; only applies if fullScreen | Win32 |
@@ -441,29 +453,53 @@ namespace Ogre
         */
         virtual RenderTarget * detachRenderTarget( const String &name );
 
-        /** Returns the global instance vertex buffer.
-        */
-        HardwareVertexBufferSharedPtr getGlobalInstanceVertexBuffer() const;
-        /** Sets the global instance vertex buffer.
-        */
-        void setGlobalInstanceVertexBuffer(const HardwareVertexBufferSharedPtr &val);
-        /** Gets vertex declaration for the global vertex buffer for the global instancing
-        */
-        VertexDeclaration* getGlobalInstanceVertexBufferVertexDeclaration() const;
-        /** Sets vertex declaration for the global vertex buffer for the global instancing
-        */
-        void setGlobalInstanceVertexBufferVertexDeclaration( VertexDeclaration* val);
-        /** Gets the global number of instances.
-        */
-        size_t getGlobalNumberOfInstances() const;
-        /** Sets the global number of instances.
-        */
-        void setGlobalNumberOfInstances(const size_t val);
+        /// @deprecated use getSchemeInstancingData instead
+        OGRE_DEPRECATED HardwareVertexBufferPtr getGlobalInstanceVertexBuffer() const
+        {
+            auto it = mSchemeInstancingData.find(_getDefaultViewportMaterialScheme());
+            return it != mSchemeInstancingData.end() ? it->second.vertexBuffer : nullptr;
+        }
+        /// @deprecated use enableSchemeInstancing instead
+        OGRE_DEPRECATED void setGlobalInstanceVertexBuffer(const HardwareVertexBufferPtr& val);
+        /// @deprecated use getSchemeInstancingData instead
+        OGRE_DEPRECATED VertexDeclaration* getGlobalInstanceVertexDeclaration() const
+        {
+            auto it = mSchemeInstancingData.find(_getDefaultViewportMaterialScheme());
+            return it != mSchemeInstancingData.end() ? it->second.vertexDecl : nullptr;
+        }
+        /// @deprecated use enableSchemeInstancing instead
+        OGRE_DEPRECATED void setGlobalInstanceVertexDeclaration(VertexDeclaration* val)
+        {
+            mSchemeInstancingData[_getDefaultViewportMaterialScheme()].vertexDecl = val;
+        }
+        /// @deprecated use getSchemeInstancingData instead
+        OGRE_DEPRECATED uint32 getGlobalInstanceCount() const
+        {
+            auto it = mSchemeInstancingData.find(_getDefaultViewportMaterialScheme());
+            return it != mSchemeInstancingData.end() ? it->second.instanceCount : 1;
+        }
+        /// @deprecated use enableSchemeInstancing instead
+        OGRE_DEPRECATED void setGlobalInstanceCount(uint32 val)
+        {
+            mSchemeInstancingData[_getDefaultViewportMaterialScheme()].instanceCount = val;
+        }
+
+        /// Sets the global instance data for the given material scheme.
+        void enableSchemeInstancing(const String& materialScheme, const HardwareVertexBufferPtr& buffer,
+                                    VertexDeclaration* decl, uint32 instanceCount);
+        /// Gets all data for the global scheme based instancing
+        GlobalInstancingData getSchemeInstancingData(const String& materialScheme) const
+        {
+            auto it = mSchemeInstancingData.find(materialScheme);
+            return it != mSchemeInstancingData.end() ? it->second : GlobalInstancingData();
+        }
+        /// disables instancing for the given material scheme
+        void disableSchemeInstancing(const String& materialScheme) { mSchemeInstancingData.erase(materialScheme); }
 
         /** Retrieves an existing DepthBuffer or creates a new one suited for the given RenderTarget
             and sets it.
-            @remarks
-                RenderTarget's pool ID is respected. @see RenderTarget::setDepthBufferPool()
+
+            RenderTarget's pool ID is respected. @see RenderTarget::setDepthBufferPool()
         */
         void setDepthBufferFor( RenderTarget *renderTarget );
 
@@ -541,18 +577,6 @@ namespace Ogre
         virtual void _setTexture(size_t unit, bool enabled, 
             const TexturePtr &texPtr) = 0;
 
-        /** Binds a texture to a vertex, geometry, compute, tesselation hull
-        or tessellation domain sampler.
-        @remarks
-        Not all rendersystems support separate vertex samplers. For those that
-        do, you can set a texture for them, separate to the regular texture
-        samplers, using this method. For those that don't, you should use the
-        regular texture samplers which are shared between the vertex and
-        fragment units; calling this method will throw an exception.
-        @deprecated only needed for D3D9
-        */
-        virtual void _setVertexTexture(size_t unit, const TexturePtr& tex);
-
         /**
         Sets the texture coordinate set to use for a texture unit.
 
@@ -584,16 +608,6 @@ namespace Ogre
         @deprecated only needed for fixed function APIs
         */
         virtual void _setTextureBlendMode(size_t unit, const LayerBlendModeEx& bm) {}
-
-        /// @deprecated use _setSampler
-        OGRE_DEPRECATED virtual void _setTextureUnitFiltering(size_t unit, FilterType ftype, FilterOptions filter) {}
-
-        /// @deprecated use _setSampler
-        OGRE_DEPRECATED virtual void _setTextureUnitFiltering(size_t unit, FilterOptions minFilter,
-            FilterOptions magFilter, FilterOptions mipFilter);
-
-        /// @deprecated use _setSampler
-        OGRE_DEPRECATED virtual void _setTextureAddressingMode(size_t unit, const Sampler::UVWAddressingMode& uvw) {}
 
         /** Sets the texture coordinate transformation matrix for a texture unit.
         @param unit Texture unit to affect
@@ -634,20 +648,20 @@ namespace Ogre
         virtual void _setTextureProjectionRelativeTo(bool enabled, const Vector3& pos);
 
         /** Creates a DepthBuffer that can be attached to the specified RenderTarget
-            @remarks
-                It doesn't attach anything, it just returns a pointer to a new DepthBuffer
-                Caller is responsible for putting this buffer into the right pool, for
-                attaching, and deleting it. Here's where API-specific magic happens.
-                Don't call this directly unless you know what you're doing.
+
+            It doesn't attach anything, it just returns a pointer to a new DepthBuffer
+            Caller is responsible for putting this buffer into the right pool, for
+            attaching, and deleting it. Here's where API-specific magic happens.
+            Don't call this directly unless you know what you're doing.
         */
         virtual DepthBuffer* _createDepthBufferFor( RenderTarget *renderTarget ) = 0;
 
         /** Removes all depth buffers. Should be called on device lost and shutdown
-            @remarks
-                Advanced users can call this directly with bCleanManualBuffers=false to
-                remove all depth buffers created for RTTs; when they think the pool has
-                grown too big or they've used lots of depth buffers they don't need anymore,
-                freeing GPU RAM.
+
+            Advanced users can call this directly with bCleanManualBuffers=false to
+            remove all depth buffers created for RTTs; when they think the pool has
+            grown too big or they've used lots of depth buffers they don't need anymore,
+            freeing GPU RAM.
         */
         void _cleanupDepthBuffers( bool bCleanManualBuffers=true );
 
@@ -656,23 +670,6 @@ namespace Ogre
         * several times per complete frame if multiple viewports exist.
         */
         virtual void _beginFrame();
-        
-        /// Dummy structure for render system contexts - implementing RenderSystems can extend
-        /// as needed
-        struct RenderSystemContext { };
-        /**
-        * Pause rendering for a frame. This has to be called after _beginFrame and before _endFrame.
-        * Will usually be called by the SceneManager, don't use this manually unless you know what
-        * you are doing.
-        */
-        virtual RenderSystemContext* _pauseFrame(void);
-        /**
-        * Resume rendering for a frame. This has to be called after a _pauseFrame call
-        * Will usually be called by the SceneManager, don't use this manually unless you know what
-        * you are doing.
-        * @param context the render system context, as returned by _pauseFrame
-        */
-        virtual void _resumeFrame(RenderSystemContext* context);
 
         /**
         * Ends rendering of a frame to the current viewport.
@@ -690,15 +687,7 @@ namespace Ogre
         virtual Viewport* _getViewport(void);
 
         /** Sets the culling mode for the render system based on the 'vertex winding'.
-        A typical way for the rendering engine to cull triangles is based on the
-        'vertex winding' of triangles. Vertex winding refers to the direction in
-        which the vertices are passed or indexed to in the rendering operation as viewed
-        from the camera, and will wither be clockwise or anticlockwise (that's 'counterclockwise' for
-        you Americans out there ;) The default is CULL_CLOCKWISE i.e. that only triangles whose vertices
-        are passed/indexed in anticlockwise order are rendered - this is a common approach and is used in 3D studio models
-        for example. You can alter this culling mode if you wish but it is not advised unless you know what you are doing.
-        You may wish to use the CULL_NONE option for mesh data that you cull yourself where the vertex
-        winding is uncertain.
+        @copydetails Pass::setCullingMode
         */
         virtual void _setCullingMode(CullingMode mode) = 0;
 
@@ -719,12 +708,6 @@ namespace Ogre
         */
         virtual void _setDepthBufferParams(bool depthTest = true, bool depthWrite = true, CompareFunction depthFunction = CMPF_LESS_EQUAL) = 0;
 
-        /// @deprecated use _setDepthBufferParams
-        OGRE_DEPRECATED virtual void _setDepthBufferCheckEnabled(bool enabled = true) {}
-        /// @deprecated use _setDepthBufferParams
-        OGRE_DEPRECATED virtual void _setDepthBufferWriteEnabled(bool enabled = true) {}
-        /// @deprecated use _setDepthBufferParams
-        OGRE_DEPRECATED virtual void _setDepthBufferFunction(CompareFunction func = CMPF_LESS_EQUAL) {}
         /// @deprecated use setColourBlendState
         OGRE_DEPRECATED void _setColourBufferWriteEnabled(bool red, bool green, bool blue, bool alpha)
         {
@@ -735,7 +718,7 @@ namespace Ogre
             setColourBlendState(mCurrentBlend);
         }
         /** Sets the depth bias, NB you should use the Material version of this. 
-        @remarks
+
         When polygons are coplanar, you can get problems with 'depth fighting' where
         the pixels from the two polys compete for the same screen pixel. This is particularly
         a problem for decals (polys attached to another surface to represent details such as
@@ -766,13 +749,13 @@ namespace Ogre
         virtual void _setDepthClamp(bool enable) {}
 
         /** The RenderSystem will keep a count of tris rendered, this resets the count. */
-        virtual void _beginGeometryCount(void);
+        void _beginGeometryCount(void);
         /** Reports the number of tris rendered since the last _beginGeometryCount call. */
-        virtual unsigned int _getFaceCount(void) const;
+        unsigned int _getFaceCount(void) const { return static_cast<unsigned int>(mFaceCount); }
         /** Reports the number of batches rendered since the last _beginGeometryCount call. */
-        virtual unsigned int _getBatchCount(void) const;
+        unsigned int _getBatchCount(void) const { return static_cast<unsigned int>(mBatchCount); }
         /** Reports the number of vertices passed to the renderer since the last _beginGeometryCount call. */
-        virtual unsigned int _getVertexCount(void) const;
+        unsigned int _getVertexCount(void) const { return static_cast<unsigned int>(mVertexCount); }
 
         /// @deprecated use ColourValue::getAsBYTE()
         OGRE_DEPRECATED static void convertColourValue(const ColourValue& colour, uint32* pDest)
@@ -783,7 +766,7 @@ namespace Ogre
         OGRE_DEPRECATED static VertexElementType getColourVertexElementType(void) { return VET_UBYTE4_NORM; }
 
         /** Converts a uniform projection matrix to suitable for this render system.
-        @remarks
+
         Because different APIs have different requirements (some incompatible) for the
         projection matrix, this method allows each to implement their own correctly and pass
         back a generic OGRE matrix for storage in the engine.
@@ -817,7 +800,7 @@ namespace Ogre
                                     StencilOperation passOp = SOP_KEEP, bool twoSidedOperation = false);
 
         /** Sets whether or not normals are to be automatically normalised.
-        @remarks
+
         This is useful when, for example, you are scaling SceneNodes such that
         normals may not be unit-length anymore. Note though that this has an
         overhead so should not be turn on unless you really need it.
@@ -879,7 +862,7 @@ namespace Ogre
             const GpuProgramParametersPtr& params, uint16 variabilityMask) = 0;
 
         /** Unbinds GpuPrograms of a given GpuProgramType.
-        @remarks
+
         This returns the pipeline to fixed-function processing for this type.
         */
         virtual void unbindGpuProgram(GpuProgramType gptype);
@@ -923,7 +906,7 @@ namespace Ogre
         bool getInvertVertexWinding(void) const;
 
         /** Sets the 'scissor region' i.e. the region of the target in which rendering can take place.
-        @remarks
+
         This method allows you to 'mask off' rendering in all but a given rectangular area
         as identified by the parameters to this method.
         @param enabled True to enable the scissor test, false to disable it.
@@ -949,7 +932,7 @@ namespace Ogre
                                       float depth = 1.0f, uint16 stencil = 0) = 0;
         /** Returns the horizontal texel offset value required for mapping 
         texel origins to pixel origins in this rendersystem.
-        @remarks
+
         Since rendersystems sometimes disagree on the origin of a texel, 
         mapping from texels to pixels can sometimes be problematic to 
         implement generically. This method allows you to retrieve the offset
@@ -960,7 +943,7 @@ namespace Ogre
         virtual Real getHorizontalTexelOffset(void) { return 0.0f; }
         /** Returns the vertical texel offset value required for mapping 
         texel origins to pixel origins in this rendersystem.
-        @remarks
+
         Since rendersystems sometimes disagree on the origin of a texel, 
         mapping from texels to pixels can sometimes be problematic to 
         implement generically. This method allows you to retrieve the offset
@@ -972,7 +955,7 @@ namespace Ogre
 
         /** Gets the minimum (closest) depth value to be used when rendering
         using identity transforms.
-        @remarks
+
         When using identity transforms you can manually set the depth
         of a vertex; however the input values required differ per
         rendersystem. This method lets you retrieve the correct value.
@@ -981,7 +964,7 @@ namespace Ogre
         virtual Real getMinimumDepthInputValue(void) = 0;
         /** Gets the maximum (farthest) depth value to be used when rendering
         using identity transforms.
-        @remarks
+
         When using identity transforms you can manually set the depth
         of a vertex; however the input values required differ per
         rendersystem. This method lets you retrieve the correct value.
@@ -1038,7 +1021,7 @@ namespace Ogre
         };
 
         /** Sets shared listener.
-        @remarks
+
         Shared listener could be set even if no render system is selected yet.
         This listener will receive "RenderSystemChanged" event on each Root::setRenderSystem call.
         */
@@ -1047,7 +1030,7 @@ namespace Ogre
         static Listener* getSharedListener(void);
 
         /** Adds a listener to the custom events that this render system can raise.
-        @remarks
+
         Some render systems have quite specific, internally generated events 
         that the application may wish to be notified of. Many applications
         don't have to worry about these events, and can just trust OGRE to 
@@ -1072,7 +1055,7 @@ namespace Ogre
 
         /** Tell the rendersystem to perform any prep tasks it needs to directly
         before other threads which might access the rendering API are registered.
-        @remarks
+
         Call this from your main thread before starting your other threads.
         @note
         If you start your own threads, there is a specific startup sequence which
@@ -1098,7 +1081,7 @@ namespace Ogre
 
         /** Register the an additional thread which may make calls to rendersystem-related 
         objects.
-        @remarks
+
         This method should only be called by additional threads during their
         initialisation. If they intend to use hardware rendering system resources 
         they should call this method before doing anything related to the render system.
@@ -1114,9 +1097,6 @@ namespace Ogre
         @see RenderSystem::registerThread
         */
         virtual void unregisterThread() {}
-
-        /// @deprecated do not use
-        OGRE_DEPRECATED virtual unsigned int getDisplayMonitorCount() const { return 1; }
 
         /**
         * This marks the beginning of an event for GPU profiling.
@@ -1164,12 +1144,7 @@ namespace Ogre
         RenderTarget * mActiveRenderTarget;
 
         /** The Active GPU programs and gpu program parameters*/
-        GpuProgramParametersSharedPtr mActiveVertexGpuProgramParameters;
-        GpuProgramParametersSharedPtr mActiveGeometryGpuProgramParameters;
-        GpuProgramParametersSharedPtr mActiveFragmentGpuProgramParameters;
-        GpuProgramParametersSharedPtr mActiveTessellationHullGpuProgramParameters;
-        GpuProgramParametersSharedPtr mActiveTessellationDomainGpuProgramParameters;
-        GpuProgramParametersSharedPtr mActiveComputeGpuProgramParameters;
+        GpuProgramParametersPtr mActiveParameters[GPT_COUNT];
 
         // Texture manager
         // A concrete class of this will be created and
@@ -1186,9 +1161,6 @@ namespace Ogre
         size_t mFaceCount;
         size_t mVertexCount;
 
-        /// Saved manual colour blends
-        ColourValue mManualBlendColours[OGRE_MAX_TEXTURE_LAYERS][2];
-
         bool mInvertVertexWinding;
         bool mIsReverseDepthBufferEnabled;
 
@@ -1203,13 +1175,6 @@ namespace Ogre
         float mDerivedDepthBiasBase;
         float mDerivedDepthBiasMultiplier;
         float mDerivedDepthBiasSlopeScale;
-
-        /// a global vertex buffer for global instancing
-        HardwareVertexBufferSharedPtr mGlobalInstanceVertexBuffer;
-        /// a vertex declaration for the global vertex buffer for the global instancing
-        VertexDeclaration* mGlobalInstanceVertexBufferVertexDeclaration;
-        /// the number of global instances (this number will be multiply by the render op instance number) 
-        size_t mGlobalNumberOfInstances;
 
         /** updates pass iteration rendering state including bound gpu program parameter
         pass iteration auto constant entry
@@ -1230,12 +1195,7 @@ namespace Ogre
         typedef std::list<HardwareOcclusionQuery*> HardwareOcclusionQueryList;
         HardwareOcclusionQueryList mHwOcclusionQueries;
 
-        bool mVertexProgramBound;
-        bool mGeometryProgramBound;
-        bool mFragmentProgramBound;
-        bool mTessellationHullProgramBound;
-        bool mTessellationDomainProgramBound;
-        bool mComputeProgramBound;
+        std::array<bool, GPT_COUNT> mProgramBound;
 
         // Recording user clip planes
         PlaneList mClipPlanes;
@@ -1250,9 +1210,11 @@ namespace Ogre
         /// @deprecated only needed for fixed function APIs
         virtual void setClipPlanesImpl(const PlaneList& clipPlanes) {}
 
-        /** Initialize the render system from the capabilities*/
-        virtual void initialiseFromRenderSystemCapabilities(RenderSystemCapabilities* caps, RenderTarget* primary) = 0;
+        /** Query the real capabilities of the GPU and driver in the RenderSystem*/
+        virtual RenderSystemCapabilities* createRenderSystemCapabilities() const = 0;
 
+        /** Initialize the render system from the capabilities*/
+        virtual void initialiseFromRenderSystemCapabilities(RenderSystemCapabilities* caps, RenderTarget* = NULL) {}
 
         DriverVersion mDriverVersion;
         uint16 mNativeShadingLanguageVersion;
@@ -1272,8 +1234,16 @@ namespace Ogre
         void setFFPLightParams(uint32 index, bool enabled);
         bool flipFrontFace() const;
         static CompareFunction reverseCompareFunction(CompareFunction func);
+
+        const HardwareBufferPtr& updateDefaultUniformBuffer(GpuProgramType type, const ConstantList& params);
     private:
         StencilState mStencilState;
+
+        /// buffers for default uniform blocks
+        HardwareBufferPtr mUniformBuffer[GPT_COUNT];
+
+        /// a global vertex buffer for global instancing
+        std::map<String, GlobalInstancingData> mSchemeInstancingData;
     };
     /** @} */
     /** @} */

@@ -46,6 +46,14 @@ namespace Ogre {
     /** \addtogroup Materials
     *  @{
     */
+
+    /// Default material scheme name
+    _OgreExport extern const String MSN_DEFAULT;
+    /// Material scheme of the shader generator
+    _OgreExport extern const String MSN_SHADERGEN;
+    /// Material scheme for shadow casters
+    _OgreExport extern const String MSN_SHADOWCASTER;
+
     /** Class for managing Material settings for %Ogre.
 
         Materials control the eventual surface rendering properties of geometry. This class
@@ -80,7 +88,7 @@ namespace Ogre {
             virtual ~Listener() { }
             /** Called if a technique for a given scheme is not found within a material,
                 allows the application to specify a Technique instance manually.
-            @remarks
+
                 Material schemes allow you to switch wholesale between families of 
                 techniques on a material. However they require you to define those
                 schemes on the materials up-front, which might not be possible or
@@ -147,7 +155,7 @@ namespace Ogre {
         ListenerMap mListenerMap;
 
     public:
-        /// Default material scheme
+        /// same as @ref MSN_DEFAULT
         static String DEFAULT_SCHEME_NAME;
 
         /// Create a new material
@@ -156,7 +164,7 @@ namespace Ogre {
                             bool isManual = false, ManualResourceLoader* loader = 0,
                             const NameValuePairList* createParams = 0);
         
-        /// Get a resource by name
+        /// Get a material by name. For example, to get a MaterialPtr to a material defined in .material script.
         /// @see ResourceManager::getResourceByName
         MaterialPtr getByName(const String& name, const String& groupName = ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME) const;
 
@@ -175,11 +183,6 @@ namespace Ogre {
         /** Initialises the material manager, which also triggers it to 
          * parse all available .program and .material scripts. */
         void initialise(void);
-        
-        /** @see ScriptLoader::parseScript
-        */
-        void parseScript(DataStreamPtr& stream, const String& groupName);
-
 
         /** Sets the default texture filtering to be used for loaded textures, for when textures are
             loaded automatically (e.g. by Material class) or when 'load' is called with the default
@@ -221,7 +224,6 @@ namespace Ogre {
             - specular = ColourValue::Black
             - emissive = ColourValue::Black
             - shininess = 0 (not shiny)
-            - No texture unit settings (& hence no textures)
             - SourceBlendFactor = Ogre::SBF_ONE
             - DestBlendFactor = Ogre::SBF_ZERO (no blend, replace with new colour)
             - Depth buffer checking on
@@ -232,7 +234,7 @@ namespace Ogre {
             - Ambient lighting = ColourValue(0.5, 0.5, 0.5) (mid-grey)
             - Dynamic lighting enabled
             - Gourad shading mode
-            - Bilinear texture filtering
+            - No texture unit settings (& hence no textures)
         */
         virtual MaterialPtr getDefaultSettings(void) const { return mDefaultSettings; }
 

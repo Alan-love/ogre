@@ -108,7 +108,6 @@ namespace Ogre {
 #endif
             }
 
-            extractLayoutQualifiers();
             buildGLUniformReferences();
         }
 
@@ -135,20 +134,6 @@ namespace Ogre {
         OGRE_CHECK_GL_ERROR(glGetProgramiv( mGLProgramHandle, GL_LINK_STATUS, &mLinked ));
 
         GLSLES::logObjectInfo( getCombinedName() + String("GLSL link result : "), mGLProgramHandle );
-
-        const RenderSystemCapabilities* caps = Root::getSingleton().getRenderSystem()->getCapabilities();
-
-        if(caps->hasCapability(RSC_SEPARATE_SHADER_OBJECTS))
-        {
-            if(glIsProgramPipelineEXT(mGLProgramHandle))
-                glValidateProgramPipelineEXT(mGLProgramHandle);
-        }
-        else if(glIsProgram(mGLProgramHandle))
-        {
-            glValidateProgram(mGLProgramHandle);
-        }
-
-        GLSLES::logObjectInfo( getCombinedName() + String(" GLSL validation result : "), mGLProgramHandle );
 
         if(mLinked)
         {
@@ -270,7 +255,9 @@ namespace Ogre {
                     case GCT_SAMPLER2DSHADOW:
                     case GCT_SAMPLER3D:
                     case GCT_SAMPLERCUBE:
+                    case GCT_SAMPLERCUBESHADOW:
                     case GCT_SAMPLER2DARRAY:
+                    case GCT_SAMPLER2DARRAYSHADOW:
                         // Samplers handled like 1-element ints
                     case GCT_INT1:
                         OGRE_CHECK_GL_ERROR(glUniform1iv(currentUniform->mLocation, glArraySize,

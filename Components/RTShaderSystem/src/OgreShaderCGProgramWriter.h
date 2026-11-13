@@ -66,23 +66,21 @@ public:
     /** 
     @see ProgramWriter::writeSourceCode.
     */
-    virtual void writeSourceCode(std::ostream& os, Program* program);
+    void writeSourceCode(std::ostream& os, Program* program) override;
 
     /** 
     @see ProgramWriter::getTargetLanguage.
     */
-    virtual const String& getTargetLanguage() const { return TargetLanguage; }
+    const String& getTargetLanguage() const override { return TargetLanguage; }
 
     static String TargetLanguage;
 
 // Protected methods.
 protected:
+    void writeSharedParams(std::ostream& os, const String& name, int registerIdx, const GpuSharedParametersPtr& params);
 
     /** Initialize string maps. */
     void initializeStringMaps();
-
-    /** Write the program dependencies. */
-    virtual void writeProgramDependencies(std::ostream& os, Program* program);
 
     /** Write a function parameter. */
     void writeFunctionParameter(std::ostream& os, ParameterPtr parameter);

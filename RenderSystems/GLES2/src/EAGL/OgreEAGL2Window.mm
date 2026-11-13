@@ -33,7 +33,6 @@ THE SOFTWARE.
 #include "OgreRoot.h"
 #include "OgreGLES2RenderSystem.h"
 #include "OgreGLES2PixelFormat.h"
-#include "OgreViewport.h"
 #include "OgreLogManager.h"
 #include <iomanip>
 
@@ -129,16 +128,10 @@ namespace Ogre {
         EAGLContextGuard ctx_guard(mContext->getContext());
         
         mContext->destroyFramebuffer();
-        
-        mWidth = widthPx;
-        mHeight = heightPx;
+
+        RenderWindow::resize(widthPx, heightPx);
         
         mContext->createFramebuffer();
-
-        for (ViewportList::iterator it = mViewportList.begin(); it != mViewportList.end(); ++it)
-        {
-            (*it).second->_updateDimensions();
-        }
 	}
     
 	void EAGL2Window::windowMovedOrResized()
@@ -155,17 +148,12 @@ namespace Ogre {
         EAGLContextGuard ctx_guard(mContext->getContext());
         mContext->destroyFramebuffer();
 
-        mWidth  = width;
-        mHeight = height;
         mLeft   = left;
         mTop    = top;
 
-        mContext->createFramebuffer();
+        RenderWindow::resize(width, height);
 
-        for (ViewportList::iterator it = mViewportList.begin(); it != mViewportList.end(); ++it)
-        {
-            (*it).second->_updateDimensions();
-        }
+        mContext->createFramebuffer();
 	}
 
     void EAGL2Window::createNativeWindow(uint widthPt, uint heightPt, const NameValuePairList *miscParams)
@@ -226,28 +214,24 @@ namespace Ogre {
         if(mViewController.view != mView)
             mViewController.view = mView;
 
-        if(eaglLayer)
+        GLRenderSystemCommon *rs = static_cast<GLRenderSystemCommon*>(Root::getSingleton().getRenderSystem());
+        EAGLSharegroup *group = nil;
+        if ((option = miscParams->find("externalSharegroup")) != miscParams->end())
         {
-            EAGLSharegroup *group = nil;
-            
-            if ((option = miscParams->find("externalSharegroup")) != miscParams->end())
-            {
-                group = (__bridge EAGLSharegroup *)(void*)StringConverter::parseSizeT(option->second);
-                LogManager::getSingleton().logMessage("iOS: Using an external EAGLSharegroup");
-            }
-            else
-            {
-                GLRenderSystemCommon *rs = static_cast<GLRenderSystemCommon*>(Root::getSingleton().getRenderSystem());
-                if(EAGLES2Context* mainContext = (EAGLES2Context*)rs->_getMainContext())
-                    group = mainContext->getContext().sharegroup;
-            }
-            
-            mContext = mGLSupport->createNewContext(eaglLayer, group);
-
-            mContext->mIsMultiSampleSupported = true;
-            mContext->mNumSamples = mFSAA;
+            group = (__bridge EAGLSharegroup *)(void*)StringConverter::parseSizeT(option->second);
+            LogManager::getSingleton().logMessage("iOS: Using an external EAGLSharegroup");
+        }
+        else
+        {
+            if(EAGLES2Context* mainContext = (EAGLES2Context*)rs->_getMainContext())
+                group = mainContext->getContext().sharegroup;
         }
         
+        mContext = mGLSupport->createNewContext(eaglLayer, group);
+
+        mContext->mIsMultiSampleSupported = rs->hasMinGLVersion(3, 0);
+        mContext->mNumSamples = mFSAA;
+
         OgreAssert(mContext != nil, "EAGL2Window: Failed to create OpenGL ES context");
 
         mViewController.mGLSupport = mGLSupport;
@@ -394,26 +378,15 @@ namespace Ogre {
         }
         if(mContext->mIsMultiSampleSupported && mContext->mNumSamples > 0)
         {
-#if OGRE_NO_GLES3_SUPPORT == 1
-            OGRE_CHECK_GL_ERROR(glBindFramebuffer(GL_DRAW_FRAMEBUFFER_APPLE, mContext->mViewFramebuffer));
-            OGRE_CHECK_GL_ERROR(glBindFramebuffer(GL_READ_FRAMEBUFFER_APPLE, mContext->mSampleFramebuffer));
-            OGRE_CHECK_GL_ERROR(glResolveMultisampleFramebufferAPPLE());
-            OGRE_CHECK_GL_ERROR(glDiscardFramebufferEXT(GL_READ_FRAMEBUFFER_APPLE, attachmentCount, attachments));
-#else
             OGRE_CHECK_GL_ERROR(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mContext->mViewFramebuffer));
             OGRE_CHECK_GL_ERROR(glBindFramebuffer(GL_READ_FRAMEBUFFER, mContext->mSampleFramebuffer));
 			OGRE_CHECK_GL_ERROR(glBlitFramebuffer(0, 0, mWidth, mHeight, 0, 0, mWidth, mHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST));
             OGRE_CHECK_GL_ERROR(glInvalidateFramebuffer(GL_READ_FRAMEBUFFER, attachmentCount, attachments));
-#endif
         }
         else
         {
             OGRE_CHECK_GL_ERROR(glBindFramebuffer(GL_FRAMEBUFFER, mContext->mViewFramebuffer));
-#if OGRE_NO_GLES3_SUPPORT == 1
-            OGRE_CHECK_GL_ERROR(glDiscardFramebufferEXT(GL_FRAMEBUFFER, attachmentCount, attachments));
-#else
             OGRE_CHECK_GL_ERROR(glInvalidateFramebuffer(GL_FRAMEBUFFER, attachmentCount, attachments));
-#endif
         }
 
         OGRE_CHECK_GL_ERROR(glBindRenderbuffer(GL_RENDERBUFFER, mContext->mViewRenderbuffer));
@@ -496,15 +469,9 @@ namespace Ogre {
         OGRE_CHECK_GL_ERROR(glGetIntegerv(GL_FRAMEBUFFER_BINDING, &currentFBO));
         OGRE_CHECK_GL_ERROR(glGenFramebuffers(1, &sampleFramebuffer));
         
-#if OGRE_NO_GLES3_SUPPORT == 1
-        OGRE_CHECK_GL_ERROR(glBindFramebuffer(GL_READ_FRAMEBUFFER_APPLE, sampleFramebuffer));
-        OGRE_CHECK_GL_ERROR(glBindFramebuffer(GL_DRAW_FRAMEBUFFER_APPLE, currentFBO));
-        OGRE_CHECK_GL_ERROR(glResolveMultisampleFramebufferAPPLE());
-#else
         OGRE_CHECK_GL_ERROR(glBindFramebuffer(GL_READ_FRAMEBUFFER, sampleFramebuffer));
         OGRE_CHECK_GL_ERROR(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, currentFBO));
         OGRE_CHECK_GL_ERROR(glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST));
-#endif
         OGRE_CHECK_GL_ERROR(glBindFramebuffer(GL_FRAMEBUFFER, currentFBO));
         
         // Read pixel data from the framebuffer

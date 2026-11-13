@@ -64,6 +64,11 @@ namespace Ogre {
 
 		bool HasAutoMipMapGenerationEnabled() const { return mAutoMipMapGeneration; }
 
+        void createShaderAccessPoint(uint bindPoint, TextureAccess access = TA_READ_WRITE,
+                                        int mipmapLevel = 0, int textureArrayIndex = 0,
+                                        PixelFormat format = PF_UNKNOWN) override;
+
+        ID3D11UnorderedAccessView* getUavView() const { return mpUnorderedAccessView.Get(); }
 	protected:
 		TextureUsage _getTextureUsage() { return static_cast<TextureUsage>(mUsage); }
 
@@ -75,7 +80,7 @@ namespace Ogre {
 
             if(FAILED(hr) || mDevice.isError())
             {
-                this->freeInternalResources();
+                this->unloadImpl();
 				String errorDescription = mDevice.getErrorDescription(hr);
 				OGRE_EXCEPT_EX(Exception::ERR_RENDERINGAPI_ERROR, hr, "Can't get base texture\nError Description:" + errorDescription, 
                     "D3D11Texture::_queryInterface" );
@@ -89,31 +94,25 @@ namespace Ogre {
         void _create1DTex();
         /// internal method, create a blank normal 2D texture
         void _create2DTex();
+        /// internal method to create a normal 2D texture with an already existing surface
+        void _createShared2DTex();
         /// internal method, create a blank cube texture
         void _create3DTex();
 
-        /// @copydoc Texture::createInternalResources
-        void createInternalResources(void);
         /// @copydoc Texture::createInternalResourcesImpl
         void createInternalResourcesImpl(void);
-        /// @copydoc Texture::freeInternalResources
-        void freeInternalResources(void);
         /// free internal resources
         void freeInternalResourcesImpl(void);
-        /// internal method, set Texture class source image protected attributes
-        void _setSrcAttributes(unsigned long width, unsigned long height, unsigned long depth, PixelFormat format);
         /// internal method, set Texture class final texture protected attributes
         void _setFinalAttributes(unsigned long width, unsigned long height, unsigned long depth, PixelFormat format, UINT miscflags);
 
-        /// internal method, create D3D11HardwarePixelBuffers for every face and
-        /// mipmap level. This method must be called after the D3D texture object was created
-        void _createSurfaceList(void);
+        void _setD3D11Surface(void* surface) override;
 
         void notifyDeviceLost(D3D11Device* device);
         void notifyDeviceRestored(D3D11Device* device);
 
-        /// overridden from Resource
-        void loadImpl();
+        HardwarePixelBufferPtr createSurface(uint32 face, uint32 mip, uint32 width, uint32 height,
+                                             uint32 depth) override;
 
     protected:
         D3D11Device&	mDevice;
@@ -128,8 +127,12 @@ namespace Ogre {
         ComPtr<ID3D11Texture2D> mp2DTex;
         ComPtr<ID3D11Texture3D> mp3DTex;
 
+        ComPtr<ID3D11UnorderedAccessView> mpUnorderedAccessView;
+
         D3D11_SHADER_RESOURCE_VIEW_DESC mSRVDesc;
         bool mAutoMipMapGeneration;
+
+        void* mSurface = NULL;
     };
 
     /// RenderTexture implementation for D3D11

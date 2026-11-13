@@ -36,7 +36,7 @@ THE SOFTWARE.
 namespace Ogre {
 
     /** Class for serializing a Mesh to/from XML.
-    @remarks
+
         This class behaves the same way as MeshSerializer in the main project,
         but is here to allow conversions to / from XML. This class is 
         deliberately not included in the main project because <UL>
@@ -54,10 +54,9 @@ namespace Ogre {
         virtual ~XMLMeshSerializer();
         /** Imports a Mesh from the given XML file.
         @param filename The name of the file to import, expected to be in XML format.
-        @param colourElementType The vertex element to use for packed colours
         @param pMesh The pre-created Mesh object to be populated.
         */
-        void importMesh(const String& filename, VertexElementType colourElementType, Mesh* pMesh);
+        void importMesh(const String& filename, Mesh* pMesh);
 
         /** Exports a mesh to the named XML file. */
         void exportMesh(const Mesh* pMesh, const String& filename);
@@ -73,7 +72,6 @@ namespace Ogre {
         void writeGeometry(pugi::xml_node& mParentNode, const VertexData* pData);
         void writeSkeletonLink(pugi::xml_node& mMeshNode, const String& skelName);
         void writeBoneAssignment(pugi::xml_node& mBoneAssignNode, const VertexBoneAssignment* assign);
-        void writeTextureAliases(pugi::xml_node& mSubmeshesNode, const SubMesh* s);
         void writeLodInfo(pugi::xml_node& mMeshNode, const Mesh* pMesh);
         void writeLodUsageManual(pugi::xml_node& usageNode, unsigned short levelNum,
             const MeshLodUsage& usage);
@@ -91,10 +89,11 @@ namespace Ogre {
         void readSkeletonLink(pugi::xml_node& mSkelNode);
         void readBoneAssignments(pugi::xml_node& mBoneAssignmentsNode);
         void readBoneAssignments(pugi::xml_node& mBoneAssignmentsNode, SubMesh* sm);
-        void readTextureAliases(pugi::xml_node& mTextureAliasesNode, SubMesh* sm);
+#if !OGRE_NO_MESHLOD
         void readLodInfo(pugi::xml_node&  lodNode);
         void readLodUsageManual(pugi::xml_node& manualNode, unsigned short index);
         void readLodUsageGenerated(pugi::xml_node& genNode, unsigned short index);
+#endif
         void readSubMeshNames(pugi::xml_node& mMeshNamesNode, Mesh* sm);
         void readPoses(pugi::xml_node& posesNode, Mesh *m);
         void readAnimations(pugi::xml_node& mAnimationsNode, Mesh *m);

@@ -25,6 +25,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
+#include "OgreProfiler.h"
 #include "OgreStableHeaders.h"
 
 #include "OgreParticleSystem.h"
@@ -40,78 +41,78 @@ namespace Ogre {
     class _OgrePrivate CmdQuota : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     /** Command object for emittedEmitterQuota (see ParamCommand).*/
     class _OgrePrivate CmdEmittedEmitterQuota : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     /** Command object for material (see ParamCommand).*/
     class _OgrePrivate CmdMaterial : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     /** Command object for cull_each (see ParamCommand).*/
     class _OgrePrivate CmdCull : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     /** Command object for particle_width (see ParamCommand).*/
     class _OgrePrivate CmdWidth : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     /** Command object for particle_height (see ParamCommand).*/
     class _OgrePrivate CmdHeight : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     /** Command object for renderer (see ParamCommand).*/
     class _OgrePrivate CmdRenderer : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     /** Command object for sorting (see ParamCommand).*/
     class CmdSorted : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     /** Command object for local space (see ParamCommand).*/
     class CmdLocalSpace : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     /** Command object for iteration interval(see ParamCommand).*/
     class CmdIterationInterval : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     /** Command object for nonvisible timeout (see ParamCommand).*/
     class CmdNonvisibleTimeout : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     /// Command objects
     static CmdCull msCullCmd;
@@ -131,16 +132,16 @@ namespace Ogre {
 
     //-----------------------------------------------------------------------
     // Local class for updating based on time
-    class ParticleSystemUpdateValue : public ControllerValue<Real>
+    class ParticleSystemUpdateValue : public ControllerValue<float>
     {
     protected:
         ParticleSystem* mTarget;
     public:
         ParticleSystemUpdateValue(ParticleSystem* target) : mTarget(target) {}
 
-        Real getValue(void) const { return 0; } // N/A
+        float getValue(void) const override { return 0; } // N/A
 
-        void setValue(Real value) { mTarget->_update(value); }
+        void setValue(float value) override { mTarget->_update(value); }
 
     };
     //-----------------------------------------------------------------------
@@ -427,6 +428,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void ParticleSystem::_update(Real timeElapsed)
     {
+        OgreProfile("ParticleSystem");
         // Only update if attached to a node
         if (!mParentNode)
             return;
@@ -503,6 +505,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void ParticleSystem::_expire(Real timeElapsed)
     {
+        OgreProfile("_expire");
         Particle* pParticle;
         ParticleEmitter* pParticleEmitter;
 
@@ -533,7 +536,7 @@ namespace Ogre {
                 }
 
                 // And remove from mActiveParticles
-                *i = std::move(*(--iend));
+                *i = *(--iend);
             }
             else
             {
@@ -548,6 +551,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void ParticleSystem::_triggerEmitters(Real timeElapsed)
     {
+        OgreProfile("_triggerEmitters");
         // Add up requests for emission
         static std::vector<unsigned> requested;
         static std::vector<unsigned> emittedRequested;
@@ -682,6 +686,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void ParticleSystem::_triggerAffectors(Real timeElapsed)
     {
+        OgreProfile("_triggerAffectors");
         for (auto a : mAffectors)
         {
             a->_affectParticles(this, timeElapsed);
@@ -830,7 +835,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void ParticleSystem::_updateBounds()
     {
-
+        OgreProfile("_updateBounds");
         if (mParentNode && (mBoundsAutoUpdate || mBoundsUpdateTime > 0.0f))
         {
             if (mActiveParticles.empty())
@@ -901,7 +906,7 @@ namespace Ogre {
     void ParticleSystem::fastForward(Real time, Real interval)
     {
         // First make sure all transforms are up to date
-        size_t steps = size_t(time/interval + 0.5f); // integer round
+        size_t steps = std::lround(time/interval);
         for (size_t i = 0; i < steps; i++)
         {
             _update(interval);
@@ -920,7 +925,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     const String& ParticleSystem::getMovableType(void) const
     {
-        return ParticleSystemFactory::FACTORY_TYPE_NAME;
+        return MOT_PARTICLE_SYSTEM;
     }
     //-----------------------------------------------------------------------
     void ParticleSystem::setDefaultDimensions( Real width, Real height )
@@ -1021,10 +1026,7 @@ namespace Ogre {
         mMaterial = MaterialManager::getSingleton().getByName(name, groupName);
         if (!mMaterial)
         {
-            LogManager::getSingleton().logError("Can't assign material " + name +
-                " to ParticleSystem " + mName + " because this "
-                "Material does not exist in group "+groupName+". Have you forgotten to define it in a "
-                ".material script?");
+            logMaterialNotFound(name, groupName, "ParticleSystem", mName);
             mMaterial = MaterialManager::getSingleton().getDefaultMaterial(false);
         }
         if (mIsRendererConfigured)
@@ -1435,117 +1437,117 @@ namespace Ogre {
     String CmdCull::doGet(const void* target) const
     {
         return StringConverter::toString(
-            static_cast<const ParticleSystem*>(target)->getCullIndividually() );
+            static_cast<const ParticleSystem*>((const StringInterface*)target)->getCullIndividually() );
     }
     void CmdCull::doSet(void* target, const String& val)
     {
-        static_cast<ParticleSystem*>(target)->setCullIndividually(
+        static_cast<ParticleSystem*>((StringInterface*)target)->setCullIndividually(
             StringConverter::parseBool(val));
     }
     //-----------------------------------------------------------------------
     String CmdHeight::doGet(const void* target) const
     {
         return StringConverter::toString(
-            static_cast<const ParticleSystem*>(target)->getDefaultHeight() );
+            static_cast<const ParticleSystem*>((const StringInterface*)target)->getDefaultHeight() );
     }
     void CmdHeight::doSet(void* target, const String& val)
     {
-        static_cast<ParticleSystem*>(target)->setDefaultHeight(
+        static_cast<ParticleSystem*>((StringInterface*)target)->setDefaultHeight(
             StringConverter::parseReal(val));
     }
     //-----------------------------------------------------------------------
     String CmdWidth::doGet(const void* target) const
     {
         return StringConverter::toString(
-            static_cast<const ParticleSystem*>(target)->getDefaultWidth() );
+            static_cast<const ParticleSystem*>((const StringInterface*)target)->getDefaultWidth() );
     }
     void CmdWidth::doSet(void* target, const String& val)
     {
-        static_cast<ParticleSystem*>(target)->setDefaultWidth(
+        static_cast<ParticleSystem*>((StringInterface*)target)->setDefaultWidth(
             StringConverter::parseReal(val));
     }
     //-----------------------------------------------------------------------
     String CmdMaterial::doGet(const void* target) const
     {
-        return static_cast<const ParticleSystem*>(target)->getMaterialName();
+        return static_cast<const ParticleSystem*>((const StringInterface*)target)->getMaterialName();
     }
     void CmdMaterial::doSet(void* target, const String& val)
     {
-        static_cast<ParticleSystem*>(target)->setMaterialName(val);
+        static_cast<ParticleSystem*>((StringInterface*)target)->setMaterialName(val);
     }
     //-----------------------------------------------------------------------
     String CmdQuota::doGet(const void* target) const
     {
         return StringConverter::toString(
-            static_cast<const ParticleSystem*>(target)->getParticleQuota() );
+            static_cast<const ParticleSystem*>((const StringInterface*)target)->getParticleQuota() );
     }
     void CmdQuota::doSet(void* target, const String& val)
     {
-        static_cast<ParticleSystem*>(target)->setParticleQuota(
+        static_cast<ParticleSystem*>((StringInterface*)target)->setParticleQuota(
             StringConverter::parseUnsignedInt(val));
     }
     //-----------------------------------------------------------------------
     String CmdEmittedEmitterQuota::doGet(const void* target) const
     {
         return StringConverter::toString(
-            static_cast<const ParticleSystem*>(target)->getEmittedEmitterQuota() );
+            static_cast<const ParticleSystem*>((const StringInterface*)target)->getEmittedEmitterQuota() );
     }
     void CmdEmittedEmitterQuota::doSet(void* target, const String& val)
     {
-        static_cast<ParticleSystem*>(target)->setEmittedEmitterQuota(
+        static_cast<ParticleSystem*>((StringInterface*)target)->setEmittedEmitterQuota(
             StringConverter::parseUnsignedInt(val));
     }
     //-----------------------------------------------------------------------
     String CmdRenderer::doGet(const void* target) const
     {
-        return static_cast<const ParticleSystem*>(target)->getRendererName();
+        return static_cast<const ParticleSystem*>((const StringInterface*)target)->getRendererName();
     }
     void CmdRenderer::doSet(void* target, const String& val)
     {
-        static_cast<ParticleSystem*>(target)->setRenderer(val);
+        static_cast<ParticleSystem*>((StringInterface*)target)->setRenderer(val);
     }
     //-----------------------------------------------------------------------
     String CmdSorted::doGet(const void* target) const
     {
         return StringConverter::toString(
-            static_cast<const ParticleSystem*>(target)->getSortingEnabled());
+            static_cast<const ParticleSystem*>((const StringInterface*)target)->getSortingEnabled());
     }
     void CmdSorted::doSet(void* target, const String& val)
     {
-        static_cast<ParticleSystem*>(target)->setSortingEnabled(
+        static_cast<ParticleSystem*>((StringInterface*)target)->setSortingEnabled(
             StringConverter::parseBool(val));
     }
     //-----------------------------------------------------------------------
     String CmdLocalSpace::doGet(const void* target) const
     {
         return StringConverter::toString(
-            static_cast<const ParticleSystem*>(target)->getKeepParticlesInLocalSpace());
+            static_cast<const ParticleSystem*>((const StringInterface*)target)->getKeepParticlesInLocalSpace());
     }
     void CmdLocalSpace::doSet(void* target, const String& val)
     {
-        static_cast<ParticleSystem*>(target)->setKeepParticlesInLocalSpace(
+        static_cast<ParticleSystem*>((StringInterface*)target)->setKeepParticlesInLocalSpace(
             StringConverter::parseBool(val));
     }
     //-----------------------------------------------------------------------
     String CmdIterationInterval::doGet(const void* target) const
     {
         return StringConverter::toString(
-            static_cast<const ParticleSystem*>(target)->getIterationInterval());
+            static_cast<const ParticleSystem*>((const StringInterface*)target)->getIterationInterval());
     }
     void CmdIterationInterval::doSet(void* target, const String& val)
     {
-        static_cast<ParticleSystem*>(target)->setIterationInterval(
+        static_cast<ParticleSystem*>((StringInterface*)target)->setIterationInterval(
             StringConverter::parseReal(val));
     }
     //-----------------------------------------------------------------------
     String CmdNonvisibleTimeout::doGet(const void* target) const
     {
         return StringConverter::toString(
-            static_cast<const ParticleSystem*>(target)->getNonVisibleUpdateTimeout());
+            static_cast<const ParticleSystem*>((const StringInterface*)target)->getNonVisibleUpdateTimeout());
     }
     void CmdNonvisibleTimeout::doSet(void* target, const String& val)
     {
-        static_cast<ParticleSystem*>(target)->setNonVisibleUpdateTimeout(
+        static_cast<ParticleSystem*>((StringInterface*)target)->setNonVisibleUpdateTimeout(
             StringConverter::parseReal(val));
     }
    //-----------------------------------------------------------------------
@@ -1555,29 +1557,31 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     ParticleAffectorFactory::~ParticleAffectorFactory() 
     {
+        OGRE_IGNORE_DEPRECATED_BEGIN
         // Destroy all affectors
-        std::vector<ParticleAffector*>::iterator i;
-        for (i = mAffectors.begin(); i != mAffectors.end(); ++i)
+        for (auto *a : mAffectors)
         {
-            OGRE_DELETE (*i);
+            OGRE_DELETE a;
         }
             
         mAffectors.clear();
-
+        OGRE_IGNORE_DEPRECATED_END
     }
     //-----------------------------------------------------------------------
     void ParticleAffectorFactory::destroyAffector(ParticleAffector* e)
     {
+        delete e;
+        OGRE_IGNORE_DEPRECATED_BEGIN
         std::vector<ParticleAffector*>::iterator i;
         for (i = mAffectors.begin(); i != mAffectors.end(); ++i)
         {
             if ((*i) == e)
             {
                 mAffectors.erase(i);
-                OGRE_DELETE e;
                 break;
             }
         }
+        OGRE_IGNORE_DEPRECATED_END
     }
 
 }

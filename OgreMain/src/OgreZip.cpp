@@ -29,6 +29,7 @@ THE SOFTWARE.
 
 #if OGRE_NO_ZIP_ARCHIVE == 0
 #include <zip.h>
+#include "OgreFileSystemUtil.h"
 
 namespace Ogre {
 namespace {
@@ -45,41 +46,41 @@ namespace {
         ZipArchive(const String& name, const String& archType, const uint8* externBuf = 0, size_t externBufSz = 0);
         ~ZipArchive();
         /// @copydoc Archive::isCaseSensitive
-        bool isCaseSensitive(void) const { return OGRE_RESOURCEMANAGER_STRICT != 0; }
+        bool isCaseSensitive(void) const override { return OGRE_RESOURCEMANAGER_STRICT != 0; }
 
         /// @copydoc Archive::load
-        void load();
+        void load() override;
         /// @copydoc Archive::unload
-        void unload();
+        void unload() final override;
 
         /// @copydoc Archive::open
-        DataStreamPtr open(const String& filename, bool readOnly = true) const;
+        DataStreamPtr open(const String& filename, bool readOnly = true) const override;
 
         /// @copydoc Archive::create
-        DataStreamPtr create(const String& filename);
+        DataStreamPtr create(const String& filename) override;
 
         /// @copydoc Archive::remove
-        void remove(const String& filename);
+        void remove(const String& filename) override;
 
         /// @copydoc Archive::list
-        StringVectorPtr list(bool recursive = true, bool dirs = false) const;
+        StringVectorPtr list(bool recursive = true, bool dirs = false) const override;
 
         /// @copydoc Archive::listFileInfo
-        FileInfoListPtr listFileInfo(bool recursive = true, bool dirs = false) const;
+        FileInfoListPtr listFileInfo(bool recursive = true, bool dirs = false) const override;
 
         /// @copydoc Archive::find
         StringVectorPtr find(const String& pattern, bool recursive = true,
-            bool dirs = false) const;
+            bool dirs = false) const override;
 
         /// @copydoc Archive::findFileInfo
         FileInfoListPtr findFileInfo(const String& pattern, bool recursive = true,
-            bool dirs = false) const;
+            bool dirs = false) const override;
 
         /// @copydoc Archive::exists
-        bool exists(const String& filename) const;
+        bool exists(const String& filename) const override;
 
         /// @copydoc Archive::getModifiedTime
-        time_t getModifiedTime(const String& filename) const;
+        time_t getModifiedTime(const String& filename) const override;
     };
 }
     //-----------------------------------------------------------------------
@@ -160,8 +161,10 @@ namespace {
         OGRE_LOCK_AUTO_MUTEX;
         String lookUpFileName = filename;
 
-        bool open = zip_entry_open(mZipFile, lookUpFileName.c_str(), OGRE_RESOURCEMANAGER_STRICT) == 0;
-#if !OGRE_RESOURCEMANAGER_STRICT
+#if OGRE_RESOURCEMANAGER_STRICT
+        bool open = zip_entry_opencasesensitive(mZipFile, lookUpFileName.c_str()) == 0;
+#else
+        bool open = zip_entry_open(mZipFile, lookUpFileName.c_str()) == 0;
         if (!open) // Try if we find the file
         {
             String basename, path;
@@ -171,7 +174,7 @@ namespace {
             {
                 Ogre::FileInfo info = fileNfo->at(0);
                 lookUpFileName = info.path + info.basename;
-                open = zip_entry_open(mZipFile, lookUpFileName.c_str(), OGRE_RESOURCEMANAGER_STRICT) == 0;
+                open = zip_entry_open(mZipFile, lookUpFileName.c_str()) == 0;
             }
         }
 #endif
@@ -182,10 +185,23 @@ namespace {
         }
 
         // Construct & return stream
-        auto ret = std::make_shared<MemoryDataStream>(zip_entry_size(mZipFile));
+        size_t entrySize = zip_entry_size(mZipFile);
+        size_t compSize  = zip_entry_comp_size(mZipFile);
+        // repetitive log files have a typical ratio of ~50:1, XML 30:1, images 5:1
+        const size_t MAX_RATIO = 100;
+        if ((entrySize > 0 && (compSize == 0 || entrySize / compSize > MAX_RATIO)) || compSize > mBuffer->size())
+        {
+            zip_entry_close(mZipFile);
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
+                        "zip entry has suspicious compression ratio (possible decompression bomb): " + lookUpFileName);
+        }
+        auto ret = std::make_shared<MemoryDataStream>(lookUpFileName, entrySize, true, true);
 
         if(zip_entry_noallocread(mZipFile, ret->getPtr(), ret->size()) < 0)
+        {
+            zip_entry_close(mZipFile);
             OGRE_EXCEPT(Exception::ERR_FILE_NOT_FOUND, "could not read "+lookUpFileName);
+        }
         zip_entry_close(mZipFile);
 
         return ret;
@@ -204,14 +220,12 @@ namespace {
     StringVectorPtr ZipArchive::list(bool recursive, bool dirs) const
     {
         OGRE_LOCK_AUTO_MUTEX;
-        StringVectorPtr ret = StringVectorPtr(OGRE_NEW_T(StringVector, MEMCATEGORY_GENERAL)(), SPFM_DELETE_T);
+        auto ret = std::make_shared<StringVector>();
 
-        FileInfoList::const_iterator i, iend;
-        iend = mFileList.end();
-        for (i = mFileList.begin(); i != iend; ++i)
-            if ((dirs == (i->compressedSize == size_t (-1))) &&
-                (recursive || i->path.empty()))
-                ret->push_back(i->filename);
+        for (auto& f : mFileList)
+            if ((dirs == (f.compressedSize == size_t (-1))) &&
+                (recursive || f.path.empty()))
+                ret->push_back(f.filename);
 
         return ret;
     }
@@ -219,34 +233,31 @@ namespace {
     FileInfoListPtr ZipArchive::listFileInfo(bool recursive, bool dirs) const
     {
         OGRE_LOCK_AUTO_MUTEX;
-        FileInfoList* fil = OGRE_NEW_T(FileInfoList, MEMCATEGORY_GENERAL)();
-        FileInfoList::const_iterator i, iend;
-        iend = mFileList.end();
-        for (i = mFileList.begin(); i != iend; ++i)
-            if ((dirs == (i->compressedSize == size_t (-1))) &&
-                (recursive || i->path.empty()))
-                fil->push_back(*i);
+        auto ret = std::make_shared<FileInfoList>();
+        for (auto& f : mFileList)
+            if ((dirs == (f.compressedSize == size_t (-1))) &&
+                (recursive || f.path.empty()))
+                ret->push_back(f);
 
-        return FileInfoListPtr(fil, SPFM_DELETE_T);
+        return ret;
     }
     //-----------------------------------------------------------------------
     StringVectorPtr ZipArchive::find(const String& pattern, bool recursive, bool dirs) const
     {
         OGRE_LOCK_AUTO_MUTEX;
-        StringVectorPtr ret = StringVectorPtr(OGRE_NEW_T(StringVector, MEMCATEGORY_GENERAL)(), SPFM_DELETE_T);
+        auto ret = std::make_shared<StringVector>();
         // If pattern contains a directory name, do a full match
         bool full_match = (pattern.find ('/') != String::npos) ||
                           (pattern.find ('\\') != String::npos);
+        // this "flattens" the zip, so "*txt" will find all txt files, even in subdirs
         bool wildCard = pattern.find('*') != String::npos;
             
-        FileInfoList::const_iterator i, iend;
-        iend = mFileList.end();
-        for (i = mFileList.begin(); i != iend; ++i)
-            if ((dirs == (i->compressedSize == size_t (-1))) &&
-                (recursive || full_match || wildCard))
-                // Check basename matches pattern (zip is case insensitive)
-                if (StringUtil::match(full_match ? i->filename : i->basename, pattern, false))
-                    ret->push_back(i->filename);
+        for (auto& f : mFileList)
+            if ((dirs == (f.compressedSize == size_t (-1))) &&
+                (recursive || full_match || wildCard || f.path.empty()))
+                // Check basename matches pattern
+                if (StringUtil::match(full_match ? f.filename : f.basename, pattern, isCaseSensitive()))
+                    ret->push_back(f.filename);
 
         return ret;
     }
@@ -255,20 +266,19 @@ namespace {
         bool recursive, bool dirs) const
     {
         OGRE_LOCK_AUTO_MUTEX;
-        FileInfoListPtr ret = FileInfoListPtr(OGRE_NEW_T(FileInfoList, MEMCATEGORY_GENERAL)(), SPFM_DELETE_T);
+        auto ret = std::make_shared<FileInfoList>();
         // If pattern contains a directory name, do a full match
         bool full_match = (pattern.find ('/') != String::npos) ||
                           (pattern.find ('\\') != String::npos);
+        // this "flattens" the zip, so "*txt" will find all txt files, even in subdirs
         bool wildCard = pattern.find('*') != String::npos;
 
-        FileInfoList::const_iterator i, iend;
-        iend = mFileList.end();
-        for (i = mFileList.begin(); i != iend; ++i)
-            if ((dirs == (i->compressedSize == size_t (-1))) &&
-                (recursive || full_match || wildCard))
-                // Check name matches pattern (zip is case insensitive)
-                if (StringUtil::match(full_match ? i->filename : i->basename, pattern, false))
-                    ret->push_back(*i);
+        for (auto& f : mFileList)
+            if ((dirs == (f.compressedSize == size_t (-1))) &&
+                (recursive || full_match || wildCard || f.path.empty()))
+                // Check name matches pattern
+                if (StringUtil::match(full_match ? f.filename : f.basename, pattern, isCaseSensitive()))
+                    ret->push_back(f);
 
         return ret;
     }
@@ -294,18 +304,7 @@ namespace {
     {
         // Zziplib doesn't yet support getting the modification time of individual files
         // so just check the mod time of the zip itself
-        struct stat tagStat;
-        bool ret = (stat(mName.c_str(), &tagStat) == 0);
-
-        if (ret)
-        {
-            return tagStat.st_mtime;
-        }
-        else
-        {
-            return 0;
-        }
-
+        return FileSystemUtil::getFileModifiedTime(mName);
     }
     //-----------------------------------------------------------------------
     //  ZipArchiveFactory

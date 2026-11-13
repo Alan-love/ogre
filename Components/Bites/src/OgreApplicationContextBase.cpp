@@ -4,6 +4,7 @@
 
 #include "OgreApplicationContextBase.h"
 
+#include "OgreOverlayManager.h"
 #include "OgreRoot.h"
 #include "OgreGpuProgramManager.h"
 #include "OgreConfigFile.h"
@@ -19,6 +20,11 @@
 #include "OgreArchiveManager.h"
 
 #include "OgreConfigPaths.h"
+
+#ifdef HAVE_IMGUI
+#include "OgreImGuiOverlay.h"
+#include "OgreImGuiInputListener.h"
+#endif
 
 namespace OgreBites {
 
@@ -95,6 +101,9 @@ bool ApplicationContextBase::initialiseRTShaderSystem()
     if (Ogre::RTShader::ShaderGenerator::initialize())
     {
         mShaderGenerator = Ogre::RTShader::ShaderGenerator::getSingletonPtr();
+
+        if(getRenderWindow()->isHardwareGammaEnabled())
+            mShaderGenerator->setTargetLinearColours(true);
 
         // Create and register the material manager listener if it doesn't exist yet.
         if (!mMaterialMgrListener) {
@@ -251,20 +260,114 @@ void ApplicationContextBase::destroyDummyScene()
     mRoot->destroySceneManager(dummyScene);
 }
 
+#ifdef HAVE_IMGUI
+struct ImGuiConfigDialog : Ogre::FrameListener
+{
+    Ogre::String nextRenderer;
+    bool saveConfig;
+
+    bool frameStarted(const Ogre::FrameEvent& evt) override
+    {
+        Ogre::ImGuiOverlay::NewFrame();
+
+        auto flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse |
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove;
+        auto center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::Begin("Rendering Settings", NULL, flags);
+
+        // the option list can be taller than the window, which is created at a fixed
+        // size. Scroll it instead of pushing the buttons out of the window.
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        const float footerHeight = ImGui::GetFrameHeightWithSpacing() + style.ItemSpacing.y;
+        const ImVec2 maxSize(vp->WorkSize.x - style.DisplaySafeAreaPadding.x * 2 - style.WindowPadding.x * 2,
+                             vp->WorkSize.y - style.DisplaySafeAreaPadding.y * 2 - ImGui::GetFrameHeight() -
+                                 style.WindowPadding.y * 2 - footerHeight - style.ItemSpacing.y * 3);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), maxSize);
+        ImGui::BeginChild("##options", ImVec2(0, 0), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+        Ogre::DrawRenderingSettings(nextRenderer);
+        ImGui::EndChild();
+
+        ImGui::Separator();
+        if (ImGui::Button("Accept"))
+        {
+            Ogre::Root::getSingleton().queueEndRendering();
+            saveConfig = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+            Ogre::Root::getSingleton().queueEndRendering();
+        ImGui::End();
+        return true;
+    }
+};
+#endif
+
+void ApplicationContextBase::runRenderingSettingsDialog()
+{
+#ifndef HAVE_IMGUI
+    OGRE_EXCEPT(Ogre::Exception::ERR_NOT_IMPLEMENTED,
+                "OGRE_BUILD_COMPONENT_OVERLAY_IMGUI=ON is required to run the rendering settings dialog");
+#else
+    createRoot();
+    oneTimeConfig();
+    auto rs = getRoot()->getRenderSystem();
+    auto oldVm = rs->getConfigOptions().at("Video Mode").currentValue;
+    rs->setConfigOption("Video Mode", "800 x 600");
+    setup();
+    rs->setConfigOption("Video Mode", oldVm);
+    createDummyScene();
+
+    float vpScale = getDisplayDPI()/96;
+    Ogre::OverlayManager::getSingleton().setPixelRatio(vpScale);
+    auto overlay = initialiseImGui();
+    ImGui::GetStyle().FontScaleMain = vpScale;
+    overlay->show();
+
+    addInputListener(getImGuiInputListener());
+
+    ImGuiConfigDialog dialog;
+    getRoot()->addFrameListener(&dialog);
+    getRoot()->startRendering();
+
+    destroyDummyScene();
+
+    if(dialog.saveConfig)
+        mRoot->setRenderSystem(mRoot->getRenderSystemByName(dialog.nextRenderer));
+
+    shutdown();
+
+    // some backends (e.g. SDL) release the Root in shutdown(), as the render system
+    // has to go down before the native display. Only clean up if they did not.
+    if(mRoot)
+    {
+        if(dialog.saveConfig)
+            mRoot->saveConfig();
+        mRoot->shutdown();
+        OGRE_DELETE mRoot;
+        mRoot = NULL;
+    }
+#endif
+}
+
 void ApplicationContextBase::enableShaderCache() const
 {
     Ogre::GpuProgramManager::getSingleton().setSaveMicrocodesToCache(true);
 
     // Load for a package version of the shaders.
     Ogre::String path = mFSLayer->getWritablePath(SHADER_CACHE_FILENAME);
-    std::ifstream inFile(path.c_str(), std::ios::binary);
-    if (!inFile.is_open())
+    Ogre::DataStreamPtr istream;
+    try
+    {
+        istream = Ogre::Root::openFileStream(path, "");
+    }
+    catch (const Ogre::Exception&)
     {
         Ogre::LogManager::getSingleton().logWarning("Could not open '"+path+"'");
         return;
     }
     Ogre::LogManager::getSingleton().logMessage("Loading shader cache from '"+path+"'");
-    Ogre::DataStreamPtr istream(new Ogre::FileStreamDataStream(path, &inFile, false));
     Ogre::GpuProgramManager::getSingleton().loadMicrocodeCache(istream);
 }
 
@@ -281,9 +384,8 @@ void ApplicationContextBase::removeInputListener(NativeWindowType* win, InputLis
 
 bool ApplicationContextBase::frameRenderingQueued(const Ogre::FrameEvent& evt)
 {
-    for(InputListenerList::iterator it = mInputListeners.begin();
-            it != mInputListeners.end(); ++it) {
-        it->second->frameRendered(evt);
+    for(const auto & li : mInputListeners) {
+        li.second->frameRendered(evt);
     }
 
     return true;
@@ -345,21 +447,28 @@ void ApplicationContextBase::_destroyWindow(const NativeWindowPair& win)
 void ApplicationContextBase::_fireInputEvent(const Event& event, uint32_t windowID) const
 {
     Event scaled = event;
-    if (OGRE_PLATFORM == OGRE_PLATFORM_APPLE && event.type == MOUSEMOTION)
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (event.type == MOUSEMOTION)
     {
         // assumes all windows have the same scale
         float viewScale = getRenderWindow()->getViewPointToPixelScale();
         scaled.motion.x *= viewScale;
         scaled.motion.y *= viewScale;
     }
+    else if(event.type == MOUSEBUTTONDOWN || event.type == MOUSEBUTTONUP)
+    {
+        float viewScale = getRenderWindow()->getViewPointToPixelScale();
+        scaled.button.x *= viewScale;
+        scaled.button.y *= viewScale;
+    }
+#endif
 
-    for(InputListenerList::iterator it = mInputListeners.begin();
-            it != mInputListeners.end(); ++it)
+    for(const auto & li : mInputListeners)
     {
         // gamepad events are not window specific
-        if(it->first != windowID && event.type <= TEXTINPUT) continue;
+        if(li.first != windowID && event.type <= TEXTINPUT) continue;
 
-        InputListener& l = *it->second;
+        InputListener& l = *li.second;
 
         switch (event.type)
         {
@@ -370,10 +479,10 @@ void ApplicationContextBase::_fireInputEvent(const Event& event, uint32_t window
             l.keyReleased(event.key);
             break;
         case MOUSEBUTTONDOWN:
-            l.mousePressed(event.button);
+            l.mousePressed(scaled.button);
             break;
         case MOUSEBUTTONUP:
-            l.mouseReleased(event.button);
+            l.mouseReleased(scaled.button);
             break;
         case MOUSEWHEEL:
             l.mouseWheelRolled(event.wheel);
@@ -395,8 +504,12 @@ void ApplicationContextBase::_fireInputEvent(const Event& event, uint32_t window
         case TEXTINPUT:
             l.textInput(event.text);
             break;
+        case JOYAXISMOTION:
         case CONTROLLERAXISMOTION:
             l.axisMoved(event.axis);
+            break;
+        case JOYHATMOTION:
+            l.hatMoved(event.hat);
             break;
         case CONTROLLERBUTTONDOWN:
             l.buttonPressed(event.cbutton);
@@ -438,17 +551,13 @@ void ApplicationContextBase::locateResources()
 
     Ogre::String sec, type, arch;
     // go through all specified resource groups
-    Ogre::ConfigFile::SettingsBySection_::const_iterator seci;
-    for(seci = cf.getSettingsBySection().begin(); seci != cf.getSettingsBySection().end(); ++seci) {
-        sec = seci->first;
-        const Ogre::ConfigFile::SettingsMultiMap& settings = seci->second;
-        Ogre::ConfigFile::SettingsMultiMap::const_iterator i;
-
+    for(auto& s : cf.getSettingsBySection()) {
+        sec = s.first;
         // go through all resource paths
-        for (i = settings.begin(); i != settings.end(); i++)
+        for (auto& t : s.second)
         {
-            type = i->first;
-            arch = i->second;
+            type = t.first;
+            arch = t.second;
 
             Ogre::StringUtil::trim(arch);
             if (arch.empty() || arch[0] == '.')
@@ -482,8 +591,7 @@ void ApplicationContextBase::locateResources()
         rgm.addResourceLocation(mediaDir + "/Terrain", "FileSystem", Ogre::RGN_INTERNAL);
 #endif
 #ifdef OGRE_BUILD_COMPONENT_RTSHADERSYSTEM
-        rgm.addResourceLocation(mediaDir + "/RTShaderLib/GLSL", "FileSystem", Ogre::RGN_INTERNAL);
-        rgm.addResourceLocation(mediaDir + "/RTShaderLib/HLSL_Cg", "FileSystem", Ogre::RGN_INTERNAL);
+        rgm.addResourceLocation(mediaDir + "/RTShaderLib", "FileSystem", Ogre::RGN_INTERNAL);
 #endif
     }
 }
@@ -493,30 +601,38 @@ void ApplicationContextBase::loadResources()
     Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
 }
 
+Ogre::ImGuiOverlay* ApplicationContextBase::initialiseImGui()
+{
+#ifndef HAVE_IMGUI
+    OGRE_EXCEPT(Ogre::Exception::ERR_NOT_IMPLEMENTED,
+                "OGRE_BUILD_COMPONENT_OVERLAY_IMGUI=ON is required to use ImGui");
+    return NULL;
+#else
+        if(auto overlay = Ogre::OverlayManager::getSingleton().getByName("ImGuiOverlay"))
+            return static_cast<Ogre::ImGuiOverlay*>(overlay);
+
+        auto imguiOverlay = new Ogre::ImGuiOverlay();
+        Ogre::OverlayManager::getSingleton().addOverlay(imguiOverlay); // now owned by overlaymgr
+
+        // handle DPI scaling
+        float vpScale = Ogre::OverlayManager::getSingleton().getPixelRatio();
+        ImGui::GetStyle().ScaleAllSizes(vpScale);
+
+        mImGuiListener.reset(new ImGuiInputListener());
+
+        return imguiOverlay;
+#endif
+}
+
 void ApplicationContextBase::reconfigure(const Ogre::String &renderer, Ogre::NameValuePairList &options)
 {
     mNextRenderer = renderer;
     Ogre::RenderSystem* rs = mRoot->getRenderSystemByName(renderer);
 
     // set all given render system options
-    for (Ogre::NameValuePairList::iterator it = options.begin(); it != options.end(); it++)
+    for (auto & option : options)
     {
-        rs->setConfigOption(it->first, it->second);
-
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
-        // Change the viewport orientation on the fly if requested
-        if(it->first == "Orientation")
-        {
-            Ogre::RenderWindow* win = getRenderWindow();
-
-            if (it->second == "Landscape Left")
-                win->getViewport(0)->setOrientationMode(Ogre::OR_LANDSCAPELEFT, true);
-            else if (it->second == "Landscape Right")
-                win->getViewport(0)->setOrientationMode(Ogre::OR_LANDSCAPERIGHT, true);
-            else if (it->second == "Portrait")
-                win->getViewport(0)->setOrientationMode(Ogre::OR_PORTRAIT, true);
-        }
-#endif
+        rs->setConfigOption(option.first, option.second);
     }
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
@@ -532,16 +648,17 @@ void ApplicationContextBase::shutdown()
     if (gpuMgr.getSaveMicrocodesToCache() && gpuMgr.isCacheDirty())
     {
         Ogre::String path = mFSLayer->getWritablePath(SHADER_CACHE_FILENAME);
-        std::fstream outFile(path.c_str(), std::ios::out | std::ios::binary);
-
-        if (outFile.is_open())
+        try
         {
+            Ogre::DataStreamPtr ostream = Ogre::Root::createFileStream(path, "", true);
             Ogre::LogManager::getSingleton().logMessage("Writing shader cache to "+path);
-            Ogre::DataStreamPtr ostream(new Ogre::FileStreamDataStream(path, &outFile, false));
             gpuMgr.saveMicrocodeCache(ostream);
+            ostream->close();
         }
-        else
+        catch (const Ogre::Exception&)
+        {
             Ogre::LogManager::getSingleton().logWarning("Cannot open shader cache for writing "+path);
+        }
     }
 
 #ifdef OGRE_BUILD_COMPONENT_RTSHADERSYSTEM

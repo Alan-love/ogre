@@ -21,8 +21,10 @@ namespace Ogre {
 
     protected:
         Image mBuffer;
-        void createInternalResourcesImpl(void);
-        void freeInternalResourcesImpl(void) {}
+        void createInternalResourcesImpl(void) override;
+        void freeInternalResourcesImpl(void) override {}
+        HardwarePixelBufferPtr createSurface(uint32 face, uint32 mipmap, uint32 width, uint32 height,
+                                             uint32 depth) override;
     };
 }
 

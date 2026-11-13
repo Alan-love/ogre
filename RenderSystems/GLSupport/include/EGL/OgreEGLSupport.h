@@ -30,6 +30,17 @@ THE SOFTWARE.
 #ifndef __EGLSupport_H__
 #define __EGLSupport_H__
 
+#ifndef OGRE_WAYLAND
+// Tell EGL that we are using X11 (to select the appropriate definitions)
+#define USE_X11
+#else
+// Tell EGL to not include X11 headers
+#define EGL_NO_X11
+// Tell EGL that we are using wayland
+#ifndef WL_EGL_PLATFORM
+#define WL_EGL_PLATFORM 1
+#endif
+#endif
 
 #include "OgreGLNativeSupport.h"
 #include <EGL/egl.h>
@@ -62,20 +73,6 @@ namespace Ogre {
             NativeDisplayType mNativeDisplay;
 
             bool mIsExternalDisplay;
-            struct EGLVideoMode {
-                typedef std::pair<uint, uint> ScreenSize;
-                typedef short Rate;
-                ScreenSize first;
-                Rate second;
-                EGLVideoMode() {}
-                EGLVideoMode(const VideoMode& m) : first(m.width, m.height), second(m.refreshRate) {}
-
-                bool operator!=(const EGLVideoMode& o) const
-                {
-                    return first != o.first || second != o.second;
-                }
-            };
-            typedef std::vector<EGLVideoMode> EGLVideoModes;
 
             VideoMode mOriginalMode;
             VideoMode mCurrentMode;
@@ -87,32 +84,30 @@ namespace Ogre {
         public:
             EGLSupport(int profile);
 
-            void start(void);
-            void stop(void);
-            virtual String getDisplayName (void);
+            void start(void) override;
+            void stop(void) override;
+
             EGLDisplay getGLDisplay(void);
             void setGLDisplay(EGLDisplay val);
             EGLConfig* chooseGLConfig(const EGLint *attribList, EGLint *nElements);
             EGLConfig* getConfigs(EGLint *nElements);
             EGLBoolean getGLConfigAttrib(EGLConfig fbConfig, EGLint attribute, EGLint *value);
-            void* getProcAddress(const char* name) const;
+            void* getProcAddress(const char* name) const override;
             ::EGLContext createNewContext(EGLDisplay eglDisplay, ::EGLConfig glconfig, ::EGLContext shareList) const;
 
             RenderWindow* newWindow(const String& name,
                                     unsigned int width, unsigned int height,
                                     bool fullScreen,
-                                    const NameValuePairList *miscParams = 0) {
+                                    const NameValuePairList *miscParams = 0) override {
                 return NULL;
             }
 
             GLPBuffer* createPBuffer(PixelComponentType format, size_t width, size_t height) override;
 
             ::EGLConfig getGLConfigFromContext(::EGLContext context);
-            ::EGLConfig getGLConfigFromDrawable(::EGLSurface drawable,
-                                                unsigned int *w, unsigned int *h);
             ::EGLConfig selectGLConfig (const EGLint* minAttribs, const EGLint *maxAttribs);
             void switchMode(void);
-            virtual void switchMode(uint& width, uint& height, short& frequency) = 0;
+            virtual void switchMode(uint& width, uint& height, short& frequency) {}
            // virtual GLPBuffer* createPBuffer(PixelComponentType format,
             //                           size_t width, size_t height) = 0;
 //          NativeDisplayType getNativeDisplay();

@@ -41,7 +41,6 @@ Copyright (c) 2000-2016 Torus Knot Software Ltd
 #include "OgreMetalHardwareBufferManager.h"
 #include "OgreMetalHardwareBufferCommon.h"
 
-#include "OgreFrustum.h"
 #include "OgreViewport.h"
 
 #include "OgreMetalMappings.h"
@@ -75,18 +74,6 @@ namespace Ogre
 
         // set config options defaults
         initConfigOptions();
-    }
-    void MetalRenderSystem::initConfigOptions()
-    {
-        RenderSystem::initConfigOptions();
-
-        ConfigOption opt;
-        opt.name = "Video Mode";
-        opt.immutable = false;
-        opt.possibleValues.push_back("800 x 600");
-        opt.currentValue = opt.possibleValues[0];
-
-        mOptions[opt.name] = opt;
     }
     //-------------------------------------------------------------------------
     MetalRenderSystem::~MetalRenderSystem()
@@ -136,8 +123,13 @@ namespace Ogre
         RenderSystemCapabilities* rsc = new RenderSystemCapabilities();
         rsc->setRenderSystemName(getName());
 
+        rsc->setDeviceName(mActiveDevice->mDevice.name.UTF8String);
+
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS || OGRE_CPU == OGRE_CPU_ARM
+        rsc->setVendor( GPU_APPLE );
+#endif
+
         rsc->setCapability(RSC_HWSTENCIL);
-        rsc->setStencilBufferBitDepth(8);
         rsc->setNumTextureUnits(16);
         rsc->setNumVertexTextureUnits(16);
         rsc->setCapability(RSC_ANISOTROPY);
@@ -146,9 +138,20 @@ namespace Ogre
         rsc->setCapability(RSC_TEXTURE_COMPRESSION_ASTC);
 #endif
 #if OGRE_PLATFORM != OGRE_PLATFORM_APPLE_IOS
-        rsc->setCapability(RSC_TEXTURE_COMPRESSION_DXT);
-        rsc->setCapability(RSC_TEXTURE_COMPRESSION_BC4_BC5);
-        //rsc->setCapability(RSC_TEXTURE_COMPRESSION_BC6H_BC7);
+        // If the device is running macOS older than 11,
+        // then they are all x86 systems which all support BCn
+        bool supportsBCTextureCompression = true;
+        if( @available( macOS 11, * ) )
+        {
+            supportsBCTextureCompression = mActiveDevice->mDevice.supportsBCTextureCompression;
+        }
+
+        if( supportsBCTextureCompression )
+        {
+            rsc->setCapability( RSC_TEXTURE_COMPRESSION_DXT );
+            rsc->setCapability( RSC_TEXTURE_COMPRESSION_BC4_BC5 );
+            // rsc->setCapability(RSC_TEXTURE_COMPRESSION_BC6H_BC7);
+        }
 #else
         //Actually the limit is not the count but rather how many bytes are in the
         //GPU's internal TBDR cache (16 bytes for Family 1, 32 bytes for the rest)
@@ -174,12 +177,13 @@ namespace Ogre
         rsc->setCapability(RSC_HWRENDER_TO_TEXTURE);
         rsc->setCapability(RSC_TEXTURE_FLOAT);
         rsc->setCapability(RSC_POINT_SPRITES);
-        rsc->setCapability(RSC_POINT_EXTENDED_PARAMETERS);
         rsc->setCapability(RSC_TEXTURE_1D);
         rsc->setCapability(RSC_TEXTURE_3D);
         // rsc->setCapability(RSC_TEXTURE_SIGNED_INT);
         rsc->setCapability(RSC_VERTEX_PROGRAM);
         rsc->setCapability(RSC_VERTEX_BUFFER_INSTANCE_DATA);
+        rsc->setCapability(RSC_VERTEX_FORMAT_INT_10_10_10_2);
+        rsc->setCapability(RSC_VERTEX_FORMAT_16X3);
         rsc->setCapability(RSC_MIPMAP_LOD_BIAS);
         rsc->setCapability(RSC_ALPHA_TO_COVERAGE);
         rsc->setMaxPointSize(256);
@@ -192,14 +196,15 @@ namespace Ogre
 
         //These don't make sense on Metal, so just use flexible defaults.
         rsc->setVertexProgramConstantFloatCount( 16384 );
-        rsc->setVertexProgramConstantBoolCount( 16384 );
-        rsc->setVertexProgramConstantIntCount( 16384 );
         rsc->setFragmentProgramConstantFloatCount( 16384 );
-        rsc->setFragmentProgramConstantBoolCount( 16384 );
-        rsc->setFragmentProgramConstantIntCount( 16384 );
         rsc->setComputeProgramConstantFloatCount( 16384 );
-        rsc->setComputeProgramConstantBoolCount( 16384 );
-        rsc->setComputeProgramConstantIntCount( 16384 );
+
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
+        if( [mActiveDevice->mDevice supportsFeatureSet:MTLFeatureSet_iOS_GPUFamily5_v1] )
+            rsc->setCapability( RSC_VP_RT_INDEX_ANY_SHADER );
+#else
+        rsc->setCapability( RSC_VP_RT_INDEX_ANY_SHADER );
+#endif
 
 #if OGRE_PLATFORM != OGRE_PLATFORM_APPLE_IOS
         uint8 mrtCount = 8u;
@@ -216,7 +221,6 @@ namespace Ogre
         }
 #endif
         rsc->setNumMultiRenderTargets( std::min<int>(mrtCount, OGRE_MAX_MULTIPLE_RENDER_TARGETS) );
-        rsc->setCapability(RSC_MRT_DIFFERENT_BIT_DEPTHS);
 
 #if OGRE_PLATFORM != OGRE_PLATFORM_APPLE_IOS
         //uint16 max2DResolution = 16384;
@@ -307,7 +311,9 @@ namespace Ogre
 
             fireEvent("RenderSystemCapabilitiesCreated");
 
-            initialiseFromRenderSystemCapabilities( mCurrentCapabilities, 0 );
+            //DepthBuffer::DefaultDepthBufferFormat = PF_D32_FLOAT_X24_S8_UINT;
+            mMetalProgramFactory = new MetalProgramFactory( &mDevice );
+            HighLevelGpuProgramManager::getSingleton().addFactory( mMetalProgramFactory );
 
             mTextureManager = new MetalTextureManager( &mDevice );
             mHardwareBufferManager = new MetalHardwareBufferManager( &mDevice );
@@ -319,8 +325,8 @@ namespace Ogre
 
             mInitialized = true;
 
-            mDefaultVP = HighLevelGpuProgramManager::getSingleton().createProgram("MetalDefaultVP", RGN_INTERNAL, "metal", GPT_VERTEX_PROGRAM);
-            mDefaultFP = HighLevelGpuProgramManager::getSingleton().createProgram("MetalDefaultFP", RGN_INTERNAL, "metal", GPT_FRAGMENT_PROGRAM);
+            mDefaultVP = GpuProgramManager::getSingleton().createProgram("MetalDefaultVP", RGN_INTERNAL, "metal", GPT_VERTEX_PROGRAM).get();
+            mDefaultFP = GpuProgramManager::getSingleton().createProgram("MetalDefaultFP", RGN_INTERNAL, "metal", GPT_FRAGMENT_PROGRAM).get();
             mDefaultVP->setSourceFile("DefaultShaders.metal");
             mDefaultVP->setParameter("entry_point", "default_vp");
             mDefaultFP->setSourceFile("DefaultShaders.metal");
@@ -356,8 +362,8 @@ namespace Ogre
             }
         }
 
-        bindGpuProgram(mDefaultVP.get());
-        bindGpuProgram(mDefaultFP.get());
+        bindGpuProgram(mDefaultVP);
+        bindGpuProgram(mDefaultFP);
 
         return mDefaultVP->getDefaultParameters();
     }
@@ -409,7 +415,7 @@ namespace Ogre
         desc.storageMode = MTLStorageModePrivate;
 #endif
 
-        PixelFormat desiredDepthBufferFormat = PF_DEPTH32F;//renderTarget->getDesiredDepthBufferFormat();
+        PixelFormat desiredDepthBufferFormat = PF_DEPTH24_STENCIL8;//renderTarget->getDesiredDepthBufferFormat();
 
         MTLPixelFormat depthFormat = MTLPixelFormatInvalid;
         MTLPixelFormat stencilFormat = MTLPixelFormatInvalid;
@@ -444,11 +450,10 @@ namespace Ogre
             }
         }
 
-        DepthBuffer *retVal = new MetalDepthBuffer( 0, this, renderTarget->getWidth(),
+        DepthBuffer *retVal = new MetalDepthBuffer( renderTarget->getDepthBufferPool(), this, renderTarget->getWidth(),
                                                     renderTarget->getHeight(),
-                                                    renderTarget->getFSAA(), 0,
-                                                    desiredDepthBufferFormat,
-                                                    /*renderTarget->prefersDepthTexture()*/ false, false,
+                                                    renderTarget->getFSAA(),
+                                                    depthFormat, false,
                                                     depthTexture, stencilTexture,
                                                     mActiveDevice );
 
@@ -826,8 +831,7 @@ namespace Ogre
 
         psd.colorAttachments[0].pixelFormat =  MetalMappings::getPixelFormat(
                         mActiveRenderTarget->suggestPixelFormat(), mActiveRenderTarget->isHardwareGammaEnabled() );
-        // TODO check mActiveRenderTarget->getDepthBuffer().. but this is the only supported one for now
-        psd.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+        psd.depthAttachmentPixelFormat = static_cast<MetalDepthBuffer*>(mActiveRenderTarget->getDepthBuffer())->getFormat();
 
         MTLVertexDescriptor *vertexDescriptor = [psd vertexDescriptor];
         [vertexDescriptor reset];
@@ -865,7 +869,6 @@ namespace Ogre
         [mActiveRenderEncoder setRenderPipelineState:getPipelineState()];
 
         const size_t numberOfInstances = op.numberOfInstances;
-        const bool hasInstanceData = mCurrentVertexBuffer->vertexBufferBinding->hasInstanceData();
 
         // Render to screen!
         if( op.useIndexes )
@@ -882,19 +885,14 @@ namespace Ogre
                 auto metalBuffer = mCurrentIndexBuffer->indexBuffer->_getImpl<MetalHardwareBufferCommon>();
                 __unsafe_unretained id<MTLBuffer> indexBuffer = metalBuffer->getBufferName( offsetStart );
 
+                // On iOS indexBufferOffset must be a multiple of 4 bytes.
 #if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
                 OgreAssertDbg( ((mCurrentIndexBuffer->indexStart * bytesPerIndexElement) & 0x03) == 0
                             ,"Index Buffer must be aligned to 4 bytes. If you're messing with "
                             "IndexBuffer::indexStart, you've entered an invalid "
                             "indexStart; not supported by the Metal API." );
+#endif
 
-                [mActiveRenderEncoder drawIndexedPrimitives:mCurrentPrimType
-                           indexCount:mCurrentIndexBuffer->indexCount
-                            indexType:indexType
-                          indexBuffer:indexBuffer
-                    indexBufferOffset:mCurrentIndexBuffer->indexStart * bytesPerIndexElement + offsetStart
-                        instanceCount:numberOfInstances];
-#else
                 [mActiveRenderEncoder drawIndexedPrimitives:mCurrentPrimType
                            indexCount:mCurrentIndexBuffer->indexCount
                             indexType:indexType
@@ -903,7 +901,6 @@ namespace Ogre
                         instanceCount:numberOfInstances
                            baseVertex:mCurrentVertexBuffer->vertexStart
                          baseInstance:0];
-#endif
             } while (updatePassIterationRenderState());
         }
         else
@@ -920,13 +917,9 @@ namespace Ogre
                                                  clamp:0.0f];
                 }
 
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
-                const uint32 vertexStart = 0;
-#else
                 const uint32 vertexStart = static_cast<uint32>( mCurrentVertexBuffer->vertexStart );
-#endif
 
-                if (hasInstanceData)
+                if (numberOfInstances > 1)
                 {
                     [mActiveRenderEncoder drawPrimitives:mCurrentPrimType
                                              vertexStart:vertexStart
@@ -956,35 +949,21 @@ namespace Ogre
                                                       const GpuProgramParametersPtr& params,
                                                       uint16 variabilityMask )
     {
-        //MetalProgram *shader = 0;
+        mActiveParameters[gptype] = params;
+
         switch (gptype)
         {
-        case GPT_VERTEX_PROGRAM:
-            mActiveVertexGpuProgramParameters = params;
-            //shader = mPso->vertexShader;
-            break;
-        case GPT_FRAGMENT_PROGRAM:
-            mActiveFragmentGpuProgramParameters = params;
-            //shader = mPso->pixelShader;
-            break;
         case GPT_GEOMETRY_PROGRAM:
-            mActiveGeometryGpuProgramParameters = params;
             OGRE_EXCEPT( Exception::ERR_NOT_IMPLEMENTED,
                          "Geometry Shaders are not supported in Metal.");
             break;
         case GPT_HULL_PROGRAM:
-            mActiveTessellationHullGpuProgramParameters = params;
             OGRE_EXCEPT( Exception::ERR_NOT_IMPLEMENTED,
                          "Tesselation is different in Metal.");
             break;
         case GPT_DOMAIN_PROGRAM:
-            mActiveTessellationDomainGpuProgramParameters = params;
             OGRE_EXCEPT( Exception::ERR_NOT_IMPLEMENTED,
                          "Tesselation is different in Metal.");
-            break;
-        case GPT_COMPUTE_PROGRAM:
-            mActiveComputeGpuProgramParameters = params;
-            //shader = static_cast<MetalProgram*>( mComputePso->computeShader->_getBindingDelegate() );
             break;
         default:
             break;
@@ -1108,10 +1087,10 @@ namespace Ogre
 
             MetalDepthBuffer *depthBuffer = static_cast<MetalDepthBuffer*>( target->getDepthBuffer() );
 
-            if( target->getDepthBufferPool() != DepthBuffer::POOL_NO_DEPTH && !depthBuffer )
+            if (target->getDepthBufferPool() != RBP_NONE && !depthBuffer)
             {
                 // Depth is automatically managed and there is no depth buffer attached to this RT
-                setDepthBufferFor( target );
+                setDepthBufferFor(target);
             }
 
             depthBuffer = static_cast<MetalDepthBuffer*>( target->getDepthBuffer() );
@@ -1173,13 +1152,6 @@ namespace Ogre
     //-------------------------------------------------------------------------
     void MetalRenderSystem::markProfileEvent( const String &event )
     {
-    }
-    //-------------------------------------------------------------------------
-    void MetalRenderSystem::initialiseFromRenderSystemCapabilities(RenderSystemCapabilities* caps, RenderTarget* primary)
-    {
-        //DepthBuffer::DefaultDepthBufferFormat = PF_D32_FLOAT_X24_S8_UINT;
-        mMetalProgramFactory = new MetalProgramFactory( &mDevice );
-        HighLevelGpuProgramManager::getSingleton().addFactory( mMetalProgramFactory );
     }
     //-------------------------------------------------------------------------
     void MetalRenderSystem::setStencilState(const StencilState& state)

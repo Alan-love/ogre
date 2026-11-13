@@ -59,10 +59,13 @@ extern "C" {
 #include "OgreCommon.h"
 #include "OgreDataStream.h"
 #include "OgreDefaultWorkQueue.h"
+#include "OgreDepthBuffer.h"
+#include "OgreEntity.h"
 #include "OgreException.h"
 #include "OgreFileSystem.h"
 #include "OgreFrustum.h"
 #include "OgreHardwareBufferManager.h"
+#include "OgreLight.h"
 #include "OgreLog.h"
 #include "OgreLogManager.h"
 #include "OgreManualObject.h"
@@ -83,6 +86,8 @@ extern "C" {
 #include "OgreProfiler.h"
 #include "OgreQuaternion.h"
 #include "OgreRadixSort.h"
+#include "OgreRenderTarget.h"
+#include "OgreRenderTexture.h"
 #include "OgreRay.h"
 #include "OgreRectangle2D.h"
 #include "OgreBuiltinMovableFactories.h"
@@ -106,11 +111,13 @@ extern "C" {
 #include "OgreStringInterface.h"
 #include "OgreStringVector.h"
 #include "OgreSubMesh.h"
+#include "OgreSubEntity.h"
 #include "OgreTechnique.h"
 #include "OgreTextureManager.h"
 #include "Threading/OgreThreadHeaders.h"
 #include "OgreUserObjectBindings.h"
 #include "OgreVector.h"
+#include "OgreCompositionTechnique.h"
 #if OGRE_NO_ZIP_ARCHIVE == 0
 #   include "OgreZip.h"
 #endif
@@ -126,5 +133,30 @@ extern "C" {
     _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
 #define OGRE_IGNORE_DEPRECATED_END _Pragma("GCC diagnostic pop")
 #endif
+
+#ifndef OGRE_SERIALIZER_VALIDATE_CHUNKSIZE
+#define OGRE_SERIALIZER_VALIDATE_CHUNKSIZE OGRE_DEBUG_MODE
+#endif
+
+#if OGRE_PROFILING == 1
+#define OgreGpuEventScope(name) GpuEventScope _gpuEventScope(name)
+#else
+#define OgreGpuEventScope(name)
+#endif
+
+namespace Ogre
+{
+void logMaterialNotFound(const String& name, const String& groupName, const String& destType, const String& destName,
+                         LogMessageLevel lml = LML_CRITICAL);
+
+struct GpuEventScope
+{
+    GpuEventScope(const String& name) { Root::getSingleton().getRenderSystem()->beginProfileEvent(name); }
+    ~GpuEventScope() { Root::getSingleton().getRenderSystem()->endProfileEvent(); }
+};
+
+TexturePtr createTexture(const String& name, const CompositionTechnique::TextureDefinition& def, PixelFormat pf,
+                         const String& fsaaHint = BLANKSTRING);
+} // namespace Ogre
 
 #endif 

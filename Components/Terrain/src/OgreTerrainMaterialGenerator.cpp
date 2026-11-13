@@ -25,6 +25,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
+#include "OgreDepthBuffer.h"
 #include "OgreTerrainMaterialGeneratorA.h"
 #include "OgreRoot.h"
 #include "OgreHardwarePixelBuffer.h"
@@ -50,8 +51,7 @@ namespace Ogre
 {
     //---------------------------------------------------------------------
     TerrainMaterialGenerator::TerrainMaterialGenerator() 
-        : mActiveProfile(0)
-        , mChangeCounter(0)
+        : mChangeCounter(0)
         , mDebugLevel(0) 
         , mCompositeMapSM(0)
         , mCompositeMapCam(0)
@@ -64,9 +64,6 @@ namespace Ogre
     //---------------------------------------------------------------------
     TerrainMaterialGenerator::~TerrainMaterialGenerator()
     {
-        for (ProfileList::iterator i = mProfiles.begin(); i != mProfiles.end(); ++i)
-            OGRE_DELETE *i;
-
         if (mCompositeMapRTT && TextureManager::getSingletonPtr())
         {
             TextureManager::getSingleton().remove(mCompositeMapRTT->getHandle());
@@ -86,10 +83,11 @@ namespace Ogre
     void TerrainMaterialGenerator::_renderCompositeMap(size_t size, 
         const Rect& rect, const MaterialPtr& mat, const TexturePtr& destCompositeMap)
     {
+        RenderSystem* rSys = Root::getSingleton().getRenderSystem();
         if (!mCompositeMapSM)
         {
             // dedicated SceneManager
-            mCompositeMapSM = Root::getSingleton().createSceneManager(DefaultSceneManagerFactory::FACTORY_TYPE_NAME);
+            mCompositeMapSM = Root::getSingleton().createSceneManager();
             mCompositeMapCam = mCompositeMapSM->createCamera("cam");
             mCompositeMapSM->getRootSceneNode()->attachObject(mCompositeMapCam);
             mCompositeMapCam->setProjectionType(PT_ORTHOGRAPHIC);
@@ -103,17 +101,14 @@ namespace Ogre
             mLightNode = mCompositeMapSM->getRootSceneNode()->createChildSceneNode();
             mLightNode->attachObject(mCompositeMapLight);
 
-            RenderSystem* rSys = Root::getSingleton().getRenderSystem();
             Real hOffset = rSys->getHorizontalTexelOffset() / (Real)size;
             Real vOffset = rSys->getVerticalTexelOffset() / (Real)size;
 
 
             // set up scene
             mCompositeMapPlane = mCompositeMapSM->createScreenSpaceRect(true);
-            mCompositeMapPlane->setCorners(-1, 1, 1, -1);
             mCompositeMapPlane->setUVs({0 - hOffset, 0 - vOffset}, {0 - hOffset, 1 - vOffset},
                                        {1 - hOffset, 0 - vOffset}, {1 - hOffset, 1 - vOffset});
-            mCompositeMapPlane->setBoundingBox(AxisAlignedBox::BOX_INFINITE);
 
             mCompositeMapSM->getRootSceneNode()->attachObject(mCompositeMapPlane);
 
@@ -143,22 +138,21 @@ namespace Ogre
             RenderTarget* rtt = mCompositeMapRTT->getBuffer()->getRenderTarget();
             // don't render all the time, only on demand
             rtt->setAutoUpdated(false);
+            // we dont need depth
+            rtt->setDepthBufferPool(RBP_NONE);
             Viewport* vp = rtt->addViewport(mCompositeMapCam);
             // don't render overlays
             vp->setOverlaysEnabled(false);
-
+            vp->setClearEveryFrame(false);
         }
 
-        // calculate the area we need to update
-        Real vpleft = (Real)rect.left / (Real)size;
-        Real vptop = (Real)rect.top / (Real)size;
-        Real vpright = (Real)rect.right / (Real)size;
-        Real vpbottom = (Real)rect.bottom / (Real)size;
-
         RenderTarget* rtt = mCompositeMapRTT->getBuffer()->getRenderTarget();
-        mCompositeMapCam->setWindow(vpleft, vptop, vpright, vpbottom);
-
+        rSys->_setRenderTarget(rtt);
+        rSys->setScissorTest(true, rect);
+        auto oldVP = rSys->_getViewport();
         rtt->update();
+        rSys->_setViewport(oldVP); // D3D9 requires restoring the old one
+        rSys->setScissorTest(false);
 
         // We have an RTT, we want to copy the results into a regular texture
         // That's because in non-update scenarios we don't want to keep an RTT
@@ -171,7 +165,7 @@ namespace Ogre
     }
     //---------------------------------------------------------------------
     //---------------------------------------------------------------------
-    void TerrainMaterialGenerator::Profile::updateCompositeMap(const Terrain* terrain, const Rect& rect)
+    void TerrainMaterialGenerator::updateCompositeMap(const Terrain* terrain, const Rect& rect)
     {
         // convert point-space rect into image space
         int32 compSize = terrain->getCompositeMap()->getWidth();
@@ -190,11 +184,7 @@ namespace Ogre
 
         imgRect = imgRect.intersect({0, 0, compSize, compSize});
 
-        mParent->_renderCompositeMap(
-            compSize, imgRect, 
-            terrain->getCompositeMapMaterial(), 
-            terrain->getCompositeMap());
-
+        _renderCompositeMap(compSize, imgRect, terrain->getCompositeMapMaterial(), terrain->getCompositeMap());
     }
 
 

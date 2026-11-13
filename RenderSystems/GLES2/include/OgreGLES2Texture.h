@@ -54,26 +54,22 @@ namespace Ogre {
             
         protected:
             /// @copydoc Texture::createInternalResourcesImpl
-            void createInternalResourcesImpl(void);
+            void createInternalResourcesImpl(void) override;
             /// @copydoc Texture::freeInternalResourcesImpl
-            void freeInternalResourcesImpl(void);
+            void freeInternalResourcesImpl(void) override;
 
-            /** Internal method, create GLHardwarePixelBuffers for every face and
-             mipmap level. This method must be called after the GL texture object was created,
-             the number of mipmaps was set (GL_TEXTURE_MAX_LEVEL) and glTexImageXD was called to
-             actually allocate the buffer
-             */
-            void _createSurfaceList();
+            HardwarePixelBufferPtr createSurface(uint32 face, uint32 mip, uint32 width, uint32 height,
+                                                 uint32 depth) override;
 
             /// Create gl texture
             void _createGLTexResource();
         
 #if OGRE_PLATFORM == OGRE_PLATFORM_ANDROID || OGRE_PLATFORM == OGRE_PLATFORM_EMSCRIPTEN
             /** See AndroidResource. */
-            virtual void notifyOnContextLost();
+            void notifyOnContextLost() override;
         
             /** See AndroidResource. */
-            virtual void notifyOnContextReset();
+            void notifyOnContextReset() override;
 #endif
 
         private:

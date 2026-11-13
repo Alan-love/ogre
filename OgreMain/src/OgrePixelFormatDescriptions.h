@@ -103,7 +103,7 @@ namespace Ogre {
             /* Bytes per element */
             1,
             /* Flags */
-            PFF_HASALPHA | PFF_NATIVEENDIAN,
+            PFF_HASALPHA,
             /* Component type and count */
             PCT_BYTE, 1,
             /* rbits, gbits, bbits, abits */
@@ -639,7 +639,7 @@ namespace Ogre {
             /* Bytes per element */
             4,
             /* Flags */
-            PFF_FLOAT | PFF_NATIVEENDIAN,
+            PFF_FLOAT,
             /* Component type and count */
             PCT_FLOAT32, 1,
             /* rbits, gbits, bbits, abits */
@@ -1114,7 +1114,7 @@ namespace Ogre {
             /* rbits, gbits, bbits, abits */
             8, 8, 0, 0,
             /* Masks and shifts */
-            0xFF0000, 0x00FF00, 0, 0,
+            0xFF00, 0x00FF, 0, 0,
             8, 0, 0, 0
         },
         //-----------------------------------------------------------------------
@@ -1525,6 +1525,18 @@ namespace Ogre {
             PCT_FLOAT32, 1,
             /* rbits, gbits, bbits, abits */
             32, 0, 0, 0,
+            /* Masks and shifts */
+            0, 0, 0, 0, 0, 0, 0, 0
+        },
+        {"PF_DEPTH24_STENCIL8",
+            /* Bytes per element */
+            4,
+            /* Flags */
+            PFF_LUMINANCE | PFF_DEPTH | PFF_NATIVEENDIAN,
+            /* Component type and count */
+            PCT_UINT, 1,
+            /* rbits, gbits, bbits, abits */
+            24, 0, 0, 0,
             /* Masks and shifts */
             0, 0, 0, 0, 0, 0, 0, 0
         },

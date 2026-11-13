@@ -88,42 +88,6 @@ material Examples/SpaceSkyBox
 	}
 }
 
-material Examples/SceneSkyBox1
-{
-	technique
-	{
-		pass
-		{
-			lighting off
-			depth_write off
-
-			texture_unit
-			{
-				texture cubemap.jpg cubic
-				tex_address_mode clamp
-			}
-		}
-	}
-}
-
-material Examples/SceneCubeMap1
-{
-	technique
-	{
-		pass
-		{
-			lighting off
-
-			texture_unit
-			{
-				texture cubemap.jpg cubic
-				tex_address_mode clamp
-				env_map cubic_reflection
-			}
-		}
-	}
-}
-
 material Examples/SceneSkyBox2
 {
 	technique
@@ -135,24 +99,7 @@ material Examples/SceneSkyBox2
 
 			texture_unit
 			{
-				texture cubescene.jpg cubic
-				tex_address_mode clamp
-			}
-		}
-	}
-}
-
-material Examples/SceneCubeMap2
-{
-	technique
-	{
-		pass
-		{
-			lighting off
-
-			texture_unit
-			{
-				texture cubescene.jpg cubic
+				texture studio_garden.jpg cubic
 				tex_address_mode clamp
 			}
 		}
@@ -328,6 +275,7 @@ material Examples/DynamicCubeMap
 			texture_unit
 			{
 				content_type compositor CubeMap tex
+				filtering linear linear none
 				tex_address_mode clamp
 				env_map cubic_reflection
 			}
@@ -408,7 +356,6 @@ material Examples/OgreDance
 			lighting off
 			scene_blend alpha_blend
 			cull_hardware none
-			cull_software none
 
 			texture_unit
 			{
@@ -493,7 +440,6 @@ material Examples/WaterStream
 			ambient 0.1 0.1 0.1
 			scene_blend add
 			depth_write off
-			cull_software none
 			cull_hardware none
 
 			texture_unit
@@ -647,20 +593,6 @@ material Examples/Rocky
 			texture_unit
 			{
 				texture egyptrockyfull.jpg
-			}
-		}
-	}
-}
-material Examples/10PointBlock
-{
-	technique
-	{
-		pass
-		{
-
-			texture_unit
-			{
-				texture 10points.png
 			}
 		}
 	}
@@ -942,109 +874,6 @@ material Examples/Aureola
 	}
 }
 
-
-
-// Test hardware morph animation (no normals)
-material Examples/HardwareMorphAnimation
-{
-	technique
-	{
-		pass
-		{
-
-			vertex_program_ref Ogre/HardwareMorphAnimation
-			{
-				// all default
-			}
-			fragment_program_ref Ogre/BasicFragmentPrograms/PassthroughFP
-			{
-			}
-
-			texture_unit
-			{
-				colour_op_ex source1 src_current src_current
-			}
-
-		}
-	}
-}
-
-// Test hardware pose animation (no normals)
-material Examples/HardwarePoseAnimation
-{
-	technique
-	{
-		pass
-		{
-
-			vertex_program_ref Ogre/HardwarePoseAnimation
-			{
-				// all default
-			}
-			fragment_program_ref Ogre/BasicFragmentPrograms/PassthroughFP
-			{
-			}
-			texture_unit
-			{
-				tex_coord_set 0
-				colour_op_ex source1 src_current src_current
-			}
-
-		}
-	}
-}
-
-
-// Test hardware morph animation (with normals)
-material Examples/HardwareMorphAnimationWithNormals
-{
-	technique
-	{
-		pass
-		{
-
-			vertex_program_ref Ogre/HardwareMorphAnimationWithNormals
-			{
-				// all default
-			}
-			fragment_program_ref Ogre/BasicFragmentPrograms/PassthroughFP
-			{
-			}
-
-			texture_unit
-			{
-				colour_op_ex source1 src_current src_current
-			}
-
-		}
-	}
-}
-
-// Test hardware pose animation (no normals)
-material Examples/HardwarePoseAnimationWithNormals
-{
-	technique
-	{
-		pass
-		{
-
-			vertex_program_ref Ogre/HardwarePoseAnimationWithNormals
-			{
-				// all default
-			}
-			fragment_program_ref Ogre/BasicFragmentPrograms/PassthroughFP
-			{
-			}
-			texture_unit
-			{
-				tex_coord_set 0
-				colour_op_ex source1 src_current src_current
-			}
-
-		}
-	}
-}
-
 material RustyBarrel
 {
 	technique
@@ -1145,6 +974,65 @@ material jaiqua
 
 }
 
+material Penguin
+{
+    technique
+    {
+        pass
+        {
+		    texture_unit
+			{
+			    texture penguin.jpg
+			}
+        }
+    }
+}
+
+material RZR-002
+{
+	technique
+	{
+		pass
+		{
+
+			texture_unit
+			{
+				texture RZR-002.png
+			}
+		}
+	}
+}
+
+material "spine/01 - Default"
+{
+	technique
+	{
+		pass
+		{
+			diffuse 1 1 1
+			texture_unit
+			{
+				texture circuit.dds
+			}
+		}
+	}
+}
+
+material Panels
+{
+	technique
+	{
+		pass
+		{
+			specular 0.64 0.64 0.64 32 0
+
+			texture_unit
+			{
+				texture Panels_Diffuse.png
+			}
+		}
+	}
+}
 
 material Examples/Plane/IntegratedShadows
 {
@@ -1167,155 +1055,6 @@ material Examples/Plane/IntegratedShadows
 	}
 
 }
-
-fragment_program Examples/ShowUV_pHLSL hlsl
-{
-	source Example_Basic.cg
-	entry_point showuv_p
-	target ps_2_0
-}
-
-fragment_program Examples/ShowUV_pGLSL glsl glsles
-{
-	source ShowUV.glsl
-}
-
-fragment_program Examples/ShowUV_p unified
-{
-	delegate Examples/ShowUV_pGLSL
-	delegate Examples/ShowUV_pHLSL
-}
-
-fragment_program Examples/ShowUVdir3D_pHLSL hlsl
-{
-	source Example_Basic.cg
-	entry_point showuvdir3d_p
-	target ps_2_0
-}
-
-fragment_program Examples/ShowUVdir3D_pGLSL glsl glsles
-{
-	source ShowUVdir3D.glsl
-}
-
-fragment_program Examples/ShowUVdir3D_p unified
-{
-	delegate Examples/ShowUVdir3D_pGLSL
-	delegate Examples/ShowUVdir3D_pHLSL
-}
-
-vertex_program Examples/ShowTangents_vHLSL hlsl
-{
-	source Example_Basic.cg
-	entry_point basicPassthroughTangent_v
-	target vs_2_0
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-	}
-}
-
-vertex_program Examples/ShowTangents_vGLSL glsl glsles
-{
-	source ShowTangents.glsl
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-	}
-}
-
-vertex_program Examples/ShowTangents_v unified
-{
-	delegate Examples/ShowTangents_vGLSL
-	delegate Examples/ShowTangents_vHLSL
-}
-
-vertex_program Examples/ShowNormals_vHLSL hlsl
-{
-	source Example_Basic.cg
-	entry_point basicPassthroughNormal_v
-	target vs_2_0
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-	}
-}
-
-vertex_program Examples/ShowNormals_vGLSL glsl glsles
-{
-	source ShowNormals.glsl
-	default_params
-	{
-		param_named_auto worldViewProj worldviewproj_matrix
-	}
-}
-
-vertex_program Examples/ShowNormals_v unified
-{
-	delegate Examples/ShowNormals_vGLSL
-	delegate Examples/ShowNormals_vHLSL
-}
-
-material Examples/ShowUV
-{
-	technique
-	{
-		pass
-		{
-			vertex_program_ref Ogre/BasicVertexPrograms/AmbientOneTextureWithUV
-			{
-				param_named_auto worldViewProj worldviewproj_matrix
-			}
-			fragment_program_ref Examples/ShowUV_p
-			{
-			}
-		}
-	}
-
-	technique
-	{
-		pass
-		{
-			vertex_program_ref Ogre/BasicVertexPrograms/AmbientOneTextureUnified
-			{
-			}
-			fragment_program_ref Examples/ShowUV_p
-			{
-			}
-		}
-	}
-}
-material Examples/ShowTangents
-{
-	technique
-	{
-		pass
-		{
-			vertex_program_ref Examples/ShowTangents_v
-			{
-			}
-			fragment_program_ref Examples/ShowUVdir3D_p
-			{
-			}
-		}
-	}
-}
-material Examples/ShowNormals
-{
-	technique
-	{
-		pass
-		{
-			vertex_program_ref Examples/ShowNormals_v
-			{
-			}
-			fragment_program_ref Examples/ShowUVdir3D_p
-			{
-			}
-		}
-	}
-}
-
 
 material Examples/TransparentTest
 {
@@ -1350,7 +1089,6 @@ material Examples/TextureEffect1
 		{
 			ambient 0.75 0.75 0.75
 			cull_hardware none
-			cull_software none
 
 			texture_unit
 			{
@@ -1385,7 +1123,6 @@ material Examples/TextureEffect3
 		{
 			ambient 0.7 0.7 0.7
 			cull_hardware none
-			cull_software none
 
 			texture_unit
 			{
@@ -1412,7 +1149,6 @@ material Examples/TextureEffect4
 			ambient 0.3 0.3 0.3
 			scene_blend colour_blend
 			cull_hardware none
-			cull_software none
 
 			texture_unit
 			{
@@ -1482,5 +1218,73 @@ material DebugSphere1000
 {
 	technique
 	{			
+	}
+}
+
+material Examples/WoodenFloor
+{
+	technique
+	{
+		pass
+		{
+			texture_unit
+			{
+				texture WoodFloor043_1K_Color.jpg
+			}
+			rtshader_system
+			{
+                lighting_stage metal_roughness texture WoodFloor043_1K_MetalRoughness.jpg
+                lighting_stage normal_map WoodFloor043_1K_NormalGL.jpg
+			}
+		}
+	}
+}
+
+material Examples/PBR_Sphere
+{
+	technique
+	{
+//![rtss_pbr]
+		pass
+		{
+			rtshader_system
+			{
+                lighting_stage metal_roughness
+			}
+		}
+//![rtss_pbr]
+	}
+}
+
+material TestLevel_b0_m0/TEXFACE/Grass.jpg
+{
+	receive_shadows on
+	technique
+	{
+		pass
+		{
+			ambient 0.500000 0.500000 0.500000 1.000000
+			diffuse 0.800000 0.800000 0.800000 1.000000
+			texture_unit
+			{
+				texture grass_1024.jpg
+			}
+		}
+	}
+}
+material TestLevel_b0_m0/TEXFACE/Soil.jpg
+{
+	receive_shadows on
+	technique
+	{
+		pass
+		{
+			ambient 0.500000 0.500000 0.500000 1.000000
+			diffuse 0.800000 0.800000 0.800000 1.000000
+			texture_unit
+			{
+				texture egyptrockyfull.jpg
+			}
+		}
 	}
 }

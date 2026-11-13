@@ -45,16 +45,11 @@ namespace Ogre {
         destroyAllBindings();
     }
 
-    GL3PlusStateCacheManager * GL3PlusHardwareBufferManager::getStateCacheManager()
-    {
-        return mRenderSystem->_getStateCacheManager();
-    }
-
     void GL3PlusHardwareBufferManager::notifyContextDestroyed(GLContext* context)
     {
         OGRE_LOCK_MUTEX(mVertexDeclarationsMutex);
-        for(VertexDeclarationList::iterator it = mVertexDeclarations.begin(), it_end = mVertexDeclarations.end(); it != it_end; ++it)
-            static_cast<GLVertexArrayObject*>(*it)->notifyContextDestroyed(context);
+        for(auto& d : mVertexDeclarations)
+            static_cast<GLVertexArrayObject*>(d)->notifyContextDestroyed(context);
     }
 
     HardwareVertexBufferSharedPtr
@@ -115,6 +110,11 @@ namespace Ogre {
         case VET_FLOAT3:
         case VET_FLOAT4:
             return GL_FLOAT;
+        case VET_HALF1:
+        case VET_HALF2:
+        case VET_HALF3:
+        case VET_HALF4:
+            return GL_HALF_FLOAT;
         case VET_DOUBLE1:
         case VET_DOUBLE2:
         case VET_DOUBLE3:
@@ -151,6 +151,8 @@ namespace Ogre {
         case VET_BYTE4:
         case VET_BYTE4_NORM:
             return GL_BYTE;
+        case VET_INT_10_10_10_2_NORM:
+            return GL_INT_2_10_10_10_REV;
         };
 
         OgreAssert(false, "unknown Vertex Element Type");

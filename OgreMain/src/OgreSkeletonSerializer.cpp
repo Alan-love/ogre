@@ -56,7 +56,7 @@ namespace Ogre {
     }
     //---------------------------------------------------------------------
     void SkeletonSerializer::exportSkeleton(const Skeleton* pSkeleton, 
-        DataStreamPtr stream, SkeletonVersion ver, Endian endianMode)
+        const DataStreamPtr& stream, SkeletonVersion ver, Endian endianMode)
     {
         setWorkingVersion(ver);
         // Decide on endian mode
@@ -185,17 +185,13 @@ namespace Ogre {
         }
         
         // Write each bone
-        unsigned short numBones = pSkel->getNumBones();
-        unsigned short i;
-        for (i = 0; i < numBones; ++i)
+        for (Bone* pBone : pSkel->getBones())
         {
-            Bone* pBone = pSkel->getBone(i);
             writeBone(pSkel, pBone);
         }
         // Write parents
-        for (i = 0; i < numBones; ++i)
+        for (Bone* pBone : pSkel->getBones())
         {
-            Bone* pBone = pSkel->getBone(i);
             unsigned short handle = pBone->getHandle();
             Bone* pParent = static_cast<Bone*>(pBone->getParent());
             if (pParent != NULL) 
@@ -454,6 +450,9 @@ namespace Ogre {
         unsigned short handle;
         readShorts(stream, &handle, 1);
 
+        if (handle > pSkel->getNumBones())
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Bone handles must be contiguous");
+
         // Create new bone
         Bone* pBone = pSkel->createBone(name, handle);
 
@@ -492,6 +491,13 @@ namespace Ogre {
         readShorts(stream, &childHandle, 1);
         // unsigned short parentHandle   : parent bone
         readShorts(stream, &parentHandle, 1);
+
+        auto numBones = pSkel->getBones().size();
+        if (parentHandle >= numBones || childHandle >= numBones)
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Bone handle out of range");
+
+        if (childHandle == parentHandle)
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "A bone cannot be parent of itself");
 
         // Find bones
         parent = pSkel->getBone(parentHandle);
@@ -562,7 +568,9 @@ namespace Ogre {
         readShorts(stream, &boneHandle, 1);
 
         // Find bone
-        Bone *targetBone = pSkel->getBone(boneHandle);
+        if (boneHandle >= pSkel->getBones().size())
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Animation track boneHandle out of range");
+        Bone* targetBone = pSkel->getBone(boneHandle);
 
         // Create track
         NodeAnimationTrack* pTrack = anim->createNodeTrack(boneHandle, targetBone);

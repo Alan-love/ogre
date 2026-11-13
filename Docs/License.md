@@ -194,7 +194,7 @@ Licensed Under:</td>
 
 <tr>
 <td>Needed By:</td>
-<td>OgreXMLConverter, Bites Component</td>
+<td>OgreXMLConverter, Plugin_DotScene</td>
 </tr>
 
 </tbody>
@@ -239,8 +239,8 @@ Licensed Under:</td>
             site</p>
     </li>
     <li>
-        <p style="margin-bottom: 0cm;">The 'Razor 2' mesh is by Dennis
-            Verbeek</p>
+        <p style="margin-bottom: 0cm;">The 'Razor 2' mesh is by <a href="https://github.com/dennizzzz">Dennis
+            Verbeek<a></p> and can be used freely.
     </li>
     <li>
         <p style="margin-bottom: 0cm;">Skyboxes in cubemapJS.zip are
@@ -252,7 +252,7 @@ Licensed Under:</td>
         <p>Grass texture is courtesy of Mathias 'freezer' Walc</p>
     </li>
     <li>
-        <p>The 'Cuckoo' TrueType font is provided by <a href="http://www.grsites.com">http://www.grsites.com</a>.</p>
+        <p>The 'Cuckoo' TrueType font is provided by http://www.downloadheaven.co.uk.</p>
     </li>
     <li>SoftImage|XSI sample media files (facial.mesh, jaiqua.mesh and associated files) are provided courtesy of Avid Technology, Inc.<br />
         &copy; 2004 Avid Technology, Inc. All rights
@@ -267,5 +267,14 @@ Licensed Under:</td>
     </li>
     <li>
         <p>Smoke15Frames.png by Beast, published under CC-0 https://opengameart.org/content/smoke-aura</p>
+    </li>
+    <li>
+        <p>Earth-Color10x6.astc and Texture.pkm by ARM Limited, published under MIT https://github.com/ARM-software/opengl-es-sdk-for-android</p>
+    </li>
+    <li>
+        <p>studio_garden.jpg adapted from Sergej Majboroda, published under CC-0 https://polyhaven.com/a/studio_garden</p>
+    </li>
+    <li>
+        <p>lego.mesh adapted with LightGaussian (Zhiwen Fan, et. al.) from Mip-Splatting (Zehao Yu, et. al.) originally by Heinzelnisse, published under CC-BY-NC: https://www.blendswap.com/blend/11490</p>
     </li>
 </ul>

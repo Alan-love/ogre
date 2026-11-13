@@ -28,7 +28,6 @@ THE SOFTWARE.
 #include "OgreStableHeaders.h"
 
 #include "OgreTagPoint.h"
-#include "OgreLight.h"
 #include "OgreEntity.h"
 #include "OgreLodListener.h"
 
@@ -76,22 +75,7 @@ namespace Ogre {
             mListener->objectDestroyed(this);
         }
 
-        if (mParentNode)
-        {
-            // detach from parent
-            if (mParentIsTagPoint)
-            {
-                // May be we are a LOD entity which not in the parent entity child object list,
-                // call this method could safely ignore this case.
-                static_cast<TagPoint*>(mParentNode)->getParentEntity()->detachObjectFromBone(this);
-            }
-            else
-            {
-                // May be we are a LOD entity which not in the parent node child object list,
-                // call this method could safely ignore this case.
-                static_cast<SceneNode*>(mParentNode)->detachObject(this);
-            }
-        }
+        detachFromParent(); // this should never throw, if it does terminating is the thing to do
     }
     //-----------------------------------------------------------------------
     void MovableObject::_notifyAttached(Node* parent, bool isTagPoint)
@@ -361,30 +345,6 @@ namespace Ogre {
         return mLightList;
     }
     //-----------------------------------------------------------------------
-    const ShadowRenderableList& MovableObject::getShadowVolumeRenderableList(
-        const Light* light, const HardwareIndexBufferPtr& indexBuffer, size_t& indexBufferUsedSize,
-        float extrusionDist, int flags)
-    {
-        static ShadowRenderableList dummyList;
-        return dummyList;
-    }
-    //-----------------------------------------------------------------------
-    const AxisAlignedBox& MovableObject::getLightCapBounds(void) const
-    {
-        // Same as original bounds
-        return getWorldBoundingBox();
-    }
-    //-----------------------------------------------------------------------
-    const AxisAlignedBox& MovableObject::getDarkCapBounds(const Light& light, Real extrusionDist) const
-    {
-        // Extrude own light cap bounds
-        mWorldDarkCapBounds = getLightCapBounds();
-        this->extrudeBounds(mWorldDarkCapBounds, light.getAs4DVector(), 
-            extrusionDist);
-        return mWorldDarkCapBounds;
-
-    }
-    //-----------------------------------------------------------------------
     Real MovableObject::getPointExtrusionDistance(const Light* l) const
     {
         if (mParentNode)
@@ -438,13 +398,11 @@ namespace Ogre {
         {
 
         }
-        void visit(Renderable* rend, ushort lodIndex, bool isDebug, 
-            Any* pAny = 0)
+        void visit(Renderable* rend, ushort lodIndex, bool isDebug, Any* pAny = 0) override
         {
-            Technique* tech = rend->getTechnique();
-            bool techReceivesShadows = tech && tech->getParent()->getReceiveShadows();
-            anyReceiveShadows = anyReceiveShadows || 
-                techReceivesShadows || !tech;
+            const auto& mat = rend->getMaterial();
+            bool techReceivesShadows = !mat || mat->getReceiveShadows();
+            anyReceiveShadows = anyReceiveShadows || techReceivesShadows;
         }
     };
     //---------------------------------------------------------------------

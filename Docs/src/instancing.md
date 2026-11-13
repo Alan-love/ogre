@@ -1,23 +1,6 @@
-# What is instancing? {#WhatIsInstancing}
-
-Instancing is a rendering technique to draw multiple instances of the
-same mesh using just one render call. There are two kinds of instancing:
-
--   **Software:** Two larges vertex & index buffers are created and the mesh vertices/indices are duplicated N number of times.
-    When rendering, invisible instances receive a transform matrix filled with 0s.
-	This technique can take a lot of VRAM and has limited culling capabilities.
--   **Hardware:** The hardware supports an extra param which allows Ogre to tell the GPU to repeat the drawing of vertices N number of times;
-    thus taking considerably less VRAM. Because N can be controlled at runtime, individual instances can be culled before sending the data to the GPU.
-
-Hardware techniques are almost always superior to Software techniques, but Software are more compatible, where as Hardware techniques require D3D9 or GL3, and is not supported in GLES2
-
-All instancing techniques require shaders.
-It is not possible to use instancing with FFP (Fixed Function Pipeline)
-But, it is possible to have the [RTSS (Realtime Shader System)](@ref rtss) generate the shaders for you.
+# Instancing User-Guide {#WhatIsInstancing}
 
 @tableofcontents
-
-# Instancing 101 {#Instancing101}
 
 A common question is why should I use instancing.
 The big reason is performance.
@@ -65,21 +48,11 @@ Also their compatibility and performance varies.
 
 ## ShaderBased {#InstancingTechniquesShaderBased}
 
-This is the most compatible technique.
-It is a Software Instancing technique.
-World matrices are passed through constant registers, and thus the maximum number of instances per batch is 80; which quickly goes down if the object is skeletally animated.
-This technique does not play very well with skeletal animation because of that, unless the number of bones is very low (3 or less).
+@copybrief Ogre::InstanceBatchShader
+@copydetails Ogre::InstanceBatchShader
 
-See `material Examples/Instancing/ShaderBased` for an example on how to write the vertex shader. (You can find these files in OGRE sources from before v1.12)
-Files:
- - ShaderInstancing.material
- - ShaderInstancing.vert (GLSL)
- - ShaderInstancing.cg (Cg, works with HLSL)
-
-See `Examples/Instancing/RTSS/Robot` for an example on how to use instancing with the [RTSS: Run Time Shader System](@ref rtss)
-
-Add to the Vertex Shader input example:
-```
+Vertex Shader input example:
+```cpp
 	...
 	float4 blendIdx : BLENDINDICES,
 	uniform float3x4 worldMatrix3x4Array[80],
@@ -87,41 +60,35 @@ Add to the Vertex Shader input example:
 ```
 
 Vertex position calculation example:
-```
+```cpp
 	int idx = int(blendIdx[0]);
 	float4 worldPos  = float4( mul( worldMatrix3x4Array[idx], position ).xyz, 1.0f );
 	oClipPos = mul( viewProjMatrix, worldPos );
 	...
 ```
 
+See `Examples/Instancing/RTSS/Robot` for an example on how to use instancing with the [RTSS: Run Time Shader System](@ref rtss)
+
+See `material Examples/Instancing/ShaderBased` for an example on how to write the vertex shader. (You can find these files in OGRE sources from before v1.12)
+Files:
+ - ShaderInstancing.material
+ - ShaderInstancing.vert (GLSL)
+ - ShaderInstancing.cg (Cg, works with HLSL)
+
 ## VTF (Software) {#InstancingTechniquesVTFSoftware}
 
-VTF stands for "Vertex Texture Fetch".
-It is a Software Instancing technique.
-Unlike ShaderBased, world matrices are passed to the vertex shader through a texture.
-Such feature has only been supported since Vertex Shader 3.0 and is not supported on Radeon X1xxx cards and is quite slow on GeForce 6 & 7.
-However it's very fast on any modern GPU (GeForce 8, 9, 200, 300, 400, 500, 600, 700; all Radeon HD series, Intel HD 3000 and above)
-
-The advantage of VTF over ShaderBased is that it supports a very high max number of instances per batch; even if it's skeletally animated.
-
-Take note that you will need to set a `texture_unit` (preferrably the first one, for compatibility) including the shadow caster besides the texture (eg. diffuse, specular, normal maps) so that Ogre gets where to put the vertex texture.
-
-See `material Examples/Instancing/VTF` for an example on how to write the vertex shader and setup the material.
-Files:
- - VTFInstancing.material
- - VTFInstancing.vert (GLSL)
- - VTFInstancing.cg (Cg, also works with HLSL)
+@copybrief Ogre::BaseInstanceBatchVTF
+@copydetails Ogre::BaseInstanceBatchVTF
 
 Texture unit example:
 ```
 texture_unit InstancingVTF
 {
-	binding_type vertex
 	filtering none
 }
 ```
 
-Add to Vertex Shader input example:
+Vertex Shader input example:
 ```
 	...
 	float4 m01 : TEXCOORD1,
@@ -131,15 +98,14 @@ Add to Vertex Shader input example:
 ```
 
 Vertex position calculation example:
-```
-	float3x4 worldMatrix;
-	worldMatrix[0] = tex2D( matrixTexture, m01.xy );
-	worldMatrix[1] = tex2D( matrixTexture, m01.zw );
-	worldMatrix[2] = tex2D( matrixTexture, m23.xy );
-	float4 worldPos = float4( mul( worldMatrix, position ).xyz, 1.0f );
-	oClipPos = mul( viewProjMatrix, worldPos );
-	...
-```
+
+@snippet Samples/Media/materials/programs/HLSL_Cg/VTFInstancing.cg world_pos
+
+See `material Examples/Instancing/VTF` for an example on how to write the vertex shader and setup the material.
+Files:
+ - VTFInstancing.material
+ - VTFInstancing.vert (GLSL)
+ - VTFInstancing.cg (Cg, also works with HLSL)
 
 ## HW VTF {#InstancingTechniquesHWVTF}
 
@@ -147,18 +113,11 @@ This is the same technique as VTF; but implemented through hardware instancing.
 It is probably one of the best and most flexible techniques.
 
 The vertex shader has to be slightly different from SW VTF version.
-See `material Examples/Instancing/HW_VTF` for an example on how to write the vertex shader and setup the material.
-Files:
- - HW\_VTFInstancing.material
- - HW\_VTFInstancing.vert (GLSL)
- - HW\_VTFInstancing.cg (Cg, works with HLSL)
-
 
 Texture unit example:
 ```
 texture_unit InstancingVTF
 {
-	binding_type vertex
 	filtering none
 }
 ```
@@ -171,14 +130,14 @@ Vertex Shader input example:
 ```
 
 Vertex position calculation example:
-```
-	float3x4 worldMatrix;
-	worldMatrix[0] = tex2D( matrixTexture, m03.xw + mOffset );
-	worldMatrix[1] = tex2D( matrixTexture, m03.yw + mOffset );
-	worldMatrix[2] = tex2D( matrixTexture, m03.zw + mOffset );
-	float4 worldPos = float4( mul( worldMatrix, position ).xyz, 1.0f );
-	oClipPos = mul( viewProjMatrix, worldPos );
-```
+
+@snippet Samples/Media/materials/programs/HLSL_Cg/HW_VTFInstancing.cg world_pos
+
+See `material Examples/Instancing/HW_VTF` for an example on how to write the vertex shader and setup the material.
+Files:
+ - HW\_VTFInstancing.material
+ - HW\_VTFInstancing.vert (GLSL)
+ - HW\_VTFInstancing.cg (Cg, works with HLSL)
 
 ### HW VTF LUT {#InstancingTechniquesHW}
 
@@ -186,10 +145,6 @@ LUT is a special feature of HW VTF; which stands for <b>L</b>ook <b>U</b>p <b>T<
 It has been particularly designed for drawing large animated crowds.
 
 The technique is a trick that works by animating a limited number of instances (i.e. 16 animations) storing them in a look up table in the VTF, and then repeating these animations to all instances uniformly, giving the appearance that all instances are independently animated when seen in large crowds.
-
-See `material Examples/Instancing/HW_VTF_LUT`.
-Files:
- - Same as HW VTF (different macros defined)
 
 To enable the use of LUT, `SceneManager::createInstanceManager`'s flags must include the flag `IM_VTFBONEMATRIXLOOKUP` and specify HW VTF as technique.
 
@@ -200,40 +155,36 @@ mSceneMgr->createInstanceManager("InstanceMgr","MyMesh.mesh",
 			numInstancesPerBatch,IM_USEALL|IM_VTFBONEMATRIXLOOKUP );
 ```
 
+See `material Examples/Instancing/HW_VTF_LUT`.
+Files:
+ - Same as HW VTF (different macros defined)
+
 ## HW Basic {#InstancingTechniquesHWBasic}
 
-HW Basic is probably the fastest instancing technique[^7], but is surely more compatible than HW VTF.
+@copybrief Ogre::InstanceBatchHW
+@copydetails Ogre::InstanceBatchHW
 
-The world matrix data is passed to the vertex shader using a `float3x4` `TEXCOORD` (*attribute* in GLSL jargon) instead of a vertex texture.
-The other big difference with HW VTF, besides how data is being passed, is that HW Basic doesn't support skeletal animations at all, making it the preferred choice for rendering inanimate objects like trees, falling leaves, buildings, etc.
+Vertex Shader input example:
+```cpp
+	...
+	float3x4 worldMatrix : TEXCOORD1,
+	...
+```
+
+Vertex position calculation example:
+```cpp
+	...
+	float4 worldPos = float4( mul( worldMatrix, position ).xyz, 1.0f );
+	oClipPos = mul( viewProjMatrix, worldPos );
+	...
+```
+See `Examples/Instancing/RTSS/Robot` for an example on how to use instancing with the [RTSS: Run Time Shader System](@ref rtss)
 
 See `material Examples/Instancing/HWBasic` for an example. (You can find these files in OGRE sources from before v1.12)
 Files:
  - HWInstancing.material
  - HWBasicInstancing.vert (GLSL)
  - HWBasicInstancing.cg (Cg, works with HLSL)
-
-See `Examples/Instancing/RTSS/Robot` for an example on how to use instancing with the [RTSS: Run Time Shader System](@ref rtss)
-
-Vertex Shader input example:
-```
-	...
-	float4 mat14 : TEXCOORD1,
-	float4 mat24 : TEXCOORD2,
-	float4 mat34 : TEXCOORD3,
-	...
-```
-
-Vertex position calculation example:
-```
-	float3x4 worldMatrix;
-	worldMatrix[0] = mat14;
-	worldMatrix[1] = mat24;
-	worldMatrix[2] = mat34;
-	float4 worldPos = float4( mul( worldMatrix, position ).xyz, 1.0f );
-	oClipPos = mul( viewProjMatrix, worldPos );
-	...
-```
 
 # Custom parameters {#InstancingCustomParameters}
 
@@ -284,7 +235,7 @@ for(uint16 i=0;i<mesh->getNumSubMeshes();++i )
 The second step lies in sharing the transform with one of the submeshes (which will be named 'master'; i.e. the first submesh) to improve performance and reduce RAM consumption when creating the Instanced Entities:
 
 ```cpp
-SceneNode *sceneNode;//Asumed to be valid ptr
+SceneNode *sceneNode; //Assumed to be valid ptr
 std::vector<InstancedEntity*>instancedEntities;
 for(size_t i=0;i<instanceManagers.size();++i )
 {
@@ -306,7 +257,7 @@ Because the transform is shared, animating the master InstancedEntity (in this e
 To destroy the instanced entities, use the normal procedure:
 
 ```cpp
-SceneNode *sceneNode;//Asumed to be valid ptr
+SceneNode *sceneNode; //Assumed to be valid ptr
 std::vector<InstancedEntity*>instancedEntities;
 for(size_t i=0;i<instanceManagers.size();++i )
 {
@@ -324,7 +275,7 @@ There are two kinds of fragmentation:
 1.  "Deletion" Fragmentation is when many instances have been created, spanning multiple batches; *and many of them got later removed* but they were all from different batches.
 	If there were 10 instances per batch, 100 instances created, then later 90 removed; it is possible that now there are 10 batches with one instance each (which equals 10 drawcalls); instead of being just 1 batch with 10 instances (which equals 1 drawcall).
 2.  "Culling" Fragmentation is also when many instances of different batches are all sparsed across the whole scene.
-    If they were defragmented, they would've been put together in the same batch (all instances sorted by proximity to each other should be in the same batch) to take advantage of hierachy culling optimizations.
+    If they were defragmented, they would've been put together in the same batch (all instances sorted by proximity to each other should be in the same batch) to take advantage of hierarchy culling optimizations.
 
 Defragmented batches can dramatically improve performance:
 
@@ -334,7 +285,7 @@ Normally, Ogre first updates all instances' position, then their AABBs;
 and while at it, computes the AABB for each batch that encloses all of its instances.
 
 When frustum culling, we first cull the batches, then we cull their instances[^9] (that are inside those culled batches).
-**This is the typical hierachial culling optimization**.
+**This is the typical hierarchical culling optimization**.
 We then upload the instances transforms to the GPU.
 
 After moving many instances around the whole world, they will make the batch' enclosing AABB bigger and bigger.
@@ -366,14 +317,12 @@ Do it sparingly and profile the optimal frequency of calling.
 
 # Troubleshooting {#InstancingTroubleshooting}
 
-Q: My mesh doesn't show up.
-
+@par Q: My mesh doesn't show up.
 A: Verify you're using the right material, the vertex shader is set correctly, and it matches the instancing technique being used.
 
-Q: My animation plays quite differently than when it is an Entity, or previewed in Ogre Meshy
-
+@par Q: My animation plays quite differently than when it is an Entity, or previewed in Ogre Mesh Viewer.
 A: Your rig animation must be using more than one weight per bone.
-You need to add support for it in the vertex shader, and make sure you didn't create the instance manager with the flags `IM_USEONEWEIGHT` or `IM_FORCEONEWEIGHT`.
+You need to add support for it in the vertex shader, and make sure you didn't create the instance manager with the flags Ogre::IM_USEONEWEIGHT or Ogre::IM_FORCEONEWEIGHT.
 
 For example, to modify the HW VTF vertex shader, you need to sample the additional matrices from the VTF:
 
@@ -422,30 +371,20 @@ Fortunately they fit the texture cache very well; nonetheless it's something to 
 Instancing is meant for rendering large number of objects in a scene.
 If you plan on rendering thousands or tens of thousands of animated objects with 4 weights per vertex, don't expect it to be fast; no matter what technique you use to draw them.
 
-Try convincing the art department to lower the animation quality or just use `IM_FORCEONEWEIGHT` for Ogre to do the downgrade for you.
+Try convincing the art department to lower the animation quality or just use Ogre::IM_FORCEONEWEIGHT for Ogre to do the downgrade for you.
 There are many plugins for popular modeling packages (3DS Max, Maya, Blender) out there that help automatizing this task.
 
-Q: The instance doesn't show up, or when playing animations the mesh deforms very weirdly or other very visible artifacts occur
+@par Q: The instance doesn't show up, or when playing animations the mesh deforms very weirdly or other very visible artifacts occur
 
 A: Your rig uses more than one weight per vertex.
-Either create the instance manager with the flag `IM_FORCEONEWEIGHT`, or modify the vertex shader to support the *exact* amount of weights per vertex needed (see previous questions).
+Either create the instance manager with the flag Ogre::IM_FORCEONEWEIGHT, or modify the vertex shader to support the *exact* amount of weights per vertex needed (see previous questions).
 
-Q: How do I find how many weights per vertices is using my model?
+@par Q: How do I find how many weights per vertices is using my model?
 
-A: The quickest way is by looking at the size of `VES_BLEND_WEIGHTS` and divide it by 4[^10].
-
-![](ogre_meshy.png)
-
-In the picture above, the [Ogre
-Meshy](http://yosoygames.com.ar/wp/ogre-meshy/) viewer is being used to quickly display the mesh' information.
-It can be seen that the Hair uses 1 weight per vertex, while the Head needs 2 weights per vertex.
-
-[^7]: Whether it is actually faster than HW VTF depends on the GPU architecture
+A: The quickest way is by looking at the type of Ogre::VES_BLEND_WEIGHTS, where `VET_FLOAT<N>` means N weights.
 
 [^8]: In theory all other techniques could implement custom parameters but for performance reasons only HW VTF is well suited to implement it.
       Though it yet remains to be seen whether it should be passed to the shader through the VTF, or through additional TEXCOORDs.
 
 [^9]: Only HW instancing techniques cull per instance.
       SW instancing techniques send all of their instances, zeroing matrices of those instances that are not in the scene.
-
-[^10]: One weight is one float. One float is 4 bytes; hence number of weights \* 4 is the size of the vertex element.

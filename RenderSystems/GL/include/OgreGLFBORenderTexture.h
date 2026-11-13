@@ -28,40 +28,14 @@ THE SOFTWARE.
 #ifndef __OgreGLFBORTT_H__
 #define __OgreGLFBORTT_H__
 
-#include "OgreGLCopyingRenderTexture.h"
-#include "OgreGLContext.h"
-#include "OgreGLFrameBufferObject.h"
+#include "OgreGLPrerequisites.h"
+#include "OgreGLRenderTexture.h"
 
 /// Extra GL constants
 #define GL_DEPTH24_STENCIL8_EXT                           0x88F0
 
 
 namespace Ogre {
-    class GLFBOManager;
-
-    /** RenderTexture for GL FBO
-    */
-    class _OgreGLExport GLFBORenderTexture: public GLRenderTexture
-    {
-    public:
-        GLFBORenderTexture(GLFBOManager *manager, const String &name, const GLSurfaceDesc &target, bool writeGamma, uint fsaa);
-
-        virtual void getCustomAttribute(const String& name, void* pData);
-
-        /// Override needed to deal with multisample buffers
-        virtual void swapBuffers();
-
-        /// Override so we can attach the depth buffer to the FBO
-        virtual bool attachDepthBuffer( DepthBuffer *depthBuffer );
-        virtual void detachDepthBuffer();
-        virtual void _detachDepthBuffer();
-
-        GLContext* getContext() const { return mFB.getContext(); }
-        GLFrameBufferObjectCommon* getFBO() { return &mFB; }
-    protected:
-        GLFrameBufferObject mFB;
-    };
-    
     /** Factory for GL Frame Buffer Objects, and related things.
     */
     class _OgreGLExport GLFBOManager: public GLRTTManager
@@ -73,24 +47,22 @@ namespace Ogre {
         /** Bind a certain render target if it is a FBO. If it is not a FBO, bind the
             main frame buffer.
         */
-        void bind(RenderTarget *target);
+        void bind(RenderTarget *target) override;
         
         /** Unbind a certain render target. No-op for FBOs.
         */
-        void unbind(RenderTarget *target) {};
+        void unbind(RenderTarget *target) override {};
         
         /** Get best depth and stencil supported for given internalFormat
         */
-        void getBestDepthStencil(PixelFormat internalFormat, GLenum *depthFormat, GLenum *stencilFormat);
-        
-        /** Create a texture rendertarget object
-        */
-        virtual GLFBORenderTexture *createRenderTexture(const String &name, 
-            const GLSurfaceDesc &target, bool writeGamma, uint fsaa);
-        
-        /** Request a render buffer. If format is GL_NONE, return a zero buffer.
-        */
-        GLSurfaceDesc requestRenderBuffer(GLenum format, uint32 width, uint32 height, uint fsaa);
+        void getBestDepthStencil(PixelFormat internalFormat, GLenum *depthFormat, GLenum *stencilFormat) override;
+
+        GLFBORenderTexture *createRenderTexture(const String &name,
+            const GLSurfaceDesc &target, bool writeGamma) override;
+
+        GLHardwarePixelBufferCommon* createNewRenderBuffer(unsigned format, uint32 width, uint32 height,
+                                                           uint fsaa) override;
+
         /** Get a FBO without depth/stencil for temporary use, like blitting between textures.
         */
         GLuint getTemporaryFBO() { return mTempFBO; }

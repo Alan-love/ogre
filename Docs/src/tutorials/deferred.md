@@ -53,7 +53,7 @@ We will implement such a listener for the GBuffer scheme. It is GBufferSchemeHan
 The GBufferSchemeHandlers works like this :
 
 ### Inspect the classic technique
-For each pass in the technique that would have been used normally, the GBufferSchemeHandler::inspectPass is called, inspects the pass, and returns the PassProperties - does this pass have a texture? a normal map? is it skinned? tranpsarent? Etc. The PassProperties (should) contain all the information required to build a GBuffer technique for an object.
+For each pass in the technique that would have been used normally, the GBufferSchemeHandler::inspectPass is called, inspects the pass, and returns the PassProperties - does this pass have a texture? a normal map? is it skinned? transparent? Etc. The PassProperties (should) contain all the information required to build a GBuffer technique for an object.
 
 ### Generate the G-Buffer technique
 After a pass has been inspected and understood, the next stage is to generate the G-Buffer-writing technique. This is done using the RTSS GBuffer lighting stage. This greatly reduces the number of shaders that you need to manage when using deferred shading, as most of them are created on the fly. Here is an example of what they look like :
@@ -111,13 +111,6 @@ void ToGBufferVP(
 We don't want to inspect the passes and generate the material each time an object is rendered, so we create a technique in the original material, and fill it with the auto-generated information. The next time the object will be rendered, it WILL have a technique for the GBuffer scheme, so
 the listener won't get called.
 
-### Postponing transparent objects
-We don't want to render transparent objects to the GBuffer, as it doesn't work properly later.
-
-To address this, we also create a technique with a scheme called called 'NoGBuffer'. If
-the object is transparent, we will not add an auto-generated pass to the 'GBuffer' technique, but instead copy the regular pass
-to the 'NoGBuffer' technique, to render it regularly later.
-
 ### Putting it all together
 This is how `GBufferSchemeHandler::handleSchemeNotFound` works:
 
@@ -136,7 +129,7 @@ Using tools like [RenderDoc](https://renderdoc.org/), we can see the texture bei
 
 Note that nothing has been written to the final output yet and that two output textures are being written to (see right hand side).
 
-# Lighting the scene {#lighting}
+# Lighting the scene
 In the GBuffer compositor, we built the G-Buffer for the current frame. It is now the time to use it to calculate the final lighting of the scene. This is what the compositor looks like :
 
 @snippet Samples/Media/DeferredShadingMedia/deferred.compositor showlit
@@ -241,7 +234,7 @@ So, the steps are :
 
 
 
-And thats it! In the demo, the DeferredShading class takes care of that.
+And that's it! In the demo, the DeferredShading class takes care of that.
 
 ## Adapting the framework
 The deferred shading framework in the demo was designed to be usable in real applications. Where would one want to modify it ?
@@ -260,6 +253,6 @@ In addition to that, the deferred shading implementation was focused on simplici
 Deferred Shading is an advanced rendering technique, that brings a pretty big implementation challenge along with it. This article, along with the demo, shows that it is possible to implement without relying on hacks and bypassing ogre's systems. Yes, it involves more advanced usage of ogre's APIs and requires a bit of knowledge about what happens behind the scenes, but is in no way impossible.
 
 ## Further reading {#further}
-* [KillZone 2 Deferred Shading overview](https://d1z4o56rleaq4j.cloudfront.net/downloads/assets/Develop07_Valient_DeferredRenderingInKillzone2.pdf) - Great resource for understanding deferred shading in general before diving into implemeting it in Ogre.
+* [KillZone 2 Deferred Shading overview](https://d1z4o56rleaq4j.cloudfront.net/downloads/assets/Develop07_Valient_DeferredRenderingInKillzone2.pdf) - Great resource for understanding deferred shading in general before diving into implementing it in Ogre.
 * [Improving Ogre's Compositor Framework GSoC project page](http://www.ogre3d.org/tikiwiki/tiki-index.php?page=SoC2009+Compositor)
 * [Deferred Rendering Demystified](https://www.gamedev.net/articles/programming/graphics/deferred-rendering-demystified-r2746/) - An article written around this project that explains the design behind the deferred renderer.

@@ -6,7 +6,6 @@
 %{
 /* Includes the header in the wrapper code */
 #include "Ogre.h"
-#include "OgreUnifiedHighLevelGpuProgram.h"
 
 #include "OgreOverlayPrerequisites.h"
 #include "OgreFont.h"
@@ -40,7 +39,11 @@
 %csmethodmodifiers Ogre::OverlaySystem::eventOccurred "public";
 #endif
 
-%include "OgreOverlayPrerequisites.h"
+#if SWIG_VERSION == 0x040200
+// https://github.com/swig/swig/issues/2744
+%fragment("SwigPyIterator_T");
+#endif
+
 SHARED_PTR(Font);
 %include "OgreFont.h"
 %include "OgreFontManager.h"
@@ -73,6 +76,18 @@ SHARED_PTR(OverlayContainer);
 #endif
 %ignore Ogre::OverlayManager::getTemplateIterator;
 %ignore Ogre::OverlayManager::getOverlayIterator;
+#ifdef SWIGPYTHON
+%{
+    // this is a workaround for the following map
+    namespace swig {
+    template<> struct traits<Ogre::OverlayElement> {
+        typedef pointer_category category;
+        static const char* type_name() { return "Ogre::OverlayElement"; }
+    };
+    }
+%}
+#endif
+%template(OverlayElementMap) std::map<std::string, Ogre::OverlayElement*>;
 %include "OgreOverlayManager.h"
 SHARED_PTR(OverlaySystem);
 %include "OgreOverlaySystem.h"
@@ -83,5 +98,6 @@ SHARED_PTR(TextAreaOverlayElement);
 %include "OgreTextAreaOverlayElement.h"
 
 #ifdef HAVE_IMGUI
+%apply Ogre::String* INOUT { Ogre::String& renderSystemName };
 %include "OgreImGuiOverlay.h"
 #endif

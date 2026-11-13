@@ -37,7 +37,7 @@ THE SOFTWARE.
 namespace Ogre {
 
     /** Factory class for particle emitter of type "HollowEllipsoid".
-    @remarks
+
         Creates instances of HollowEllipsoidEmitter to be used in particle systems. 
     */
     class HollowEllipsoidEmitterFactory : public ParticleEmitterFactory
@@ -47,13 +47,7 @@ namespace Ogre {
     public:
         String getName() const override { return "HollowEllipsoid"; }
 
-        ParticleEmitter* createEmitter(ParticleSystem* psys) 
-        {
-            ParticleEmitter* emit = OGRE_NEW HollowEllipsoidEmitter(psys);
-            mEmitters.push_back(emit);
-            return emit;
-        }
-
+        ParticleEmitter* createEmitter(ParticleSystem* psys) override { return new HollowEllipsoidEmitter(psys); }
     };
 
 }

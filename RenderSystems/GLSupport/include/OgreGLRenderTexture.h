@@ -29,6 +29,7 @@ Copyright (c) 2000-2014 Torus Knot Software Ltd
 #ifndef __GLRENDERTEXTURE_H__
 #define __GLRENDERTEXTURE_H__
 
+#include "OgreCommon.h"
 #include "OgreGLSupportPrerequisites.h"
 #include "OgreRenderTexture.h"
 #include "OgreSingleton.h"
@@ -36,6 +37,7 @@ Copyright (c) 2000-2014 Torus Knot Software Ltd
 
 namespace Ogre {
     class GLHardwarePixelBufferCommon;
+    class GLRTTManager;
 
     /** GL surface descriptor. Points to a 2D surface that can be rendered to.
      */
@@ -45,20 +47,34 @@ namespace Ogre {
         GLHardwarePixelBufferCommon *buffer;
         uint32 zoffset;
         uint numSamples;
+        uint16 poolId;
+        uint8 mrtIndex;
 
-        GLSurfaceDesc() : buffer(0), zoffset(0), numSamples(0) {}
+        GLSurfaceDesc() : buffer(0), zoffset(0), numSamples(0), poolId(0), mrtIndex(0) {}
     };
 
     /// Frame Buffer Object abstraction
     class _OgreGLExport GLFrameBufferObjectCommon
     {
     public:
-        GLFrameBufferObjectCommon(int32 fsaa);
-        virtual ~GLFrameBufferObjectCommon() {}
+        GLFrameBufferObjectCommon();
+        virtual ~GLFrameBufferObjectCommon();
 
         /** Bind FrameBufferObject. Attempt to bind on incompatible GL context will cause FBO destruction and optional recreation.
         */
         virtual bool bind(bool recreateIfNeeded) = 0;
+
+        /** Swap buffers - only useful when using multisample buffers.
+        */
+        virtual void swapBuffers() = 0;
+
+        /** This function acts very similar to @ref RenderTarget::attachDepthBuffer
+            The difference between D3D & OGL is that D3D setups the DepthBuffer before rendering,
+            while OGL setups the DepthBuffer per FBO. So the DepthBuffer (RenderBuffer) needs to
+            be attached for OGL.
+        */
+        virtual void attachDepthBuffer( DepthBuffer *depthBuffer ) = 0;
+        virtual void detachDepthBuffer() = 0;
 
         /** Bind a surface to a certain attachment point.
             attachment: 0..OGRE_MAX_MULTIPLE_RENDER_TARGETS-1
@@ -83,6 +99,13 @@ namespace Ogre {
         const GLSurfaceDesc &getSurface(size_t attachment) const { return mColour[attachment]; }
 
         void notifyContextDestroyed(GLContext* context) { if(mContext == context) { mContext = 0; mFB = 0; mMultisampleFB = 0; } }
+
+        void setRenderTargetPool(uint16 poolId)
+        {
+            // 0 means no-depth, which we dont care about here
+            mPoolId = std::max(uint16(1), poolId);
+        }
+
     protected:
         GLSurfaceDesc mDepth;
         GLSurfaceDesc mStencil;
@@ -93,6 +116,9 @@ namespace Ogre {
         uint32 mFB;
         uint32 mMultisampleFB;
         int32 mNumSamples;
+        GLRTTManager* mRTTManager;
+        GLSurfaceDesc mMultisampleColourBuffer[OGRE_MAX_MULTIPLE_RENDER_TARGETS];
+        uint16 mPoolId = RBP_DEFAULT;
 
         /** Initialise object (find suitable depth and stencil format).
             Must be called every time the bindings change.
@@ -102,6 +128,7 @@ namespace Ogre {
             - Not all bound surfaces have the same internal format
         */
         virtual void initialise() = 0;
+        void createAndBindRenderBuffer(unsigned format, uint32 width, uint32 height, uint8 mrtIndex = 0);
     };
 
     /** Base class for GL Render Textures
@@ -109,12 +136,35 @@ namespace Ogre {
     class _OgreGLExport GLRenderTexture : public RenderTexture, public GLRenderTarget
     {
     public:
-        GLRenderTexture(const String &name, const GLSurfaceDesc &target, bool writeGamma, uint fsaa);
-        bool requiresTextureFlipping() const { return true; }
+        GLRenderTexture(const String &name, const GLSurfaceDesc &target, bool writeGamma);
+        bool requiresTextureFlipping() const override { return true; }
 
         static const String CustomAttributeString_FBO;
         static const String CustomAttributeString_TARGET;
         static const String CustomAttributeString_GLCONTEXT;
+    };
+
+    /** RenderTexture for GL FBO
+    */
+    class _OgreGLExport GLFBORenderTexture: public GLRenderTexture
+    {
+    public:
+        GLFBORenderTexture(const String& name, const GLSurfaceDesc& target, bool writeGamma,
+                           GLFrameBufferObjectCommon* fbo);
+
+        void getCustomAttribute(const String& name, void* pData) override;
+
+        /// Override needed to deal with multisample buffers
+        void swapBuffers() override { mFB->swapBuffers(); }
+
+        /// Override so we can attach the depth buffer to the FBO
+        bool attachDepthBuffer( DepthBuffer *depthBuffer ) override;
+        void _detachDepthBuffer() override;
+
+        GLContext* getContext() const override { return mFB->getContext(); }
+        GLFrameBufferObjectCommon* getFBO() override { return mFB.get(); }
+    protected:
+        std::unique_ptr<GLFrameBufferObjectCommon> mFB;
     };
 
     /** Manager/factory for RenderTextures.
@@ -127,7 +177,7 @@ namespace Ogre {
 
         /** Create a texture rendertarget object
          */
-        virtual RenderTexture *createRenderTexture(const String &name, const GLSurfaceDesc &target, bool writeGamma, uint fsaa) = 0;
+        virtual RenderTexture *createRenderTexture(const String &name, const GLSurfaceDesc &target, bool writeGamma) = 0;
 
         /** Release a render buffer. Ignore silently if surface.buffer is 0.
          */
@@ -163,6 +213,20 @@ namespace Ogre {
         static GLRTTManager& getSingleton(void);
         /// @copydoc Singleton::getSingleton()
         static GLRTTManager* getSingletonPtr(void);
+
+        /** Request a render buffer. If format is GL_NONE, return a zero buffer.
+         */
+        GLSurfaceDesc requestRenderBuffer(unsigned format, uint32 width, uint32 height, uint fsaa, uint16 poolId,
+                                          uint mrtIndex = 0);
+
+        /** Creates a new render buffer. Caller takes ownership.
+         */
+        virtual GLHardwarePixelBufferCommon* createNewRenderBuffer(unsigned format, uint32 width, uint32 height,
+                                                                   uint fsaa)
+        {
+            return NULL;
+        }
+
     protected:
         /** Frame Buffer Object properties for a certain texture format.
          */
@@ -188,44 +252,6 @@ namespace Ogre {
             same size and format. This can save a lot of memory when a large amount of rendertargets
             are used.
         */
-        struct RBFormat
-        {
-            RBFormat(uint inFormat, size_t inWidth, size_t inHeight, uint fsaa)
-                : format(inFormat), width(inWidth), height(inHeight), samples(fsaa)
-            {
-            }
-            RBFormat() {}
-            uint format;
-            size_t width;
-            size_t height;
-            uint samples;
-            // Overloaded comparison operator for usage in map
-            bool operator < (const RBFormat &other) const
-            {
-                if(format < other.format)
-                {
-                    return true;
-                }
-                else if(format == other.format)
-                {
-                    if(width < other.width)
-                    {
-                        return true;
-                    }
-                    else if(width == other.width)
-                    {
-                        if(height < other.height)
-                            return true;
-                        else if (height == other.height)
-                        {
-                            if (samples < other.samples)
-                                return true;
-                        }
-                    }
-                }
-                return false;
-            }
-        };
         struct RBRef
         {
             RBRef() {}
@@ -233,7 +259,7 @@ namespace Ogre {
             GLHardwarePixelBufferCommon* buffer;
             size_t refcount;
         };
-        typedef std::map<RBFormat, RBRef> RenderBufferMap;
+        typedef std::unordered_map<uint32, RBRef> RenderBufferMap;
         RenderBufferMap mRenderBufferMap;
     };
 

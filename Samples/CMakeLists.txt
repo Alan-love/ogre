@@ -12,7 +12,11 @@ if (OGRE_BUILD_SAMPLES)
     add_definitions(-DINCLUDE_RTSHADER_SYSTEM)
   	set(SAMPLE_DEPENDENCIES ${SAMPLE_DEPENDENCIES} OgreRTShaderSystem)
   endif ()
-  
+
+  if (OGRE_BUILD_COMPONENT_BULLET)
+    set(SAMPLE_DEPENDENCIES ${SAMPLE_DEPENDENCIES} OgreBullet)
+  endif ()
+
   if (OGRE_BUILD_COMPONENT_OVERLAY)
     set(SAMPLE_DEPENDENCIES ${SAMPLE_DEPENDENCIES} OgreOverlay)
   endif ()
@@ -53,6 +57,10 @@ if (OGRE_BUILD_SAMPLES)
     list(REMOVE_ITEM SAMPLES_SOURCES ${BLACKLIST_CPP})
   endforeach()
 
+  if (NOT OGRE_BUILD_COMPONENT_TERRAIN)
+    list(REMOVE_ITEM SAMPLES_SOURCES ${PROJECT_SOURCE_DIR}/Samples/EndlessWorld/src/PerlinNoiseTerrainGenerator.cpp)
+  endif ()
+
   add_definitions(${OGRE_VISIBILITY_FLAGS})
   add_library(DefaultSamples ${OGRE_LIB_TYPE} 
               ${CMAKE_CURRENT_SOURCE_DIR}/Common/src/DefaultSamplesPlugin.cpp
@@ -79,7 +87,9 @@ if (OGRE_BUILD_SAMPLES)
   endif()
 
   ## Add browser last
-  add_subdirectory(Browser)
+  if (NOT (WINDOWS_STORE OR WINDOWS_PHONE))
+    add_subdirectory(Browser)
+  endif()
 endif ()
 		
 if (MSVC AND OGRE_BUILD_SAMPLES)
@@ -89,11 +99,6 @@ if (MSVC AND OGRE_BUILD_SAMPLES)
     configure_file(${OGRE_TEMPLATES_DIR}/demos.wxs.in ${CMAKE_CURRENT_BINARY_DIR}/demos.wxs @ONLY)
     configure_file(${OGRE_TEMPLATES_DIR}/demomedia.wxi.in ${CMAKE_CURRENT_BINARY_DIR}/demomedia.wxi @ONLY)
     configure_file(${OGRE_TEMPLATES_DIR}/DemoLicense.rtf ${CMAKE_CURRENT_BINARY_DIR}/DemoLicense.rtf COPYONLY)
-    if (MSVC_VERSION EQUAL 1400)
-      configure_file(${OGRE_TEMPLATES_DIR}/vcrt_vc8.wxi.in ${CMAKE_CURRENT_BINARY_DIR}/vcrt.wxi @ONLY)
-    elseif(MSVC_VERSION EQUAL 1500)
-      configure_file(${OGRE_TEMPLATES_DIR}/vcrt_vc9.wxi.in ${CMAKE_CURRENT_BINARY_DIR}/vcrt.wxi @ONLY)
-    endif()
 	# Configure files, set media dir temporarily
 	set(OGRE_MEDIA_DIR_TMP ${OGRE_MEDIA_DIR_REL})
 	set(OGRE_MEDIA_DIR_REL "Media")
@@ -107,6 +112,8 @@ if (MSVC AND OGRE_BUILD_SAMPLES)
       COMMENT "Building demo installer" VERBATIM
     )
 	# Make sure we build samples first
-	add_dependencies(demo_installer SampleBrowser)
+	if (TARGET SampleBrowser)
+	  add_dependencies(demo_installer SampleBrowser)
+	endif()
   endif()
 endif()

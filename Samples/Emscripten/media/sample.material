@@ -33,19 +33,19 @@ material Examples/Rockwall
 	}
 }
 
-material PSSM/shadow_caster
+material Examples/CloudyNoonSkyBox
 {
 	technique
 	{
-		// all this will do is write depth
 		pass
 		{
-			fog_override true none
-			depth_bias -1 -1
+			lighting off
+			depth_write off
 
-			rtshader_system
+			texture_unit
 			{
-				lighting_stage gbuffer depth
+				texture cloudy_noon.jpg cubic
+				tex_address_mode clamp
 			}
 		}
 	}

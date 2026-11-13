@@ -41,9 +41,6 @@ namespace Ogre {
     *  @{
     */
 
-    /// Define a list of usage flags
-    typedef std::vector<HardwareBuffer::Usage> BufferUsageList;
-
     /** collects together all the vertex-related information used to render geometry.
      *
      * The RenderOperation requires a pointer to a VertexData object, and it is also used in Mesh and
@@ -65,6 +62,10 @@ namespace Ogre {
         VertexData& operator=(const VertexData& rhs); /* do not use */
 
         HardwareBufferManagerBase* mMgr;
+
+        typedef std::vector<HardwareBufferUsage> BufferUsageList;
+        void reorganiseBuffers(VertexDeclaration* newDeclaration, const BufferUsageList& bufferUsage,
+                               HardwareBufferManagerBase* mgr);
     public:
         /** Constructor.
         @note 
@@ -95,22 +96,22 @@ namespace Ogre {
         /// Whether this class should delete the declaration and binding
         bool mDeleteDclBinding;
         /// The position in the bound buffers to start reading vertex data from. This allows you to use a single buffer for many different renderables.
-        size_t vertexStart;
+        uint32 vertexStart;
         /// The number of vertices to process in this particular rendering group
-        size_t vertexCount;
+        uint32 vertexCount;
 
 
         /// Struct used to hold hardware morph / pose vertex data information
         struct HardwareAnimationData
         {
             unsigned short targetBufferIndex;
-            Real parametric;
+            float parametric;
         };
         typedef std::vector<HardwareAnimationData> HardwareAnimationDataList;
+        /// Number of hardware animation data items used
+        uint32 hwAnimDataItemsUsed;
         /// VertexElements used for hardware morph / pose animation
         HardwareAnimationDataList hwAnimationDataList;
-        /// Number of hardware animation data items used
-        size_t hwAnimDataItemsUsed;
         
         /** Clones this vertex data, potentially including replicating any vertex buffers.
         @param copyData Whether to create new vertex buffers too or just reference the existing ones
@@ -144,8 +145,21 @@ namespace Ogre {
         */
         void prepareForShadowVolume(void);
 
+        /** Convert the type of a vertex element of the given semantic
+
+            currently the following conversions are supported:
+            - #VET_FLOAT3 or #VET_FLOAT4 to #VET_INT_10_10_10_2_NORM
+            - #VET_INT_10_10_10_2_NORM to #VET_FLOAT3 or #VET_FLOAT4
+            - #VET_HALF3 to #VET_HALF4, VET_[U]SHORT3 to VET_[U]SHORT4
+            - #VET_FLOAT3 to #VET_HALF3
+            @param semantic The semantic of the element to convert
+            @param dstType The type to convert to
+            @param index Optional index for multi-input semantics like texture coordinates
+        */
+        void convertVertexElement(VertexElementSemantic semantic, VertexElementType dstType, uint16 index = 0);
+
         /** Additional shadow volume vertex buffer storage. 
-        @remarks
+
             This additional buffer is only used where we have prepared this VertexData for
             use in shadow volume construction, and where the current render system supports
             vertex programs. This buffer contains the 'w' vertex position component which will
@@ -153,33 +167,11 @@ namespace Ogre {
             This 'w' component cannot be included in the original position buffer because
             DirectX does not allow 4-component positions in the fixed-function pipeline, and the original
             position buffer must still be usable for fixed-function rendering.
-        @par    
+
             Note that we don't store any vertex declaration or vertex buffer binding here because this
             can be reused in the shadow algorithm.
         */
         HardwareVertexBufferSharedPtr hardwareShadowVolWBuffer;
-
-
-        /** Reorganises the data in the vertex buffers according to the 
-            new vertex declaration passed in. Note that new vertex buffers
-            are created and written to, so if the buffers being referenced 
-            by this vertex data object are also used by others, then the 
-            original buffers will not be damaged by this operation.
-            Once this operation has completed, the new declaration 
-            passed in will overwrite the current one.
-        @param newDeclaration The vertex declaration which will be used
-            for the reorganised buffer state. Note that the new declaration
-            must not include any elements which do not already exist in the 
-            current declaration; you can drop elements by 
-            excluding them from the declaration if you wish, however.
-        @param bufferUsage Vector of usage flags which indicate the usage options
-            for each new vertex buffer created. The indexes of the entries must correspond
-            to the buffer binding values referenced in the declaration.
-        @param mgr Optional pointer to the manager to use to create new declarations
-            and buffers etc. If not supplied, the HardwareBufferManager singleton will be used
-        */
-        void reorganiseBuffers(VertexDeclaration* newDeclaration, const BufferUsageList& bufferUsage, 
-            HardwareBufferManagerBase* mgr = 0);
 
         /** Reorganises the data in the vertex buffers according to the 
             new vertex declaration passed in. Note that new vertex buffers
@@ -201,7 +193,7 @@ namespace Ogre {
         void reorganiseBuffers(VertexDeclaration* newDeclaration, HardwareBufferManagerBase* mgr = 0);
 
         /** Remove any gaps in the vertex buffer bindings.
-        @remarks
+
             This is useful if you've removed elements and buffers from this vertex
             data and want to remove any gaps in the vertex buffer bindings. This
             method is mainly useful when reorganising vertex data manually.
@@ -212,7 +204,7 @@ namespace Ogre {
         void closeGapsInBindings(void);
 
         /** Remove all vertex buffers that never used by the vertex declaration.
-        @remarks
+
             This is useful if you've removed elements from the vertex declaration
             and want to unreference buffers that never used any more. This method
             is mainly useful when reorganising vertex data manually.
@@ -233,7 +225,7 @@ namespace Ogre {
 
         /** Allocate elements to serve a holder of morph / pose target data 
             for hardware morphing / pose blending.
-        @remarks
+
             This method will allocate the given number of 3D texture coordinate 
             sets for use as a morph target or target pose offset (3D position).
             These elements will be saved in hwAnimationDataList.
@@ -248,18 +240,13 @@ namespace Ogre {
         */
         ushort allocateHardwareAnimationElements(ushort count, bool animateNormals);
 
-
-
+        /** Internal method to clone vertex data definitions but to remove blend buffers. */
+        VertexData* _cloneRemovingBlendData() const;
     };
 
     /** Summary class collecting together index data source information. */
     class _OgreExport IndexData : public IndexDataAlloc
     {
-    private:
-        /// Protected copy constructor, to prevent misuse
-        IndexData(const IndexData& rhs); /* do nothing, should not use */
-        /// Protected operator=, to prevent misuse
-        IndexData& operator=(const IndexData& rhs); /* do not use */
     public:
         IndexData();
         ~IndexData();
@@ -267,10 +254,10 @@ namespace Ogre {
         HardwareIndexBufferSharedPtr indexBuffer;
 
         /// Index in the buffer to start from for this operation
-        size_t indexStart;
+        uint32 indexStart;
 
         /// The number of indexes to use from the buffer
-        size_t indexCount;
+        uint32 indexCount;
 
         /** Clones this index data, potentially including replicating the index buffer.
         @param copyData Whether to create new buffers too or just reference the existing ones
@@ -282,7 +269,7 @@ namespace Ogre {
         /** Re-order the indexes in this index data structure to be more
             vertex cache friendly; that is to re-use the same vertices as close
             together as possible. 
-        @remarks
+
             Can only be used for index data which consists of triangle lists.
             It would in fact be pointless to use it on triangle strips or fans
             in any case.
@@ -292,7 +279,7 @@ namespace Ogre {
     };
 
     /** Vertex cache profiler.
-    @remarks
+
         Utility class for evaluating the effectiveness of the use of the vertex
         cache by a given index buffer.
     */
@@ -300,7 +287,7 @@ namespace Ogre {
     {
         public:
             VertexCacheProfiler(unsigned int cachesize = 16)
-                : size ( cachesize ), tail (0), buffersize (0), hit (0), miss (0)
+                : size ( cachesize ), tail (0), buffersize (0), hit (0), miss (0), triangles(0)
             {
                 cache = OGRE_ALLOC_T(uint32, size, MEMCATEGORY_GEOMETRY);
             }
@@ -311,18 +298,25 @@ namespace Ogre {
             }
 
             void profile(const HardwareIndexBufferSharedPtr& indexBuffer);
-            void reset() { hit = 0; miss = 0; tail = 0; buffersize = 0; }
+            void reset() { hit = 0; miss = 0; tail = 0; buffersize = 0; triangles = 0; }
             void flush() { tail = 0; buffersize = 0; }
 
             unsigned int getHits() { return hit; }
             unsigned int getMisses() { return miss; }
             unsigned int getSize() { return size; }
+
+            /** Get the average cache miss ratio
+
+            @return ratio of vertex cache misses to the triangle count (0.5 - 3.0)
+            */
+            float getAvgCacheMissRatio() { return (float)miss / triangles; }
         private:
             unsigned int size;
             uint32 *cache;
 
             unsigned int tail, buffersize;
             unsigned int hit, miss;
+            uint32 triangles;
 
             bool inCache(unsigned int index);
     };

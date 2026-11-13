@@ -46,11 +46,11 @@ namespace Ogre {
     */
 
     /** A billboard is a primitive which always faces the camera in every frame.
-        @remarks
-            Billboards can be used for special effects or some other trickery which requires the
-            triangles to always facing the camera no matter where it is. Ogre groups billboards into
-            sets for efficiency, so you should never create a billboard on it's own (it's ok to have a
-            set of one if you need it).
+
+        Billboards can be used for special effects or some other trickery which requires the
+        triangles to always facing the camera no matter where it is. Ogre groups billboards into
+        sets for efficiency, so you should never create a billboard on it's own (it's ok to have a
+        set of one if you need it).
         @par
             Billboards have their geometry generated every frame depending on where the camera is. It is most
             beneficial for all billboards in a set to be identically sized since Ogre can take advantage of this and
@@ -98,21 +98,21 @@ namespace Ogre {
         Billboard(const Vector3& position, BillboardSet* owner, const ColourValue& colour = ColourValue::White);
 
         /** Get the rotation of the billboard.
-            @remarks
-                This rotation is relative to the center of the billboard.
+
+            This rotation is relative to the center of the billboard.
         */
         const Radian& getRotation(void) const { return mRotation; }
 
         /** Set the rotation of the billboard.
-            @remarks
-                This rotation is relative to the center of the billboard.
+
+            @copydetails getRotation
         */
         void setRotation(const Radian& rotation) { mRotation = rotation; }
 
         /** Set the position of the billboard.
-            @remarks
-                This position is relative to a point on the quad which is the billboard. Depending on the BillboardSet,
-                this may be the center of the quad, the top-left etc. See BillboardSet::setBillboardOrigin for more info.
+
+            This position is relative to a point on the quad which is the billboard. Depending on the BillboardSet,
+            this may be the center of the quad, the top-left etc. See BillboardSet::setBillboardOrigin for more info.
         */
         void setPosition(const Vector3& position) { mPosition = position; }
 
@@ -120,28 +120,27 @@ namespace Ogre {
         void setPosition(Real x, Real y, Real z) { setPosition({x, y, z}); }
 
         /** Get the position of the billboard.
-            @remarks
-                This position is relative to a point on the quad which is the billboard. Depending on the BillboardSet,
-                this may be the center of the quad, the top-left etc. See BillboardSet::setBillboardOrigin for more info.
+
+            @copydetails setPosition
         */
         const Vector3& getPosition(void) const { return mPosition; }
 
         /** Sets the width and height for this billboard.
-            @remarks
-                Note that it is most efficient for every billboard in a BillboardSet to have the same dimensions. If you
-                choose to alter the dimensions of an individual billboard the set will be less efficient. Do not call
-                this method unless you really need to have different billboard dimensions within the same set. Otherwise
-                just call the BillboardSet::setDefaultDimensions method instead.
+
+            Note that it is most efficient for every billboard in a BillboardSet to have the same dimensions. If you
+            choose to alter the dimensions of an individual billboard the set will be less efficient. Do not call
+            this method unless you really need to have different billboard dimensions within the same set. Otherwise
+            just call the BillboardSet::setDefaultDimensions method instead.
         */
         void setDimensions(float width, float height);
 
         /** Resets this Billboard to use the parent BillboardSet's dimensions instead of it's own. */
         void resetDimensions(void) { mOwnDimensions = false; }
         /** Sets the colour of this billboard.
-            @remarks
-                Billboards can be tinted based on a base colour. This allows variations in colour irrespective of the
-                base colour of the material allowing more varied billboards. The default colour is white.
-                The tinting is effected using vertex colours.
+
+            Billboards can be tinted based on a base colour. This allows variations in colour irrespective of the
+            base colour of the material allowing more varied billboards. The default colour is white.
+            The tinting is effected using vertex colours.
         */
         void setColour(const ColourValue& colour) { mColour = colour.getAsBYTE(); }
 
@@ -163,13 +162,10 @@ namespace Ogre {
         float getOwnHeight(void) const { return mHeight; }
 
         /** Returns true if this billboard use individual texture coordinate rect (i.e. if the 
-            Billboard::setTexcoordRect method has been called for this instance), or returns
+            Billboard::setTexcoordRect() method has been called for this instance), or returns
             false if use texture coordinates defined in the parent BillboardSet's texture
-            coordinates array (i.e. if the Billboard::setTexcoordIndex method has been called
+            coordinates array (i.e. if the Billboard::setTexcoordIndex() method has been called
             for this instance).
-            @see
-                Billboard::setTexcoordIndex()
-                Billboard::setTexcoordRect()
         */
         bool isUseTexcoordRect(void) const { return mUseTexcoordRect; }
 
@@ -184,8 +180,8 @@ namespace Ogre {
 
         /** getTexcoordIndex() returns the previous value set by setTexcoordIndex(). 
             The default value is 0, which is always a valid texture coordinate set.
-            @remarks
-                This value is useful only when isUseTexcoordRect return false.
+
+            This value is useful only when isUseTexcoordRect return false.
           */
         uint16 getTexcoordIndex(void) const { return mTexcoordIndex; }
 
@@ -200,8 +196,8 @@ namespace Ogre {
         void setTexcoordRect(float u0, float v0, float u1, float v1) { setTexcoordRect({u0, v0, u1, v1}); }
 
         /** getTexcoordRect() returns the previous value set by setTexcoordRect(). 
-            @remarks
-                This value is useful only when isUseTexcoordRect returns true.
+
+            This value is useful only when isUseTexcoordRect returns true.
         */
         const FloatRect& getTexcoordRect(void) const { return mTexcoordRect; }
     };

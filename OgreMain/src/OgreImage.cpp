@@ -31,68 +31,6 @@ THE SOFTWARE.
 #include "OgreImageResampler.h"
 
 namespace Ogre {
-    ImageCodec::~ImageCodec() {
-    }
-
-    void ImageCodec::decode(const DataStreamPtr& input, const Any& output) const
-    {
-        OGRE_IGNORE_DEPRECATED_BEGIN
-        DecodeResult res = decode(input);
-        OGRE_IGNORE_DEPRECATED_END
-
-        auto pData = static_cast<ImageCodec::ImageData*>(res.second.get());
-
-        Image* dest = any_cast<Image*>(output);
-        dest->mWidth = pData->width;
-        dest->mHeight = pData->height;
-        dest->mDepth = pData->depth;
-        dest->mBufSize = pData->size;
-        dest->mNumMipmaps = pData->num_mipmaps;
-        dest->mFlags = pData->flags;
-        dest->mFormat = pData->format;
-        // Just use internal buffer of returned memory stream
-        dest->mBuffer = res.first->getPtr();
-        // Make sure stream does not delete
-        res.first->setFreeOnClose(false);
-    }
-
-    DataStreamPtr ImageCodec::encode(const Any& input) const
-    {
-        Image* src = any_cast<Image*>(input);
-
-        auto imgData = std::make_shared<ImageCodec::ImageData>();
-        imgData->format = src->getFormat();
-        imgData->height = src->getHeight();
-        imgData->width = src->getWidth();
-        imgData->depth = src->getDepth();
-        imgData->size = src->getSize();
-        imgData->num_mipmaps = src->getNumMipmaps();
-
-        // Wrap memory, be sure not to delete when stream destroyed
-        auto wrapper = std::make_shared<MemoryDataStream>(src->getData(), src->getSize(), false);
-        OGRE_IGNORE_DEPRECATED_BEGIN
-        return encode(wrapper, imgData);
-        OGRE_IGNORE_DEPRECATED_END
-    }
-    void ImageCodec::encodeToFile(const Any& input, const String& outFileName) const
-    {
-        Image* src = any_cast<Image*>(input);
-
-        auto imgData = std::make_shared<ImageCodec::ImageData>();
-        imgData->format = src->getFormat();
-        imgData->height = src->getHeight();
-        imgData->width = src->getWidth();
-        imgData->depth = src->getDepth();
-        imgData->size = src->getSize();
-		imgData->num_mipmaps = src->getNumMipmaps();
-
-        // Wrap memory, be sure not to delete when stream destroyed
-        auto wrapper = std::make_shared<MemoryDataStream>(src->getData(), src->getSize(), false);
-        OGRE_IGNORE_DEPRECATED_BEGIN
-        encodeToFile(wrapper, outFileName, imgData);
-        OGRE_IGNORE_DEPRECATED_END
-    }
-
     //-----------------------------------------------------------------------------
     Image::Image(PixelFormat format, uint32 width, uint32 height, uint32 depth, uchar* buffer, bool autoDelete)
         : mWidth(0),
@@ -114,7 +52,7 @@ namespace Ogre {
             return;
 
         if (!buffer)
-            buffer = OGRE_ALLOC_T(uchar, size, MEMCATEGORY_GENERAL);
+            buffer = (uchar*)malloc(size);
         loadDynamicImage(buffer, width, height, depth, format, autoDelete);
     }
 
@@ -125,7 +63,7 @@ namespace Ogre {
         if (!mAutoDelete || !mBuffer || mBufSize != size)
         {
             freeMemory();
-            mBuffer = new uchar[size]; // allocate
+            mBuffer = (uchar*)malloc(size); // allocate
         }
 
         // make sure freeMemory() does nothing, we set this true immediately after
@@ -153,7 +91,7 @@ namespace Ogre {
         //Only delete if this was not a dynamic image (meaning app holds & destroys buffer)
         if( mBuffer && mAutoDelete )
         {
-            OGRE_FREE(mBuffer, MEMCATEGORY_GENERAL);
+            free(mBuffer);
             mBuffer = NULL;
         }
 
@@ -162,6 +100,9 @@ namespace Ogre {
     //-----------------------------------------------------------------------------
     Image& Image::operator=(const Image& img)
     {
+        if (this == &img)
+            return *this;
+
         // Only create & copy when other data was owning
         if (img.mBuffer && img.mAutoDelete)
         {
@@ -200,7 +141,7 @@ namespace Ogre {
         OgreAssert(mBuffer, "No image data loaded");
         mNumMipmaps = 0; // Image operations lose precomputed mipmaps
 
-        ushort y;
+        uint32 y;
         switch (mPixelSize)
         {
         case 1:
@@ -293,7 +234,7 @@ namespace Ogre {
         size_t size = calculateSize(numMipMaps, numFaces, uWidth, uHeight, uDepth, eFormat);
         OgreAssert(size == stream->size(), "Wrong stream size");
 
-        uchar *buffer = OGRE_ALLOC_T(uchar, size, MEMCATEGORY_GENERAL);
+        uchar *buffer = (uchar*)malloc(size);
         stream->read(buffer, size);
 
         return loadDynamicImage(buffer,
@@ -336,9 +277,17 @@ namespace Ogre {
         return Codec::getCodec(formatextension)->encode(this);
     }
     //-----------------------------------------------------------------------------
-    Image & Image::load(const DataStreamPtr& stream, const String& type )
+    Image & Image::load(const DataStreamPtr& stream, String type )
     {
         freeMemory();
+
+        if (type.empty())
+        {
+            String base, ext;
+            StringUtil::splitBaseFilename(stream->getName(), base, ext);
+            if (!ext.empty())
+                type = ext;
+        }
 
         Codec * pCodec = 0;
         if (!type.empty())
@@ -388,64 +337,6 @@ namespace Ogre {
         else
             return BLANKSTRING;
 
-    }
-    //-----------------------------------------------------------------------------
-    size_t Image::getSize() const
-    {
-        return mBufSize;
-    }
-
-    //-----------------------------------------------------------------------------
-    uint32 Image::getNumMipmaps() const
-    {
-        return mNumMipmaps;
-    }
-
-    //-----------------------------------------------------------------------------
-    bool Image::hasFlag(const ImageFlags imgFlag) const
-    {
-        return (mFlags & imgFlag) != 0;
-    }
-
-    //-----------------------------------------------------------------------------
-    uint32 Image::getDepth() const
-    {
-        return mDepth;
-    }
-    //-----------------------------------------------------------------------------
-    uint32 Image::getWidth() const
-    {
-        return mWidth;
-    }
-
-    //-----------------------------------------------------------------------------
-    uint32 Image::getHeight() const
-    {
-        return mHeight;
-    }
-    //-----------------------------------------------------------------------------
-    uint32 Image::getNumFaces(void) const
-    {
-        if(hasFlag(IF_CUBEMAP))
-            return 6;
-        return 1;
-    }
-    //-----------------------------------------------------------------------------
-    size_t Image::getRowSpan() const
-    {
-        return mWidth * mPixelSize;
-    }
-
-    //-----------------------------------------------------------------------------
-    PixelFormat Image::getFormat() const
-    {
-        return mFormat;
-    }
-
-    //-----------------------------------------------------------------------------
-    uchar Image::getBPP() const
-    {
-        return mPixelSize * 8;
     }
 
     //-----------------------------------------------------------------------------

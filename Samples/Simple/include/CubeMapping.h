@@ -19,7 +19,7 @@ public:
         mInfo["Category"] = "Unsorted";
     }
 
-    bool frameRenderingQueued(const FrameEvent& evt)
+    bool frameRenderingQueued(const FrameEvent& evt) override
     {
         mPivot->yaw(Radian(evt.timeSinceLastFrame));      // spin the fishy around the cube mapped one
         mFishSwim->addTime(evt.timeSinceLastFrame * 3);   // make the fishy swim
@@ -28,7 +28,7 @@ public:
 
 protected:
 
-    void setupContent()
+    void setupContent() override
     {
         mSceneMgr->setSkyDome(true, "Examples/CloudySky");
 
@@ -59,7 +59,7 @@ protected:
         node->attachObject(fish);
 
         // create a floor mesh resource
-        MeshManager::getSingleton().createPlane("floor", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+        MeshManager::getSingleton().createPlane("floor", RGN_DEFAULT,
             Plane(Vector3::UNIT_Y, -30), 1000, 1000, 10, 10, true, 1, 8, 8, Vector3::UNIT_Z);
 
         // create a floor entity, give it a material, and place it at the origin
@@ -87,9 +87,9 @@ protected:
         mSceneMgr->getRootSceneNode()->createChildSceneNode()->attachObject(cubeCamera);
     }
 
-    void cleanupContent()
+    void cleanupContent() override
     {
-        MeshManager::getSingleton().remove("floor", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+        MeshManager::getSingleton().remove("floor", RGN_DEFAULT);
     }
 
     Entity* mHead;

@@ -51,37 +51,33 @@ class TestContext : public OgreBites::SampleContext
     virtual ~TestContext();
 
     /** Does basic setup for the context */
-    virtual void setup();
+    void setup() override;
 
-    bool frameRenderingQueued(const Ogre::FrameEvent& evt);
+    bool frameRenderingQueued(const Ogre::FrameEvent& evt) override;
 
     /** Frame listener callback, handles updating of the tests at the start of frames
      *        @param evt The frame event (passed in for the framelistener) */
-    virtual bool frameStarted(const FrameEvent& evt);
+    bool frameStarted(const FrameEvent& evt) override;
 
     /** Frame listener callback, handles updating of the tests at the end of frames
      *        @param evt The frame event (passed in for the framelistener) */
-    virtual bool frameEnded(const FrameEvent& evt);
+    bool frameEnded(const FrameEvent& evt) override;
 
     /** Runs a given test or sample
      *        @param s The OgreBites::Sample to run
      *        @remarks If s is a VisualTest, then timing and rand will be setup for
      *            determinism. */
-    virtual void runSample(OgreBites::Sample* s);
+    void runSample(OgreBites::Sample* s) override;
 
     /** Loads test plugins
-     *        @param set The name of the test set to load
      *        @return The initial tets or sample to run */
-    OgreBites::Sample* loadTests(String set);
-
-    /** Setup the Root */
-    virtual void createRoot();
+    OgreBites::Sample* loadTests();
 
     /** Start it up */
-    virtual void go(OgreBites::Sample* initialSample = 0);
+    void go(OgreBites::Sample* initialSample = 0) override;
 
     /** Handles the config dialog */
-    virtual bool oneTimeConfig();
+    bool oneTimeConfig() override;
 
     /** Set up directories for the tests to output to */
     virtual void setupDirectories(String batchName);
@@ -103,18 +99,12 @@ class TestContext : public OgreBites::SampleContext
         return mSuccess;
     }
 
- protected:
+ private:
     typedef std::map<String, OgreBites::SamplePlugin *> PluginMap;
     bool mSuccess;
 
     /// The timestep
     Real mTimestep;
-
-    /// Path to the test plugin directory
-    String mPluginDirectory;
-
-    /// List of available test sets
-    std::map<String, StringVector> mTestSets;
 
     /// The tests to be run
     std::deque<OgreBites::Sample*> mTests;
@@ -214,11 +204,6 @@ class TestContext : public OgreBites::SampleContext
     try {
         tc = new TestContext([arguments count], &argv[0]);
         tc->go();
-
-        Root::getSingleton().getRenderSystem()->_initRenderTargets();
-
-        // Clear event times
-        Root::getSingleton().clearEventTimes();
     } catch( Exception& e ) {
         std::cerr << "An exception has occurred: " <<
             e.getFullDescription().c_str() << std::endl;

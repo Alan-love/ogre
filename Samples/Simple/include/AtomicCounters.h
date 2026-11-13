@@ -26,21 +26,21 @@ class _OgreSampleClassExport Sample_AtomicCounters : public SdkSample
         mInfo["Title"] = "Atomic Counters";
         mInfo["Description"] = "An example of using atomic counters to visualise GPU rasterization order";
         mInfo["Thumbnail"] = "thumb_atomicc.png";
-        mInfo["Category"] = "Unsorted";
+        mInfo["Category"] = "ShaderFeatures";
     }
 
-    void testCapabilities(const RenderSystemCapabilities* caps)
+    void testCapabilities(const RenderSystemCapabilities* caps) override
     {
         requireMaterial("Example/RasterizationOrder");
     }
 
-    bool frameEnded(const FrameEvent& evt)
+    bool frameEnded(const FrameEvent& evt) override
     {
         GpuProgramManager::getSingleton().getSharedParameters("CounterBuffer")->setNamedConstant("ac", 0);
         return true;
     }
 
-    void setupContent()
+    void setupContent() override
     {
         mViewport->setBackgroundColour(ColourValue(0.3, 0.3, 0.3));
 
@@ -48,8 +48,7 @@ class _OgreSampleClassExport Sample_AtomicCounters : public SdkSample
         float h = 480.0 / mWindow->getHeight();
 
         auto rect = mSceneMgr->createScreenSpaceRect();
-        rect->setCorners(-w, h, w, -h);
-        rect->setBoundingBox(AxisAlignedBox::BOX_INFINITE);
+        rect->setCorners(-w, h, w, -h, false);
 
         MaterialPtr mat = MaterialManager::getSingleton().getByName("Example/RasterizationOrder");
         rect->setMaterial(mat);

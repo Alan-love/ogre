@@ -35,6 +35,8 @@ THE SOFTWARE.
 
 namespace Ogre
 {
+    const String MOT_INSTANCED_ENTITY = "InstancedEntity";
+
     NameGenerator InstancedEntity::msNameGenerator("");
 
     InstancedEntity::InstancedEntity( InstanceBatch *batchOwner, uint32 instanceID, InstancedEntity* sharedTransformEntity ) :
@@ -150,8 +152,7 @@ namespace Ogre
     //-----------------------------------------------------------------------
     const String& InstancedEntity::getMovableType(void) const
     {
-        static String sType = "InstancedEntity";
-        return sType;
+        return MOT_INSTANCED_ENTITY;
     }
     //-----------------------------------------------------------------------
     size_t InstancedEntity::getTransforms( Matrix4 *xform ) const
@@ -509,12 +510,12 @@ namespace Ogre
         mUseLocalTransform &= used;
     }
     //---------------------------------------------------------------------------
-    void InstancedEntity::setCustomParam( unsigned char idx, const Vector4 &newParam )
+    void InstancedEntity::setCustomParam( unsigned char idx, const Vector4f &newParam )
     {
         mBatchOwner->_setCustomParam( this, idx, newParam );
     }
     //---------------------------------------------------------------------------
-    const Vector4& InstancedEntity::getCustomParam( unsigned char idx )
+    const Vector4f& InstancedEntity::getCustomParam( unsigned char idx )
     {
         return mBatchOwner->_getCustomParam( this, idx );
     }

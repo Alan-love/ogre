@@ -36,11 +36,11 @@ namespace Ogre
     {
     public:
         //-----------------------------------------------------------------------
-        String doGet(const void* target) const
+        String doGet(const void* target) const override
         {
             return static_cast<const HighLevelGpuProgram*>(target)->getPreprocessorDefines();
         }
-        void doSet(void* target, const String& val)
+        void doSet(void* target, const String& val) override
         {
             static_cast<HighLevelGpuProgram*>(target)->setPreprocessorDefines(val);
         }
@@ -51,11 +51,11 @@ namespace Ogre
     class CmdEntryPoint : public ParamCommand
     {
     public:
-        String doGet(const void* target) const
+        String doGet(const void* target) const override
         {
             return static_cast<const HighLevelGpuProgram*>(target)->getEntryPoint();
         }
-        void doSet(void* target, const String& val) { static_cast<HighLevelGpuProgram*>(target)->setEntryPoint(val); }
+        void doSet(void* target, const String& val) override { static_cast<HighLevelGpuProgram*>(target)->setEntryPoint(val); }
     };
     static CmdEntryPoint msCmdEntryPoint;
 
@@ -218,6 +218,9 @@ namespace Ogre
         auto ver = renderSystem ? renderSystem->getNativeShadingLanguageVersion() : 0;
         defines += StringUtil::format("OGRE_%s=%d", tmp.c_str(), ver);
 
+        // supporting rendersystems will handle this by other means
+        defines += ",OGRE_NATIVE_GLSL_VERSION_DIRECTIVE=";
+
         // OGRE_VERTEX_SHADER, OGRE_FRAGMENT_SHADER
         tmp = GpuProgram::getProgramTypeName(getType());
         StringUtil::toUpperCase(tmp);
@@ -263,7 +266,7 @@ namespace Ogre
 
     }
     //---------------------------------------------------------------------
-    void HighLevelGpuProgram::populateParameterNames(GpuProgramParametersSharedPtr params)
+    void HighLevelGpuProgram::populateParameterNames(const GpuProgramParametersSharedPtr& params)
     {
         getConstantDefinitions();
         params->_setNamedConstants(mConstantDefs);

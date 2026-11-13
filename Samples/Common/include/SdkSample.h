@@ -34,6 +34,42 @@
 
 namespace OgreBites
 {
+    class TouchAgnosticInputListenerChain : public InputListenerChain
+    {
+        Ogre::RenderWindow* mWindow;
+    public:
+        TouchAgnosticInputListenerChain() : mWindow(NULL) {}
+        TouchAgnosticInputListenerChain(Ogre::RenderWindow* window, std::vector<InputListener*> chain)
+            : InputListenerChain(chain), mWindow(window)
+        {
+        }
+
+        // convert and redirect
+        bool touchMoved(const TouchFingerEvent& evt) override {
+            MouseMotionEvent e;
+            e.x = evt.x * mWindow->getWidth();
+            e.y = evt.y * mWindow->getHeight();
+            e.xrel = evt.dx * mWindow->getWidth();
+            e.yrel = evt.dy * mWindow->getHeight();
+            return mouseMoved(e);
+        }
+        bool touchPressed(const TouchFingerEvent& evt) override {
+            return mousePressed(toMouseButton(evt));
+        }
+        bool touchReleased(const TouchFingerEvent& evt) override {
+            return mouseReleased(toMouseButton(evt));
+        }
+    private:
+        MouseButtonEvent toMouseButton(const TouchFingerEvent& evt) const {
+            MouseButtonEvent e = {};
+            e.x = evt.x * mWindow->getWidth();
+            e.y = evt.y * mWindow->getHeight();
+            e.button = BUTTON_LEFT;
+            e.clicks = 1;
+            return e;
+        }
+    };
+
     /*=============================================================================
     // Base SDK sample class. Includes default player camera and SDK trays.
     =============================================================================*/
@@ -47,18 +83,21 @@ namespace OgreBites
             mDragLook = false;
         }
 
+        void paused() override { mContext->removeInputListener(&mInputListenerChain); }
+
         /*-----------------------------------------------------------------------------
         | Manually update the cursor position after being unpaused.
         -----------------------------------------------------------------------------*/
-        virtual void unpaused()
+        void unpaused() override
         {
+            mContext->addInputListener(&mInputListenerChain);
             mTrayMgr->refreshCursor();
         }
 
         /*-----------------------------------------------------------------------------
         | Automatically saves position and orientation for free-look cameras.
         -----------------------------------------------------------------------------*/
-        virtual void saveState(Ogre::NameValuePairList& state)
+        void saveState(Ogre::NameValuePairList& state) override
         {
             if (mCameraMan->getStyle() == CS_FREELOOK)
             {
@@ -70,7 +109,7 @@ namespace OgreBites
         /*-----------------------------------------------------------------------------
         | Automatically restores position and orientation for free-look cameras.
         -----------------------------------------------------------------------------*/
-        virtual void restoreState(Ogre::NameValuePairList& state)
+        void restoreState(Ogre::NameValuePairList& state) override
         {
             if (state.find("CameraPosition") != state.end() && state.find("CameraOrientation") != state.end())
             {
@@ -80,22 +119,16 @@ namespace OgreBites
             }
         }
 
-        virtual bool frameRenderingQueued(const Ogre::FrameEvent& evt)
+        bool frameRenderingQueued(const Ogre::FrameEvent& evt) override
         {
-            if(!mTrayMgr) return true;
+            if (mTrayMgr && mTrayMgr->isDialogVisible())
+                return true;
 
-            mTrayMgr->frameRendered(evt);
-            mControls->frameRendered(evt);
-
-            if (!mTrayMgr->isDialogVisible())
-            {
-                mCameraMan->frameRendered(evt);   // if dialog isn't up, then update the camera
-            }
-
+            mInputListenerChain.frameRendered(evt);
             return true;
         }
 
-        virtual bool keyPressed(const KeyboardEvent& evt)
+        bool keyPressed(const KeyboardEvent& evt) override
         {
         	int key = evt.keysym.sym;
         	
@@ -107,104 +140,74 @@ namespace OgreBites
 
             if (mTrayMgr->isDialogVisible()) return true;   // don't process any more keys if dialog is up
 
-            mControls->keyPressed(evt);
-            mCameraMan->keyPressed(evt);
-            return true;
+            // pass down
+            return false;
         }
 
-        virtual bool keyReleased(const KeyboardEvent& evt)
+        bool mousePressed(const MouseButtonEvent& evt) override
         {
-            mCameraMan->keyReleased(evt);
-
-            return true;
-        }
-
-        /* IMPORTANT: When overriding these following handlers, remember to allow the tray manager
-        to filter out any interface-related mouse events before processing them in your scene.
-        If the tray manager handler returns true, the event was meant for the trays, not you. */
-        virtual bool mouseMoved(const MouseMotionEvent& evt)
-        {
-            if (mTrayMgr->mouseMoved(evt)) return true;
-
-            mCameraMan->mouseMoved(evt);
-            return true;
-        }
-
-        // convert and redirect
-        virtual bool touchMoved(const TouchFingerEvent& evt) {
-            MouseMotionEvent e;
-            e.xrel = evt.dx * mWindow->getWidth();
-            e.yrel = evt.dy * mWindow->getHeight();
-            return mouseMoved(e);
-        }
-
-        virtual bool mousePressed(const MouseButtonEvent& evt)
-        {
-            if (mTrayMgr->mousePressed(evt)) return true;
-
             if (mDragLook && evt.button == BUTTON_LEFT)
             {
                 mCameraMan->setStyle(CS_FREELOOK);
                 mTrayMgr->hideCursor();
             }
 
-            mCameraMan->mousePressed(evt);
-            return true;
+            // pass down
+            return false;
         }
 
-        // convert and redirect
-        virtual bool touchPressed(const TouchFingerEvent& evt) {
-            MouseButtonEvent e;
-            e.button = BUTTON_LEFT;
-            return mousePressed(e);
-        }
-
-        virtual bool mouseReleased(const MouseButtonEvent& evt)
+        bool mouseReleased(const MouseButtonEvent& evt) override
         {
-            if (mTrayMgr->mouseReleased(evt)) return true;
-
             if (mDragLook && evt.button == BUTTON_LEFT)
             {
                 mCameraMan->setStyle(CS_MANUAL);
                 mTrayMgr->showCursor();
             }
 
-            mCameraMan->mouseReleased(evt);
-            return true;
-        }
-
-        // convert and redirect
-        virtual bool touchReleased(const TouchFingerEvent& evt) {
-            MouseButtonEvent e;
-            e.button = BUTTON_LEFT;
-            return mouseReleased(e);
-        }
-
-        virtual bool mouseWheelRolled(const MouseWheelEvent& evt) {
-            if(mTrayMgr->mouseWheelRolled(evt))
-                return true;
-            mCameraMan->mouseWheelRolled(evt);
-            return true;
+            // pass down
+            return false;
         }
 
         /*-----------------------------------------------------------------------------
         | Extended to setup a default tray interface and camera controller.
         -----------------------------------------------------------------------------*/
-        virtual void _setup(Ogre::RenderWindow* window, Ogre::FileSystemLayer* fsLayer, Ogre::OverlaySystem* overlaySys)
+        void _setup(ApplicationContextBase* context) override
         {
-            Sample::_setup(window, fsLayer, overlaySys);
+            mTrayMgr = std::make_unique<TrayManager>("SampleControls", context->getRenderWindow(), this);  // create a tray interface
+            // show stats and logo and hide the cursor
+            mTrayMgr->showFrameStats(TL_BOTTOMLEFT);
+            mTrayMgr->showLogo(TL_BOTTOMRIGHT);
+            mTrayMgr->hideCursor();
 
-            if(mTrayMgr)
-                mControls.reset(new AdvancedRenderControls(mTrayMgr.get(), mCamera));
+            Sample::_setup(context);
+
+            mControls = std::make_unique<AdvancedRenderControls>(mTrayMgr.get(), mCamera);
+
+            if (mInputListenerChain.empty()) // allow overrides
+                mInputListenerChain =
+                    TouchAgnosticInputListenerChain(mWindow, {mTrayMgr.get(), this, mCameraMan.get(), mControls.get()});
+
+            mContext->addInputListener(&mInputListenerChain);
         }
 
-        virtual void _shutdown()
+        void _removeTrays()
         {
+            mControls.reset();
+            mTrayMgr.reset();
+            mInputListenerChain = TouchAgnosticInputListenerChain(mWindow, {});
+        }
+
+        void _shutdown() override
+        {
+            if(mContext)
+                mContext->removeInputListener(&mInputListenerChain);
+
             Sample::_shutdown();
 
             mControls.reset();
             mCameraMan.reset();
             mTrayMgr.reset();
+            mInputListenerChain = TouchAgnosticInputListenerChain(mWindow, {});
 
             // restore settings we may have changed, so as not to affect other samples
             Ogre::MaterialManager::getSingleton().setDefaultTextureFiltering(Ogre::TFO_BILINEAR);
@@ -213,13 +216,15 @@ namespace OgreBites
 
     protected:
 
-        virtual void setupView()
+        void setupView() override
         {
             // setup default viewport layout and camera
             mCamera = mSceneMgr->createCamera("MainCamera");
             mCameraNode = mSceneMgr->getRootSceneNode()->createChildSceneNode();
             mCameraNode->attachObject(mCamera);
             mCameraNode->setFixedYawAxis(true);
+            mCameraMan = std::make_unique<CameraMan>(mCameraNode);   // create a default camera controller
+
             mViewport = mWindow->addViewport(mCamera);
             mCamera->setAspectRatio((Ogre::Real)mViewport->getActualWidth() / (Ogre::Real)mViewport->getActualHeight());
             mCamera->setAutoAspectRatio(true);
@@ -228,6 +233,9 @@ namespace OgreBites
 
         virtual void setDragLook(bool enabled)
         {
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
+            return;
+#endif
             if (enabled)
             {
                 mCameraMan->setStyle(CS_MANUAL);
@@ -248,11 +256,11 @@ namespace OgreBites
             // Create material
             String matName = "Ogre/DebugTexture" + StringConverter::toString(i);
             MaterialPtr debugMat = MaterialManager::getSingleton().getByName(
-                matName, ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+                matName, RGN_DEFAULT);
             if (!debugMat)
             {
                 debugMat = MaterialManager::getSingleton().create(matName,
-                                                                  ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+                                                                  RGN_DEFAULT);
             }
             Pass* p = debugMat->getTechnique(0)->getPass(0);
             p->removeAllTextureUnitStates();
@@ -279,7 +287,10 @@ namespace OgreBites
             w->getOverlayElement()->setMaterial(debugMat);
         }
 
+        std::unique_ptr<TrayManager> mTrayMgr;           // tray interface manager
+        std::unique_ptr<CameraMan> mCameraMan;           // basic camera controller
         std::unique_ptr<AdvancedRenderControls> mControls; // sample details panel
+        TouchAgnosticInputListenerChain mInputListenerChain;
         bool mCursorWasVisible;             // was cursor visible before dialog appeared
         bool mDragLook;                     // click and drag to free-look
     };

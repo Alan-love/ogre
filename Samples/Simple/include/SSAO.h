@@ -69,10 +69,9 @@ public:
         mGBufRefMat->load();
     }
 
-    /** @copydoc MaterialManager::Listener::handleSchemeNotFound */
-    virtual Ogre::Technique* handleSchemeNotFound(unsigned short schemeIndex, 
+    Ogre::Technique* handleSchemeNotFound(unsigned short schemeIndex,
         const Ogre::String& schemeName, Ogre::Material* originalMaterial, unsigned short lodIndex, 
-        const Ogre::Renderable* rend)
+        const Ogre::Renderable* rend) override
     {
             Technique* gBufferTech = originalMaterial->createTechnique();
             gBufferTech->setSchemeName(schemeName);
@@ -98,7 +97,7 @@ private:
     String mCurrentPost;
     String mCurrentModulateScheme;
 
-    SSAOGBufferSchemeHandler* mGBufSchemeHandler;
+    std::unique_ptr<SSAOGBufferSchemeHandler> mGBufSchemeHandler;
     Light* mLight;
 
 public:
@@ -130,15 +129,14 @@ public:
         mCurrentCompositor = mCompositorNames[0];
         mCurrentPost = mPostNames[0];
 
-        mGBufSchemeHandler = NULL;
+        mGBufSchemeHandler.reset();
         mLight = NULL;
     }
     
-    void cleanupContent()
+    void cleanupContent() override
     {
-        MaterialManager::getSingleton().removeListener(mGBufSchemeHandler, "GBuffer");
-        delete mGBufSchemeHandler;
-        mGBufSchemeHandler = NULL;
+        MaterialManager::getSingleton().removeListener(mGBufSchemeHandler.get(), "GBuffer");
+        mGBufSchemeHandler.reset();
 
         CompositorManager::getSingleton().setCompositorEnabled(mViewport, mCurrentCompositor, false);
         CompositorManager::getSingleton().setCompositorEnabled(mViewport, mCurrentPost, false);
@@ -146,22 +144,22 @@ public:
         CompositorManager::getSingleton().setCompositorEnabled(mViewport, "SSAO/GBuffer", false);
         CompositorManager::getSingleton().removeCompositor(mViewport, "SSAO/GBuffer");
         
-        for (unsigned int i = 0; i < mCompositorNames.size(); i++)
+        for (const auto& compositorName : mCompositorNames)
         {
-            CompositorManager::getSingleton().setCompositorEnabled(mViewport, mCompositorNames[i], false);
-            CompositorManager::getSingleton().removeCompositor(mViewport, mCompositorNames[i]);
+            CompositorManager::getSingleton().setCompositorEnabled(mViewport, compositorName, false);
+            CompositorManager::getSingleton().removeCompositor(mViewport, compositorName);
         }
         
-        for (unsigned int i = 0; i < mPostNames.size(); i++)
+        for (const auto& postName : mPostNames)
         {
-            CompositorManager::getSingleton().setCompositorEnabled(mViewport, mPostNames[i], false);
-            CompositorManager::getSingleton().removeCompositor(mViewport, mPostNames[i]);
+            CompositorManager::getSingleton().setCompositorEnabled(mViewport, postName, false);
+            CompositorManager::getSingleton().removeCompositor(mViewport, postName);
         }
         
         mMeshes.clear();
     }
     
-    void testCapabilities(const RenderSystemCapabilities* caps)
+    void testCapabilities(const RenderSystemCapabilities* caps) override
     {
 		if (StringUtil::startsWith(caps->getRenderSystemName(), "OpenGL ES"))
         {
@@ -182,21 +180,21 @@ protected:
         else
             LogManager::getSingleton().logMessage("Sample_SSAO: Failed to add GBuffer compositor\n");
         
-        for (unsigned int i = 0; i < mCompositorNames.size(); i++)
+        for (const auto& compositorName : mCompositorNames)
         {
-            if (CompositorManager::getSingleton().addCompositor(mViewport, mCompositorNames[i]))
-                CompositorManager::getSingleton().setCompositorEnabled(mViewport, mCompositorNames[i], false);
+            if (CompositorManager::getSingleton().addCompositor(mViewport, compositorName))
+                CompositorManager::getSingleton().setCompositorEnabled(mViewport, compositorName, false);
             else
-                LogManager::getSingleton().logMessage("Sample_SSAO: Failed to add compositor: " + mCompositorNames[i] + "\n");
+                LogManager::getSingleton().logMessage("Sample_SSAO: Failed to add compositor: " + compositorName + "\n");
         }
         
-        for (unsigned int i = 0; i < mPostNames.size(); i++)
+        for (const auto& postName : mPostNames)
         {
             
-            if (CompositorManager::getSingleton().addCompositor(mViewport, mPostNames[i]))
-                CompositorManager::getSingleton().setCompositorEnabled(mViewport, mPostNames[i], false);
+            if (CompositorManager::getSingleton().addCompositor(mViewport, postName))
+                CompositorManager::getSingleton().setCompositorEnabled(mViewport, postName, false);
             else
-                LogManager::getSingleton().logMessage("Sample_SSAO: Failed to add " + mPostNames[i] + " compositor\n");
+                LogManager::getSingleton().logMessage("Sample_SSAO: Failed to add " + postName + " compositor\n");
         }
         
         CompositorManager::getSingleton().setCompositorEnabled(mViewport, mCurrentCompositor, true);
@@ -210,8 +208,8 @@ protected:
     {
         // --- select mesh menu ---
         SelectMenu* objectType = mTrayMgr->createThickSelectMenu(TL_TOPLEFT, SSAO_OBJECT_MENU_NAME, "Object: ", SSAO_GUI_WIDTH, 16);
-        for (unsigned int i = 0; i < mMeshNames.size(); i++)
-            objectType->addItem(mMeshNames[i]);
+        for (const auto& meshName : mMeshNames)
+            objectType->addItem(meshName);
         
         // --- select camera menu ---
         SelectMenu* cameraMenu = mTrayMgr->createThickSelectMenu(TL_TOPLEFT, SSAO_CAMERA_MENU_NAME, "Camera Position", SSAO_GUI_WIDTH, 16);
@@ -221,13 +219,13 @@ protected:
         
         // --- select compositor menu ---
         SelectMenu* compositor = mTrayMgr->createThickSelectMenu(TL_TOPLEFT, SSAO_COMPOSITOR_MENU_NAME, "Compositor: ", SSAO_GUI_WIDTH, 16);
-        for (unsigned int i = 0; i < mCompositorNames.size(); i++)
-            compositor->addItem(mCompositorNames[i]);
+        for (const auto& compositorName : mCompositorNames)
+            compositor->addItem(compositorName);
         
         // --- select post filter menu ---
         SelectMenu * post = mTrayMgr->createThickSelectMenu(TL_TOPLEFT, SSAO_POST_MENU_NAME, "Post Filter: ", SSAO_GUI_WIDTH, 16);
-        for (unsigned int i = 0; i < mPostNames.size(); i++)
-            post->addItem(mPostNames[i]);
+        for (const auto& postName : mPostNames)
+            post->addItem(postName);
         
         // --- hemisphere MC sample length exponent --- //
         mTrayMgr->createThickSlider(TL_TOPLEFT,
@@ -405,7 +403,7 @@ protected:
     /**
      * Create the scene and load the content.
      */
-    void setupContent()
+    void setupContent() override
     {
         mViewport->setBackgroundColour(ColourValue(0.5, 0.5, 0.5, 1));
         
@@ -423,8 +421,8 @@ protected:
         mCameraNode->lookAt(Vector3(-6, 2, 1), Node::TS_PARENT);;
         
         // setup all meshes
-        for (unsigned int i = 0; i < mMeshNames.size(); i++) {
-            Entity* ent = mSceneMgr->createEntity(mMeshNames[i], mMeshNames[i] + ".mesh");
+        for (const auto& meshName : mMeshNames) {
+            Entity* ent = mSceneMgr->createEntity(meshName, meshName + ".mesh");
             ent->setVisible(false);
             
             mSceneMgr->getRootSceneNode()->attachObject(ent);
@@ -440,8 +438,8 @@ protected:
         changeCompositor(mCompositorNames[0]);
         changePost(mPostNames[0]);
 
-        mGBufSchemeHandler = new SSAOGBufferSchemeHandler();
-        MaterialManager::getSingleton().addListener(mGBufSchemeHandler, "GBuffer");
+        mGBufSchemeHandler = std::make_unique<SSAOGBufferSchemeHandler>();
+        MaterialManager::getSingleton().addListener(mGBufSchemeHandler.get(), "GBuffer");
     }
     
     /**
@@ -459,7 +457,7 @@ protected:
      * Change the compositor to be used.
      * @param compositor The name of the compositor
      */
-    void changeCompositor(Ogre::String compositor)
+    void changeCompositor(const Ogre::String& compositor)
     {
         CompositorManager::getSingleton().setCompositorEnabled(mViewport, mCurrentCompositor, false);
         mCurrentCompositor = compositor;
@@ -570,7 +568,7 @@ protected:
      * Change the post filter to be used.
      * @param post The name of the new post processing filter.
      */
-    void changePost(Ogre::String post)
+    void changePost(const Ogre::String& post)
     {
         CompositorManager::getSingleton().setCompositorEnabled(mViewport, mCurrentPost, false);
         mCurrentPost = post;
@@ -589,7 +587,7 @@ protected:
     }
     
     // sdkTray listener callbacks
-    void itemSelected(SelectMenu* menu)
+    void itemSelected(SelectMenu* menu) override
     {
         if (menu->getName() == SSAO_OBJECT_MENU_NAME)
             changeMesh(menu->getSelectionIndex());
@@ -615,7 +613,7 @@ protected:
         }
     }
     
-    void sliderMoved(Slider* slider)
+    void sliderMoved(Slider* slider) override
     {
         if (slider->getName() == SSAO_CREASE_MINIMUM_NAME)
             setUniform("SSAO/CreaseShading", "cMinimumCrease", slider->getValue());
@@ -678,7 +676,7 @@ protected:
             setUniform("SSAO/HemisphereMC", "cSampleLengthExponent", slider->getValue());
     }
     
-    void checkBoxToggled(OgreBites::CheckBox *box) 
+    void checkBoxToggled(OgreBites::CheckBox *box) override
     {
         if(box->getName() == SSAO_MODUALTE)
         {
@@ -724,7 +722,7 @@ protected:
     
     // The following three methods are for mouse input
     /** @see Sample::pointerPressed. */
-    bool mousePressed(const MouseButtonEvent& evt)
+    bool mousePressed(const MouseButtonEvent& evt) override
     {
         if (mTrayMgr->mousePressed(evt)) 
             return true;
@@ -735,7 +733,7 @@ protected:
     }
     
     /** @see Sample::mouseReleased. */
-    bool mouseReleased(const MouseButtonEvent& evt)
+    bool mouseReleased(const MouseButtonEvent& evt) override
     {
         if (mTrayMgr->mouseReleased(evt)) 
             return true;
@@ -746,7 +744,7 @@ protected:
     }
     
     /** @see Sample::mouseMoved. */
-    bool mouseMoved(const MouseMotionEvent& evt)
+    bool mouseMoved(const MouseMotionEvent& evt) override
     {
         // only rotate the camera if cursor is hidden
         if (mTrayMgr->isCursorVisible())

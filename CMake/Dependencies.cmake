@@ -25,6 +25,13 @@ if(CMAKE_CROSSCOMPILING)
     set(CMAKE_FIND_ROOT_PATH ${OGREDEPS_PATH} "${CMAKE_FIND_ROOT_PATH}")
 
     set(CROSS -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE})
+
+    if(EMSCRIPTEN)
+        # all code must use the same exception handling, see CMakeLists.txt
+        set(CROSS ${CROSS}
+            -DCMAKE_C_FLAGS=-fwasm-exceptions
+            -DCMAKE_CXX_FLAGS=-fwasm-exceptions)
+    endif()
     
     if(ANDROID)
         set(CROSS ${CROSS}
@@ -41,18 +48,34 @@ if(CMAKE_CROSSCOMPILING)
         set(CROSS ${CROSS}
             -DCMAKE_FIND_ROOT_PATH=${CMAKE_FIND_ROOT_PATH})
     endif()
+
+endif()
+
+if(APPLE)
+    set(CROSS ${CROSS}
+        -DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES})
 endif()
 
 # if we build our own deps, do it static as it generally eases distribution
 set(OGREDEPS_SHARED FALSE)
 
-set(BUILD_COMMAND_OPTS --target install --config ${CMAKE_BUILD_TYPE})
+# get available processor cores
+include(ProcessorCount)
+ProcessorCount(NPROC)
+
+# can not get processor cores, fallback to default value
+if(NPROC EQUAL 0)
+    set(NPROC 2)
+endif()
+
+set(BUILD_COMMAND_OPTS --target install -j ${NPROC} --config ${CMAKE_BUILD_TYPE})
 
 set(BUILD_COMMAND_COMMON ${CMAKE_COMMAND}
   -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
   -DCMAKE_INSTALL_PREFIX=${OGREDEPS_PATH}
   -G ${CMAKE_GENERATOR}
   -DCMAKE_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
+  -DCMAKE_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
   -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
   -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE # allow linking into a shared lib
   ${CROSS})
@@ -71,55 +94,67 @@ set(CMAKE_FRAMEWORK_PATH ${CMAKE_FRAMEWORK_PATH} ${OGRE_DEP_SEARCH_PATH})
 if(OGRE_BUILD_DEPENDENCIES AND NOT EXISTS ${OGREDEPS_PATH})
     message(STATUS "Building pugixml")
     file(DOWNLOAD
-        https://github.com/zeux/pugixml/releases/download/v1.10/pugixml-1.10.tar.gz
-        ${PROJECT_BINARY_DIR}/pugixml-1.10.tar.gz)
+        https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz
+        ${PROJECT_BINARY_DIR}/pugixml-1.15.tar.gz)
     execute_process(COMMAND ${CMAKE_COMMAND}
-        -E tar xf pugixml-1.10.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+        -E tar xf pugixml-1.15.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
     execute_process(COMMAND ${BUILD_COMMAND_COMMON}
         -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE # this will be linked into a shared lib
-        ${PROJECT_BINARY_DIR}/pugixml-1.10
-        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/pugixml-1.10)
+        ${PROJECT_BINARY_DIR}/pugixml-1.15
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/pugixml-1.15)
     execute_process(COMMAND ${CMAKE_COMMAND}
-        --build ${PROJECT_BINARY_DIR}/pugixml-1.10 ${BUILD_COMMAND_OPTS})
+        --build ${PROJECT_BINARY_DIR}/pugixml-1.15 ${BUILD_COMMAND_OPTS})
 
     #find_package(Freetype)
     if (NOT FREETYPE_FOUND)
         message(STATUS "Building freetype")
         file(DOWNLOAD
-            https://download.savannah.gnu.org/releases/freetype/freetype-2.10.1.tar.gz
-            ${PROJECT_BINARY_DIR}/freetype-2.10.1.tar.gz)
+            https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.gz
+            ${PROJECT_BINARY_DIR}/freetype-2.14.3.tar.gz)
         execute_process(COMMAND ${CMAKE_COMMAND}
-            -E tar xf freetype-2.10.1.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+            -E tar xf freetype-2.14.3.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
         # patch toolchain for iOS
         execute_process(COMMAND ${CMAKE_COMMAND} -E copy
             ${PROJECT_SOURCE_DIR}/CMake/toolchain/ios.toolchain.xcode.cmake
-            freetype-2.10.1/builds/cmake/iOS.cmake
+            freetype-2.14.3/builds/cmake/iOS.cmake
             WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
         execute_process(COMMAND ${BUILD_COMMAND_COMMON}
             -DBUILD_SHARED_LIBS=${OGREDEPS_SHARED}
             -DCMAKE_DISABLE_FIND_PACKAGE_PNG=TRUE # disable third-party deps
             -DCMAKE_DISABLE_FIND_PACKAGE_HarfBuzz=TRUE
             -DCMAKE_DISABLE_FIND_PACKAGE_BZip2=TRUE
+            -DCMAKE_DISABLE_FIND_PACKAGE_BrotliDec=TRUE
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.12
             # workaround for broken iOS toolchain in freetype
-            -DPROJECT_SOURCE_DIR=${PROJECT_BINARY_DIR}/freetype-2.10.1
-            ${PROJECT_BINARY_DIR}/freetype-2.10.1
-            WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/freetype-2.10.1/objs)
+            -DPROJECT_SOURCE_DIR=${PROJECT_BINARY_DIR}/freetype-2.14.3
+            ${PROJECT_BINARY_DIR}/freetype-2.14.3
+            WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/freetype-2.14.3/objs)
         execute_process(COMMAND ${CMAKE_COMMAND}
-            --build ${PROJECT_BINARY_DIR}/freetype-2.10.1/objs ${BUILD_COMMAND_OPTS})
+            --build ${PROJECT_BINARY_DIR}/freetype-2.14.3/objs ${BUILD_COMMAND_OPTS})
     endif()
 
     if(MSVC OR MINGW OR SKBUILD) # other platforms dont need this
+        # SDL loads enabled audio backends
+        # at runtime by default (SDL_*_SHARED), so no hard dependency on a
+        # specific sound server is added.
+        set(SDL_AUDIO_OPTS)
+        if(UNIX AND NOT APPLE)
+            set(SDL_AUDIO_OPTS -DSDL_ALSA=ON -DSDL_PULSEAUDIO=ON)
+        endif()
+
         message(STATUS "Building SDL2")
         file(DOWNLOAD
-            https://libsdl.org/release/SDL2-2.0.14.tar.gz
-            ${PROJECT_BINARY_DIR}/SDL2-2.0.14.tar.gz)
-        execute_process(COMMAND ${CMAKE_COMMAND} 
-            -E tar xf SDL2-2.0.14.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+            https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.tar.gz
+            ${PROJECT_BINARY_DIR}/SDL2-2.32.10.tar.gz
+            EXPECTED_HASH SHA256=5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165
+            -E tar xf SDL2-2.32.10.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
         execute_process(COMMAND ${CMAKE_COMMAND}
             -E make_directory ${PROJECT_BINARY_DIR}/SDL2-build)
         execute_process(COMMAND ${BUILD_COMMAND_COMMON}
             -DSDL_STATIC=FALSE
-            ${PROJECT_BINARY_DIR}/SDL2-2.0.14
+            -DCMAKE_INSTALL_LIBDIR=lib
+            ${SDL_AUDIO_OPTS}
+            ${PROJECT_BINARY_DIR}/SDL2-2.32.10
             WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/SDL2-build)
         execute_process(COMMAND ${CMAKE_COMMAND}
             --build ${PROJECT_BINARY_DIR}/SDL2-build ${BUILD_COMMAND_OPTS})
@@ -128,40 +163,73 @@ if(OGRE_BUILD_DEPENDENCIES AND NOT EXISTS ${OGREDEPS_PATH})
     if(MSVC OR MINGW OR SKBUILD) # other platforms dont need this
       message(STATUS "Building zlib") # only needed for Assimp
       file(DOWNLOAD
-          http://zlib.net/zlib-1.2.11.tar.gz
-          ${PROJECT_BINARY_DIR}/zlib-1.2.11.tar.gz
-          EXPECTED_MD5 1c9f62f0778697a09d36121ead88e08e)
+          https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz
+          ${PROJECT_BINARY_DIR}/zlib-1.3.2.tar.gz
+          EXPECTED_HASH SHA256=bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16)
       execute_process(COMMAND ${CMAKE_COMMAND}
-          -E tar xf zlib-1.2.11.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+          -E tar xf zlib-1.3.2.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
       execute_process(COMMAND ${BUILD_COMMAND_COMMON}
           -DBUILD_SHARED_LIBS=${OGREDEPS_SHARED}
-          ${PROJECT_BINARY_DIR}/zlib-1.2.11
-          WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/zlib-1.2.11)
+          ${PROJECT_BINARY_DIR}/zlib-1.3.2
+          WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/zlib-1.3.2)
       execute_process(COMMAND ${CMAKE_COMMAND}
-          --build ${PROJECT_BINARY_DIR}/zlib-1.2.11 ${BUILD_COMMAND_OPTS})
+          --build ${PROJECT_BINARY_DIR}/zlib-1.3.2 ${BUILD_COMMAND_OPTS})
 
       message(STATUS "Building Assimp")
       file(DOWNLOAD
-          https://github.com/assimp/assimp/archive/v5.0.1.tar.gz
-          ${PROJECT_BINARY_DIR}/v5.0.1.tar.gz)
+              https://github.com/assimp/assimp/archive/refs/tags/v6.0.5.tar.gz
+          ${PROJECT_BINARY_DIR}/v6.0.5.tar.gz)
       execute_process(COMMAND ${CMAKE_COMMAND}
-          -E tar xf v5.0.1.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+          -E tar xf v6.0.5.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+      # Assimp is only used for asset import, so favour size over import speed.
+      # Override the configuration flags rather than the build type to keep
+      # Debug builds debuggable and multi-config generators working.
       execute_process(COMMAND ${BUILD_COMMAND_COMMON}
+          "-DCMAKE_CXX_FLAGS_RELEASE=-Os -DNDEBUG"
+          "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-Os -g -DNDEBUG"
           -DZLIB_ROOT=${OGREDEPS_PATH}
           -DBUILD_SHARED_LIBS=OFF
           -DASSIMP_BUILD_TESTS=OFF
           -DASSIMP_NO_EXPORT=TRUE
           -DASSIMP_BUILD_OGRE_IMPORTER=OFF
+          # IFC accounts for ~3.4 MB of the statically linked plugin and is
+          # rarely used for real-time assets.
+          -DASSIMP_BUILD_IFC_IMPORTER=OFF
           -DASSIMP_BUILD_ASSIMP_TOOLS=OFF
-          ${PROJECT_BINARY_DIR}/assimp-5.0.1
-          WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/assimp-5.0.1)
+          ${PROJECT_BINARY_DIR}/assimp-6.0.5
+          WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/assimp-6.0.5)
       execute_process(COMMAND ${CMAKE_COMMAND}
-        --build ${PROJECT_BINARY_DIR}/assimp-5.0.1 ${BUILD_COMMAND_OPTS})
-      # RelWithDebInfo has Release ABI
-      if(NOT OGRE_DEBUG_MODE)
-        file(REMOVE ${OGREDEPS_PATH}/lib/cmake/assimp-5.0/assimpTargets-debug.cmake)
-      endif()
+        --build ${PROJECT_BINARY_DIR}/assimp-6.0.5 ${BUILD_COMMAND_OPTS})
     endif()
+
+    message(STATUS "Building Bullet")
+    file(DOWNLOAD
+        https://github.com/bulletphysics/bullet3/archive/refs/tags/3.25.tar.gz
+        ${PROJECT_BINARY_DIR}/3.25.tar.gz)
+    execute_process(COMMAND ${CMAKE_COMMAND}
+        -E tar xf 3.25.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+    execute_process(COMMAND ${BUILD_COMMAND_COMMON}
+        -DBUILD_SHARED_LIBS=OFF
+        -DINSTALL_LIBS=ON
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        -DUSE_MSVC_RUNTIME_LIBRARY_DLL=ON
+        -DBUILD_PYBULLET=OFF
+        -DUSE_DOUBLE_PRECISION=OFF
+        -DBUILD_CPU_DEMOS=OFF
+        -DBUILD_BULLET2_DEMOS=OFF
+        -DBUILD_EXTRAS=OFF
+        -DBUILD_EGL=OFF
+        -DBUILD_ENET=OFF
+        -DBUILD_UNIT_TESTS=OFF
+        -DCMAKE_RELWITHDEBINFO_POSTFIX= # fixes FindBullet on MSVC
+        -DCMAKE_DEBUG_POSTFIX= # need to remove postfix so default find_package detects Bullet correctly
+        -DBUILD_CLSOCKET=OFF
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+        ${PROJECT_BINARY_DIR}/bullet3-3.25
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/bullet3-3.25)
+    execute_process(COMMAND ${CMAKE_COMMAND}
+        --build ${PROJECT_BINARY_DIR}/bullet3-3.25 ${BUILD_COMMAND_OPTS})
+    set(Bullet_ROOT ${OGREDEPS_PATH})
 endif()
 
 #######################################################################
@@ -170,16 +238,27 @@ endif()
 
 # Find FreeImage
 find_package(FreeImage)
-macro_log_feature(FreeImage_FOUND "freeimage" "Support for commonly used graphics image formats" "http://freeimage.sourceforge.net" FALSE "" "")
+macro_log_feature(FreeImage_FOUND "freeimage" "Support for commonly used graphics image formats" "http://freeimage.sourceforge.net")
 
 # Find FreeType
 find_package(Freetype)
-macro_log_feature(FREETYPE_FOUND "freetype" "Portable font engine" "http://www.freetype.org" FALSE "" "")
+macro_log_feature(FREETYPE_FOUND "freetype" "Portable font engine" "http://www.freetype.org")
 
 # Find X11
 if (UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
-  find_package(X11)
-  macro_log_feature(X11_FOUND "X11" "X Window system" "http://www.x.org" TRUE "" "")
+  find_package(PkgConfig)
+  if (PKG_CONFIG_FOUND)
+    pkg_check_modules(waylands IMPORTED_TARGET wayland-client wayland-egl egl)
+    macro_log_feature(waylands_FOUND "Wayland" "Wayland window system" "https://wayland.freedesktop.org")
+  endif ()
+
+  if (NOT waylands_FOUND)
+    find_package(X11 REQUIRED)
+  else ()
+    find_package(X11)
+  endif ()
+  macro_log_feature(X11_FOUND "X11" "X Window system" "http://www.x.org")
+
 endif ()
 
 
@@ -189,30 +268,29 @@ endif ()
 
 # Find OpenGL
 if(NOT ANDROID AND NOT EMSCRIPTEN)
-  set(OpenGL_GL_PREFERENCE LEGACY) # we want to use OPENGL_gl_LIBRARY for now
   find_package(OpenGL)
-  macro_log_feature(OPENGL_FOUND "OpenGL" "Support for the OpenGL and OpenGL 3+ render systems" "http://www.opengl.org/" FALSE "" "")
+  macro_log_feature(OPENGL_FOUND "OpenGL" "Support for the OpenGL and OpenGL 3+ render systems" "http://www.opengl.org/")
 endif()
 
 # Find OpenGL ES 2.x
 find_package(OpenGLES2)
-macro_log_feature(OPENGLES2_FOUND "OpenGL ES 2.x" "Support for the OpenGL ES 2.x render system" "http://www.khronos.org/opengles/" FALSE "" "")
+macro_log_feature(OPENGLES2_FOUND "OpenGL ES 2.x" "Support for the OpenGL ES 2.x render system" "http://www.khronos.org/opengles/")
 
 # Find DirectX
 if(WIN32)
 	find_package(DirectX)
-	macro_log_feature(DirectX9_FOUND "DirectX9" "Support for the DirectX render system" "http://msdn.microsoft.com/en-us/directx/" FALSE "" "")
+	macro_log_feature(DirectX9_FOUND "DirectX9" "Support for the DirectX render system" "http://msdn.microsoft.com/en-us/directx/")
 	
 	find_package(DirectX11)
-	macro_log_feature(DirectX11_FOUND "DirectX11" "Support for the DirectX11 render system" "http://msdn.microsoft.com/en-us/directx/" FALSE "" "")
+	macro_log_feature(DirectX11_FOUND "DirectX11" "Support for the DirectX11 render system" "http://msdn.microsoft.com/en-us/directx/")
 
 	if(OGRE_CONFIG_ENABLE_QUAD_BUFFER_STEREO)
 		# Find DirectX Stereo Driver Libraries
 		find_package(NVAPI)
-		macro_log_feature(NVAPI_FOUND "NVAPI" "Support NVIDIA stereo with the DirectX render system" "https://developer.nvidia.com/nvapi" FALSE "" "")
+		macro_log_feature(NVAPI_FOUND "NVAPI" "Support NVIDIA stereo with the DirectX render system" "https://developer.nvidia.com/nvapi")
 
 		find_package(AMDQBS)
-		macro_log_feature(AMDQBS_FOUND "AMDQBS" "Support AMD stereo with the DirectX render system" "http://developer.amd.com/tools-and-sdks/graphics-development/amd-quad-buffer-sdk/" FALSE "" "")
+		macro_log_feature(AMDQBS_FOUND "AMDQBS" "Support AMD stereo with the DirectX render system" "http://developer.amd.com/tools-and-sdks/graphics-development/amd-quad-buffer-sdk/")
 	endif()
 endif()
 
@@ -223,47 +301,58 @@ endif()
 # Find Cg
 if (NOT (APPLE_IOS OR WINDOWS_STORE OR WINDOWS_PHONE OR ANDROID OR EMSCRIPTEN))
   find_package(Cg)
-  macro_log_feature(Cg_FOUND "cg" "C for graphics shader language" "http://developer.nvidia.com/object/cg_toolkit.html" FALSE "" "")
+  macro_log_feature(Cg_FOUND "cg" "C for graphics shader language" "http://developer.nvidia.com/object/cg_toolkit.html")
 endif ()
 
 # Find Vulkan SDK
-macro_log_feature(ENV{VULKAN_SDK} "Vulkan SDK" "Vulkan RenderSystem, glslang Plugin. Alternatively use system packages" "https://vulkan.lunarg.com/" FALSE "" "")
+set(VULKAN_SDK_FOUND "$ENV{VULKAN_SDK}")
+macro_log_feature(VULKAN_SDK_FOUND "Vulkan SDK" "Vulkan RenderSystem, glslang Plugin. Alternatively use system packages" "https://vulkan.lunarg.com/")
 
 # OpenEXR
 find_package(OpenEXR)
-macro_log_feature(OPENEXR_FOUND "OpenEXR" "Load High dynamic range images" "http://www.openexr.com/" FALSE "" "")
+macro_log_feature(OPENEXR_FOUND "OpenEXR" "Load High dynamic range images" "http://www.openexr.com/")
 
 # Python
 set(Python_ADDITIONAL_VERSIONS 3.4) # allows using python3 on Ubuntu 14.04
 find_package(PythonInterp)
 find_package(PythonLibs)
-macro_log_feature(PYTHONLIBS_FOUND "Python" "Language bindings to use OGRE from Python" "http://www.python.org/" FALSE "" "")
+macro_log_feature(PYTHONLIBS_FOUND "Python" "Language bindings to use OGRE from Python" "http://www.python.org/")
 
 # SWIG
 find_package(SWIG 3.0.8 QUIET)
-macro_log_feature(SWIG_FOUND "SWIG" "Language bindings (Python, Java, C#) for OGRE" "http://www.swig.org/" FALSE "" "")
+macro_log_feature(SWIG_FOUND "SWIG" "Language bindings (Python, Java, C#) for OGRE" "http://www.swig.org/")
 
 # pugixml
 find_package(pugixml QUIET)
-macro_log_feature(pugixml_FOUND "pugixml" "Needed for XMLConverter and DotScene Plugin" "https://pugixml.org/" FALSE "" "")
+macro_log_feature(pugixml_FOUND "pugixml" "Needed for XMLConverter and DotScene Plugin" "https://pugixml.org/")
 
 # Find zlib
 find_package(ZLIB)
-macro_log_feature(ZLIB_FOUND "zlib" "Simple data compression library" "http://www.zlib.net" FALSE "" "")
+macro_log_feature(ZLIB_FOUND "zlib" "Simple data compression library" "http://www.zlib.net")
 
 # Assimp
-find_package(ASSIMP QUIET)
-macro_log_feature(ASSIMP_FOUND "Assimp" "Needed for the AssimpLoader Plugin" "https://www.assimp.org/" FALSE "" "")
+find_package(assimp QUIET)
+macro_log_feature(assimp_FOUND "Assimp" "Needed for the AssimpLoader Plugin" "https://www.assimp.org/")
 
-if(ASSIMP_FOUND)
-  # workaround horribly broken assimp cmake
-  add_library(fix::assimp INTERFACE IMPORTED)
-  set_target_properties(fix::assimp PROPERTIES
-      INTERFACE_LINK_LIBRARIES "${ASSIMP_LIBRARIES}"
-      INTERFACE_LINK_DIRECTORIES "${ASSIMP_LIBRARY_DIRS}"
-  )
-  if(EXISTS "${ASSIMP_INCLUDE_DIRS}")
-    set_target_properties(fix::assimp PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${ASSIMP_INCLUDE_DIRS}")
+# Bullet
+find_package(Bullet QUIET)
+macro_log_feature(BULLET_FOUND "Bullet" "Bullet physics" "https://pybullet.org")
+
+if(assimp_FOUND)
+  if(assimp_VERSION VERSION_LESS 5.1)
+    # workaround horribly broken assimp cmake, fixed with assimp 5.1
+    add_library(fix::assimp INTERFACE IMPORTED)
+    set_target_properties(fix::assimp PROPERTIES
+        INTERFACE_LINK_LIBRARIES "${ASSIMP_LIBRARIES};pugixml"
+        INTERFACE_LINK_DIRECTORIES "${ASSIMP_LIBRARY_DIRS}"
+    )
+    if(EXISTS "${ASSIMP_INCLUDE_DIRS}")
+      set_target_properties(fix::assimp PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${ASSIMP_INCLUDE_DIRS}")
+    endif()
+    set(OGRE_ASSIMP_TARGET fix::assimp)
+  else()
+    # assimp >= 5.1 ships a proper CMake package with a namespaced target
+    set(OGRE_ASSIMP_TARGET assimp::assimp)
   endif()
 endif()
 
@@ -275,7 +364,7 @@ endif()
 if(NOT ANDROID AND NOT EMSCRIPTEN)
   # find script does not work in cross compilation environment
   find_package(SDL2 QUIET)
-  macro_log_feature(SDL2_FOUND "SDL2" "Simple DirectMedia Library needed for input handling in samples" "https://www.libsdl.org/" FALSE "" "")
+  macro_log_feature(SDL2_FOUND "SDL2" "Simple DirectMedia Library needed for input handling in samples" "https://www.libsdl.org/")
   if(SDL2_FOUND AND NOT TARGET SDL2::SDL2)
     add_library(SDL2::SDL2 INTERFACE IMPORTED)
     set_target_properties(SDL2::SDL2 PROPERTIES
@@ -284,11 +373,17 @@ if(NOT ANDROID AND NOT EMSCRIPTEN)
     )
   endif()
 
-  find_package(QT NAMES Qt6 Qt5 COMPONENTS Core Gui QUIET)
-  find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Core Gui QUIET)
+  if(SKBUILD AND NOT SDL2_FOUND)
+    # the Python wheels ship OgreBites with the bundled SDL2 and must not be
+    # published without input handling
+    message(FATAL_ERROR "SDL2 is required to build the Python packages, but was not found. "
+        "See the dependency build output above.")
+  endif()
 
-  macro_log_feature(Qt5_FOUND "Qt" "optional integration with the Qt5 Library for window creation and input" "http://www.qt.io/" FALSE "" "")
-  macro_log_feature(Qt6_FOUND "Qt" "optional integration with the Qt6 Library for window creation and input" "http://www.qt.io/" FALSE "" "")
+  find_package(QT NAMES Qt6 Qt5 COMPONENTS Core Gui QUIET CONFIG)
+  find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Core Gui QUIET CONFIG)
+
+  macro_log_feature(QT_FOUND "Qt" "optional integration with the Qt Library for window creation and input" "http://www.qt.io/")
 endif()
 
 #######################################################################
@@ -296,8 +391,8 @@ endif()
 #######################################################################
 
 find_package(Doxygen QUIET)
-macro_log_feature(DOXYGEN_FOUND "Doxygen" "Tool for building API documentation" "http://doxygen.org" FALSE "" "")
+macro_log_feature(DOXYGEN_FOUND "Doxygen" "Tool for building API documentation" "http://doxygen.org")
 
 # Find Softimage SDK
 find_package(Softimage)
-macro_log_feature(Softimage_FOUND "Softimage" "Softimage SDK needed for building XSIExporter" FALSE "6.0" "")
+macro_log_feature(Softimage_FOUND "Softimage" "Softimage SDK needed for building XSIExporter" "")

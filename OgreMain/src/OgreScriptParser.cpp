@@ -29,6 +29,8 @@ THE SOFTWARE.
 #include "OgreStableHeaders.h"
 #include "OgreScriptParser.h"
 
+#include <memory>
+
 namespace Ogre
 {
     static String unquoted(const String& str, bool trim = true)
@@ -38,8 +40,7 @@ namespace Ogre
 
     ConcreteNodeListPtr ScriptParser::parse(const ScriptTokenList &tokens, const String& file)
     {
-        // MEMCATEGORY_GENERAL because SharedPtr can only free using that category
-        ConcreteNodeListPtr nodes(OGRE_NEW_T(ConcreteNodeList, MEMCATEGORY_GENERAL)(), SPFM_DELETE_T);
+        auto nodes = std::make_shared<ConcreteNodeList>();
 
         enum{READY, OBJECT};
         uint32 state = READY;
@@ -59,7 +60,7 @@ namespace Ogre
                 {
                     if(token->lexeme == "import")
                     {
-                        node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                        node = std::make_shared<ConcreteNode>();
                         node->token = token->lexeme;
                         node->file = file;
                         node->line = token->line;
@@ -80,15 +81,19 @@ namespace Ogre
                         temp->token = unquoted(i->lexeme, temp->type == CNT_QUOTE);
                         node->children.push_back(temp);
 
-                        // The second-next token is the source
+                        // The next token must be "from"
                         ++i;
+                        if (i == end || i->type != TID_WORD || i->lexeme != "from")
+                            OGRE_EXCEPT(Exception::ERR_INVALID_STATE,
+                                        StringUtil::format("expected 'from' at line %d", node->line));
+                        // The token after "from" is the source
                         ++i;
                         if(i == end || (i->type != TID_WORD && i->type != TID_QUOTE))
                             OGRE_EXCEPT(Exception::ERR_INVALID_STATE, 
                                 Ogre::String("expected import source at line ") + 
                                     Ogre::StringConverter::toString(node->line),
                                 "ScriptParser::parse");
-                        temp = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                        temp = std::make_shared<ConcreteNode>();
                         temp->parent = node.get();
                         temp->file = file;
                         temp->line = i->line;
@@ -114,7 +119,7 @@ namespace Ogre
                     }
                     else if(token->lexeme == "set")
                     {
-                        node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                        node = std::make_shared<ConcreteNode>();
                         node->token = token->lexeme;
                         node->file = file;
                         node->line = token->line;
@@ -142,7 +147,7 @@ namespace Ogre
                                 Ogre::String("expected variable value at line ") + 
                                     Ogre::StringConverter::toString(node->line),
                                 "ScriptParser::parse");
-                        temp = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                        temp = std::make_shared<ConcreteNode>();
                         temp->parent = node.get();
                         temp->file = file;
                         temp->line = i->line;
@@ -168,7 +173,7 @@ namespace Ogre
                     }
                     else
                     {
-                        node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                        node = std::make_shared<ConcreteNode>();
                         node->file = file;
                         node->line = token->line;
                         node->type = token->type == TID_WORD ? CNT_WORD : CNT_QUOTE;
@@ -201,7 +206,7 @@ namespace Ogre
                     if(parent)
                         parent = parent->parent;
 
-                    node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                    node = std::make_shared<ConcreteNode>();
                     node->token = token->lexeme;
                     node->file = file;
                     node->line = token->line;
@@ -244,7 +249,7 @@ namespace Ogre
                 }
                 else if(token->type == TID_COLON)
                 {
-                    node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                    node = std::make_shared<ConcreteNode>();
                     node->token = token->lexeme;
                     node->file = file;
                     node->line = token->line;
@@ -264,7 +269,7 @@ namespace Ogre
 
                     while(j != end && (j->type == TID_WORD || j->type == TID_QUOTE))
                     {
-                        ConcreteNodePtr tempNode = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                        ConcreteNodePtr tempNode = std::make_shared<ConcreteNode>();
                         tempNode->token = j->lexeme;
                         tempNode->file = file;
                         tempNode->line = j->line;
@@ -292,7 +297,7 @@ namespace Ogre
                 }
                 else if(token->type == TID_LBRACKET)
                 {
-                    node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                    node = std::make_shared<ConcreteNode>();
                     node->token = token->lexeme;
                     node->file = file;
                     node->line = token->line;
@@ -331,7 +336,7 @@ namespace Ogre
                     if(parent && parent->type == CNT_LBRACE && parent->parent)
                         parent = parent->parent;
 
-                    node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                    node = std::make_shared<ConcreteNode>();
                     node->token = token->lexeme;
                     node->file = file;
                     node->line = token->line;
@@ -361,7 +366,7 @@ namespace Ogre
                 }
                 else if(token->type == TID_VARIABLE)
                 {
-                    node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                    node = std::make_shared<ConcreteNode>();
                     node->token = token->lexeme;
                     node->file = file;
                     node->line = token->line;
@@ -382,7 +387,7 @@ namespace Ogre
                 }
                 else if(token->type == TID_QUOTE)
                 {
-                    node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                    node = std::make_shared<ConcreteNode>();
                     node->token = unquoted(token->lexeme);
                     node->file = file;
                     node->line = token->line;
@@ -403,7 +408,7 @@ namespace Ogre
                 }
                 else if(token->type == TID_WORD)
                 {
-                    node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                    node = std::make_shared<ConcreteNode>();
                     node->token = token->lexeme;
                     node->file = file;
                     node->line = token->line;
@@ -433,45 +438,41 @@ namespace Ogre
 
     ConcreteNodeListPtr ScriptParser::parseChunk(const ScriptTokenList &tokens, const String& file)
     {
-        // MEMCATEGORY_GENERAL because SharedPtr can only free using that category
-        ConcreteNodeListPtr nodes(OGRE_NEW_T(ConcreteNodeList, MEMCATEGORY_GENERAL)(), SPFM_DELETE_T);
+        auto nodes = std::make_shared<ConcreteNodeList>();
 
         ConcreteNodePtr node;
-        const ScriptToken *token = 0;
-        for(ScriptTokenList::const_iterator i = tokens.begin(); i != tokens.end(); ++i)
+        for(const auto& token : tokens)
         {
-            token = &*i;
-
-            switch(token->type)
+            switch(token.type)
             {
             case TID_VARIABLE:
-                node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                node = std::make_shared<ConcreteNode>();
                 node->file = file;
-                node->line = token->line;
+                node->line = token.line;
                 node->parent = 0;
-                node->token = token->lexeme;
+                node->token = token.lexeme;
                 node->type = CNT_VARIABLE;
                 break;
             case TID_WORD:
-                node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                node = std::make_shared<ConcreteNode>();
                 node->file = file;
-                node->line = token->line;
+                node->line = token.line;
                 node->parent = 0;
-                node->token = token->lexeme;
+                node->token = token.lexeme;
                 node->type = CNT_WORD;
                 break;
             case TID_QUOTE:
-                node = ConcreteNodePtr(OGRE_NEW ConcreteNode());
+                node = std::make_shared<ConcreteNode>();
                 node->file = file;
-                node->line = token->line;
+                node->line = token.line;
                 node->parent = 0;
-                node->token= unquoted(token->lexeme);
+                node->token= unquoted(token.lexeme);
                 node->type = CNT_QUOTE;
                 break;
             default:
-                OGRE_EXCEPT(Exception::ERR_INVALID_STATE, 
-                    Ogre::String("unexpected token") + token->lexeme + " at line " + 
-                        Ogre::StringConverter::toString(token->line),
+                OGRE_EXCEPT(Exception::ERR_INVALID_STATE,
+                    Ogre::String("unexpected token") + token.lexeme + " at line " +
+                        Ogre::StringConverter::toString(token.line),
                     "ScriptParser::parseChunk");
             }
 

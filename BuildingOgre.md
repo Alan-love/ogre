@@ -3,7 +3,7 @@
 @tableofcontents
 
 Ogre uses [CMake](https://cmake.org/) as its build system on all supported platforms.
-This guide will explain to you how to use CMake to build Ogre from source. You need a CMake version >= 3.3.
+This guide will explain to you how to use CMake to build Ogre from source. You need a CMake version >= 3.10.
 
 What is CMake?
 -------------------
@@ -28,7 +28,7 @@ working from the same Ogre source.
 Getting dependencies
 --------------------
 
-By default ogre will build the essential dependencies automatically when you run cmake configure the first time.
+By default ogre will build the recommended dependencies automatically when you run cmake configure the first time.
 Ogre will install the dependencies into the subfolder `Dependencies` in the build dir by default. You can configure it by setting `OGRE_DEPENDENCIES_DIR` in cmake.
 
 @note As the dependencies are built during the *configure* stage of CMake, you must specify the desired `CMAKE_BUILD_TYPE` via command-line. Changing the value in the CMake GUI will have no effect.
@@ -41,38 +41,63 @@ For manually building the dependencies, please refer to the list below and get a
 
 ### Linux
 
-On linux you additionally need the following system headers to build the GL, GL3+, GLES2 & Vulkan RenderSystems (command for Ubuntu):
+On linux you additionally need the following system headers to build the GL, GL3+, GLES2 & Vulkan RenderSystems:
 
-    sudo apt-get install libgles2-mesa-dev libvulkan-dev glslang-dev
+@par Ubuntu
 
-furthermore we recommend installing the following optional packages
+```py
+sudo apt-get install libgles2-mesa-dev libvulkan-dev glslang-dev
+# with OGRE_USE_WAYLAND=OFF
+sudo apt-get install libxrandr-dev
+# with OGRE_USE_WAYLAND=ON
+sudo apt-get install libwayland-dev libwayland-egl1 libegl-dev
 
-    sudo apt-get install libsdl2-dev libxt-dev libxaw7-dev doxygen
+# Optional dependencies
+sudo apt-get install libsdl2-dev doxygen
+```
 
-these will enable input handling in the SampleBrowser, the X11 ConfigDialog and allow building the documentation.
+@par Fedora
 
-### Essential dependencies
+```py
+sudo dnf install mesa-libGL-devel mesa-libEGL-devel mesa-vulkan-devel glslang-devel
+# with OGRE_USE_WAYLAND=OFF
+sudo dnf install libXrandr-devel
+# with OGRE_USE_WAYLAND=ON
+sudo dnf install pkgconfig wayland-devel egl-wayland
 
-* freetype: http://www.freetype.org
+# Optional dependencies
+sudo dnf install SDL2-devel doxygen
+```
+
+The optional dependencies will enable input handling and allow building the documentation.
 
 ### Recommended dependencies
 
-* zlib: http://www.zlib.net
-* zziplib: https://github.com/gdraheim/zziplib
 * pugixml: https://github.com/zeux/pugixml
 * SDL: https://www.libsdl.org/
+* zlib: http://www.zlib.net
+* freetype: http://www.freetype.org
+* googletest: https://github.com/google/googletest
 
 ### Optional dependencies
 
 * DirectX SDK: http://msdn.microsoft.com/en-us/directx/
 * Vulkan SDK: https://vulkan.lunarg.com/
-* FreeImage: http://freeimage.sourceforge.net
 * Doxygen: http://doxygen.org
-* Cg: http://developer.nvidia.com/object/cg_toolkit.html
 * Remotery: https://github.com/Celtoys/Remotery
+* SWIG: http://www.swig.org/
 * %Assimp: https://www.assimp.org/
+* Wayland: https://wayland.freedesktop.org/
+* Rust: https://www.rust-lang.org/
+* Bullet: https://pybullet.org/wordpress/
 
-Running CMake
+### Deprecated dependencies
+
+* FreeImage: http://freeimage.sourceforge.net
+* Cg: http://developer.nvidia.com/object/cg_toolkit.html
+* OpenEXR: http://www.openexr.com
+
+Running CMake {#running-cmake}
 -------------
 
 Now start the program cmake-gui by either typing the name in a console
@@ -82,7 +107,7 @@ contains this file). In the field *Where to build the binaries* enter
 the path to the build directory you created.
 Hit *Configure*. A dialogue will appear asking you to select a generator.
 
-Check the [CMake documentation](https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html) for details on which one is appropriate for your platform and compiler.  
+Check the [CMake documentation](https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html) for details on which one is appropriate for your platform and compiler.
 @note on OSX, you must to use the Xcode generator to get a proper SampleBrowser .app bundle.
 
 Click *Finish*. CMake will now gather some information about your
@@ -98,6 +123,8 @@ particular component/ plugin from being built
 - `OGRE_ASSERT_MODE` allows you to to disable all runtime assertion exceptions or turn them into calls to `std::abort`.
 - `OGRE_RESOURCEMANGER_STRICT` allows you to turn on resource lookup related quirks for pre ogre 1.10 compatibility.
 - `OGRE_NODELESS_POSITIONING` allows to use Lights and Cameras without attaching them to nodes (only for legacy code).
+- `OGRE_GLSUPPORT_USE_EGL` use EGL instead of GLX/ WGL for GL RenderSystems. This is required for Wayland support.
+- `OGRE_USE_WAYLAND` will use Wayland window system instead of X11 on Linux.
 
 Once you are satisfied, hit
 *Configure* again and then click on *Generate*. CMake will then create
@@ -110,7 +137,7 @@ Go to your chosen build directory. CMake has generated a build system for
 you which you will now use to build Ogre. If you are using Visual Studio,
 you should find the file OGRE.sln. Open it and compile the target
 *BUILD_ALL*. Similarly you will find an Xcode project to build Ogre
-on MacOS. 
+on MacOS.
 
 If you rather want to trigger the build form a console, then cd to your build directory and call the appropriate make program as
 
@@ -127,12 +154,11 @@ This will freshly generate the API documentation for Ogre's classes from the hea
      make OgreDoc
 
 
-Installing
+Installing {#installing-sdk}
 ----------
 
-Once the build is complete, you can optionally have the build system
-copy the built libraries and headers to a clean location. We recommend
-you do this step as it will make it easier to use Ogre in your projects.
+Once the build is complete, the libraries and headers must be copied to a clean location.
+This is required if you want to reference %Ogre in your own projects with CMake.
 In Visual Studio, just select and build the target *INSTALL*. When using the command line, type:
 
     cmake --build . --config Release --target install
@@ -158,8 +184,8 @@ The ogre port in vcpkg is kept up to date by Microsoft team members and communit
 
 # Cross-Compiling
 
-Building on Ubuntu for Android
---------------------------------------------
+Android
+-------
 
 To build Ogre for Android, you need to specify the android cross toolchain to cmake as
 
@@ -171,8 +197,8 @@ You can now import these projects in Android Studio or manually trigger the APK 
 
     gradle assembleRelease
 
-Building for WebAssembly (using Emscripten)
------------------------------------------
+WebAssembly / Emscripten
+------------------------
 Install the Emscripten SDK (see full documentation on [www.emscripten.org](https://emscripten.org/docs/getting_started/downloads.html)), and make sure
 that the environment variables are correctly set (eg. run `source <emsdk_path>/emsdk_env.sh` before attempting to build)
 
@@ -188,8 +214,8 @@ This will not build the full SampleBrowser, but just a minimal Sample. The resul
 
 To prevent any cross-origin issues, start a local webserver as `python3 -m http.server 8000` and visit http://localhost:8000.
 
-Building on Mac OS X for iOS OS
--------------------------------
+iOS OS
+------
 
 To build Ogre for iOS, you need to specify the ios cross toolchain to cmake as
 
@@ -214,41 +240,19 @@ the Info.plist file to match the App ID of the chosen code signing identity.
 This can be done from the Target Properties panel.  It must match the bundle
 identifier of a valid developer certificate if you are building for devices.
 
-Building as Windows Store or Windows Phone application
--------------------------------------------------------------------
+WinRT / UWP
+------------------------------
 
-You need Windows 8.0 or later, Windows 10 is recommended.
-
-Visual Studio 2015 is recommended as it is bundled with Universal 10.0.240.0, WinStore 8.0/8.1 and WinPhone 8.0/8.1 SDKs.
-
-Download and install CMake 3.4 or later.
+OgreMain and the Direct3D 11 render system support Windows 10 UWP. The
+SampleBrowser is not built for UWP; use your own application entry point.
 
 Dependencies for Win32 and for WinRT must be located in
 separate folders. Cg is not supported.
 
     cmake.exe -G "Visual Studio 15 2017" -DCMAKE_SYSTEM_NAME=WindowsStore -DCMAKE_SYSTEM_VERSION=10.0 ..
 
-Select SampleBrowser as the start up project and run.
-
 @par Notes
 
 1. The code and generated CMake solution should be on local NTFS drive,
 and can't be on a network drive, including VMWare shared folders - or
 you will get a errors when you will try to compile/link/run resulting exe.
-
-2. Ogre uses d3dcompiler_xx.dll to compile shaders, and WinStore and
-WinPhone 8.1 projects can use it without restriction as it is part of OS.
-But WinStore and WinPhone 8.0 applications should load already compiled
-shaders from cache, as d3dcompiler_xx.dll is available to them only during
-development. Therefore to avoid necessity to deploy d3dcompiler_xx.dll
-during development (additional configurations with d3dcompiler_xx.dll)
-and generation of such cache - use version 8.1 of these platforms.
-
-3. Running WinPhone emulator in OS running under VMware:
-We were able to run the emulation and debug without an issue by using two
-steps: (a) Under the settings of the VM > CPU, make sure you have the
-option to pass-through the Intel VT-x/EPT feature, (b) Edit the config
-file .vmx and add the parameter: hypervisor.cpuid.v0 = "FALSE"
-All versions of Visual Studio 2012 have a window refresh issue when running
-in VMware and the window is maximized, the solution is just to change the
-size of the Visual Studio window to be less the the screen width and height.

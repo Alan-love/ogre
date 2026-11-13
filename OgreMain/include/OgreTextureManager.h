@@ -45,17 +45,17 @@ namespace Ogre {
     *  @{
     */
     /** Class for loading & managing textures.
-        @remarks
-            Note that this class is abstract - the particular
-            RenderSystem that is in use at the time will create
-            a concrete subclass of this. Note that the concrete
-            class will be available via the abstract singleton
-            obtained from TextureManager::getSingleton(), but
-            you should not assume that it is available until you
-            have a) initialised Ogre (after selecting a RenderSystem
-            and calling initialise from the Root object), and b)
-            created at least one window - this may be done at the
-            same time as part a if you allow Ogre to autocreate one.
+
+        Note that this class is abstract - the particular
+        RenderSystem that is in use at the time will create
+        a concrete subclass of this. Note that the concrete
+        class will be available via the abstract singleton
+        obtained from TextureManager::getSingleton(), but
+        you should not assume that it is available until you
+        have a) initialised Ogre (after selecting a RenderSystem
+        and calling initialise from the Root object), and b)
+        created at least one window - this may be done at the
+        same time as part a if you allow Ogre to autocreate one.
      */
     class _OgreExport TextureManager : public ResourceManager, public Singleton<TextureManager>
     {
@@ -314,7 +314,7 @@ namespace Ogre {
 
         /** Returns whether this render system can natively support the precise texture 
             format requested with the given usage options.
-        @remarks
+
             You can still create textures with this format even if this method returns
             false; the texture format will just be altered to one which the device does
             support.
@@ -343,7 +343,7 @@ namespace Ogre {
 
         /** Returns whether this render system has hardware filtering supported for the
             texture format requested with the given usage options.
-        @remarks
+
             Not all texture format are supports filtering by the hardware, i.e. some
             cards support floating point format, but it doesn't supports filtering on
             the floating point texture at all, or only a subset floating point formats
@@ -359,7 +359,7 @@ namespace Ogre {
             doesn't loss visual quality.
         @par
             This method allow you queries hardware texture filtering capability to deciding
-            which verion of the shader to be used. Note it's up to you to write multi-version
+            which version of the shader to be used. Note it's up to you to write multi-version
             shaders for support various hardware, internal engine can't do that for you
             automatically.
         @note
@@ -435,14 +435,8 @@ namespace Ogre {
                 : Texture(creator, name, handle, group)
             {
             }
-            const HardwarePixelBufferSharedPtr& getBuffer(size_t, size_t) override
-            {
-                static HardwarePixelBufferSharedPtr nullBuffer;
-                return nullBuffer;
-            }
-
         protected:
-            void createInternalResourcesImpl() override {}
+            void createInternalResourcesImpl() override { createSurfaceList(); }
             void freeInternalResourcesImpl() override {}
             void loadImpl() override {}
         };

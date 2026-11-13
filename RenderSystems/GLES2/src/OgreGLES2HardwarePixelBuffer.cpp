@@ -47,92 +47,40 @@ THE SOFTWARE.
 #include "OgreLogManager.h"
 
 namespace Ogre {
-    GLES2HardwarePixelBuffer::GLES2HardwarePixelBuffer(uint32 width, uint32 height,
-                                                     uint32 depth, PixelFormat format,
-                                                     HardwareBuffer::Usage usage)
-        : GLHardwarePixelBufferCommon(width, height, depth, format, usage)
-    {
-    }
-
-    void GLES2HardwarePixelBuffer::blitFromMemory(const PixelBox &src, const Box &dstBox)
-    {
-        if (!mBuffer.contains(dstBox))
-        {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
-                        "Destination box out of range",
-                        "GLES2HardwarePixelBuffer::blitFromMemory");
-        }
-
-        PixelBox scaled;
-
-        if (src.getSize() != dstBox.getSize())
-        {
-            // Scale to destination size.
-            // This also does pixel format conversion if needed
-            allocateBuffer();
-            scaled = mBuffer.getSubVolume(dstBox);
-            Image::scale(src, scaled, Image::FILTER_BILINEAR);
-        }
-        else if (src.format != mFormat)
-        {
-            // Extents match, but format is not accepted as valid source format for GL
-            // do conversion in temporary buffer
-            allocateBuffer();
-            scaled = mBuffer.getSubVolume(dstBox);
-            PixelUtil::bulkPixelConversion(src, scaled);
-        }
-        else
-        {
-            // No scaling or conversion needed
-            scaled = src;
-        }
-
-        upload(scaled, dstBox);
-        freeBuffer();
-    }
-
-    void GLES2HardwarePixelBuffer::blitToMemory(const Box &srcBox, const PixelBox &dst)
+    void GLES2TextureBuffer::blitToMemory(const Box &srcBox, const PixelBox &dst)
     {
         if (!mBuffer.contains(srcBox))
         {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
-                        "source box out of range",
-                        "GLES2HardwarePixelBuffer::blitToMemory");
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "source box out of range");
         }
 
-        if (srcBox.getOrigin() == Vector3i(0, 0 ,0) &&
-            srcBox.getSize() == getSize() &&
-            dst.getSize() == getSize() &&
-            GLES2PixelUtil::getGLInternalFormat(dst.format) != 0)
+        // Construct a temp PixelBox that is RGBA because GL_RGBA/GL_UNSIGNED_BYTE is the only combination that is
+        // guaranteed to work on all platforms.
+        size_t sizeInBytes = PixelUtil::getMemorySize(mWidth, mHeight, mDepth, PF_A8B8G8R8);
+        PixelBox tempBox = PixelBox(mWidth, mHeight, mDepth, PF_A8B8G8R8);
+        tempBox.data = new uint8[sizeInBytes];
+
+        // Download entire buffer
+        download(tempBox);
+
+        if(srcBox.getSize() != dst.getSize())
         {
-            // The direct case: the user wants the entire texture in a format supported by GL
-            // so we don't need an intermediate buffer
-            download(dst);
+            // We need scaling
+            Image::scale(tempBox.getSubVolume(srcBox), dst, Image::FILTER_BILINEAR);
         }
         else
         {
-            // Use buffer for intermediate copy
-            allocateBuffer();
-            // Download entire buffer
-            download(mBuffer);
-            if(srcBox.getSize() != dst.getSize())
-            {
-                // We need scaling
-                Image::scale(mBuffer.getSubVolume(srcBox), dst, Image::FILTER_BILINEAR);
-            }
-            else
-            {
-                // Just copy the bit that we need
-                PixelUtil::bulkPixelConversion(mBuffer.getSubVolume(srcBox), dst);
-            }
-            freeBuffer();
+            // Just copy the bit that we need
+            PixelUtil::bulkPixelConversion(tempBox.getSubVolume(srcBox), dst);
         }
+
+        delete[] tempBox.data;
     }
     
     // TextureBuffer
     GLES2TextureBuffer::GLES2TextureBuffer(GLES2Texture* parent, GLint face, GLint level,
                                            GLint width, GLint height, GLint depth)
-        : GLES2HardwarePixelBuffer(width, height, depth, parent->getFormat(), (Usage)parent->getUsage()),
+        : GLHardwarePixelBufferCommon(width, height, depth, parent->getFormat(), (Usage)parent->getUsage()),
           mTarget(parent->getGLES2TextureTarget()), mTextureID(parent->getGLID()),
           mLevel(level)
     {
@@ -143,19 +91,6 @@ namespace Ogre {
 
         mGLInternalFormat =
             GLES2PixelUtil::getGLInternalFormat(mFormat, parent->isHardwareGammaEnabled());
-
-#if OGRE_DEBUG_MODE
-        // Log a message
-        std::stringstream str;
-        str << "GLES2HardwarePixelBuffer constructed for texture " << parent->getName()
-            << " id " << mTextureID << " face " << face << " level " << mLevel << ":"
-            << " width=" << mWidth << " height="<< mHeight << " depth=" << mDepth
-            << " format=" << PixelUtil::getFormatName(mFormat);
-        LogManager::getSingleton().logMessage(LML_NORMAL, str.str());
-#endif
-
-        // Set up a pixel box
-        mBuffer = PixelBox(mWidth, mHeight, mDepth, mFormat);
         
         if (mWidth==0 || mHeight==0 || mDepth==0)
             // We are invalid, do not allocate a buffer
@@ -168,13 +103,13 @@ namespace Ogre {
             mSliceTRT.reserve(mDepth);
             for(uint32 zoffset=0; zoffset<mDepth; ++zoffset)
             {
-                String name;
-                name = "rtt/" + StringConverter::toString((size_t)this) + "/" + parent->getName();
+                String name = getNameForRenderTexture(parent->getName(), zoffset + face);
                 GLSurfaceDesc surface;
                 surface.buffer = this;
                 surface.zoffset = zoffset;
+                surface.numSamples = parent->getFSAA();
                 RenderTexture* trt = GLRTTManager::getSingleton().createRenderTexture(
-                    name, surface, parent->isHardwareGammaEnabled(), parent->getFSAA());
+                    name, surface, parent->isHardwareGammaEnabled());
                 mSliceTRT.push_back(trt);
                 Root::getSingleton().getRenderSystem()->attachRenderTarget(*mSliceTRT[zoffset]);
             }
@@ -217,29 +152,8 @@ namespace Ogre {
         buffer.writeData(0, dataSize, data.data, false);
 
         void* pdata = NULL;
-#if OGRE_DEBUG_MODE
-        std::stringstream str;
-        str << "GLES2TextureBuffer::upload: " << mTextureID
-        << " pixel buffer: " << buffer.getGLBufferId()
-        << " bytes: " << mSizeInBytes
-        << " dest depth: " << dest.getDepth()
-        << " dest front: " << dest.front
-        << " datasize: " << dataSize
-        << " face: " << mFace << " level: " << mLevel
-        << " width: " << mWidth << " height: "<< mHeight << " depth: " << mDepth
-        << " format: " << PixelUtil::getFormatName(mFormat)
-        << " data format: " << PixelUtil::getFormatName(data.format);
-        LogManager::getSingleton().logMessage(LML_NORMAL, str.str());
-#endif
 #else
         void* pdata = data.getTopLeftFrontPixelPtr();
-#if OGRE_DEBUG_MODE
-        LogManager::getSingleton().logMessage("GLES2TextureBuffer::upload - ID: " + StringConverter::toString(mTextureID) +
-                                              " Target: " + StringConverter::toString(mTarget) +
-                                              " Format: " + PixelUtil::getFormatName(data.format) +
-                                              " Origin format: " + StringUtil::format("%x", GLES2PixelUtil::getGLOriginFormat(data.format)) +
-                                              " Data type: " + StringUtil::format("%x", GLES2PixelUtil::getGLOriginDataType(data.format)));
-#endif
 #endif
 
         if (PixelUtil::isCompressed(data.format))
@@ -344,9 +258,8 @@ namespace Ogre {
     //-----------------------------------------------------------------------------  
     void GLES2TextureBuffer::download(const PixelBox &data)
     {
-        if(data.getSize() != getSize())
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "only download of entire buffer is supported by GL ES",
-                        "GLES2TextureBuffer::download");
+        OgreAssert(data.getSize() == getSize(), "only download of entire buffer is supported by GL ES");
+        OgreAssert(data.format == PF_A8B8G8R8, "only download of PF_A8B8G8R8 is supported by GL ES");
 
         if(PixelUtil::isCompressed(data.format))
         {
@@ -366,29 +279,18 @@ namespace Ogre {
         OGRE_CHECK_GL_ERROR(glGenFramebuffers(1, &tempFBO));
         OGRE_CHECK_GL_ERROR(glBindFramebuffer(GL_FRAMEBUFFER, tempFBO));
 
-        // Construct a temp PixelBox that is RGBA because GL_RGBA/GL_UNSIGNED_BYTE is the only combination that is
-        // guaranteed to work on all platforms.
-        size_t sizeInBytes = PixelUtil::getMemorySize(data.getWidth(), data.getHeight(), data.getDepth(), PF_A8B8G8R8);
-        PixelBox tempBox = PixelBox(data.getWidth(), data.getHeight(), data.getDepth(), PF_A8B8G8R8);
-        tempBox.data = new uint8[sizeInBytes];
-
         switch (mTarget)
         {
             case GL_TEXTURE_2D:
             case GL_TEXTURE_CUBE_MAP:
-                OGRE_CHECK_GL_ERROR(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mTextureID, 0));
+                OGRE_CHECK_GL_ERROR(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, mFaceTarget, mTextureID, mLevel));
                 OGRE_CHECK_GL_ERROR(glCheckFramebufferStatus(GL_FRAMEBUFFER));
                 OGRE_CHECK_GL_ERROR(glReadPixels(0, 0, data.getWidth(), data.getHeight(),
                                                  GL_RGBA,
                                                  GL_UNSIGNED_BYTE,
-                                                 tempBox.data));
+                                                 data.data));
                 break;
         }
-
-        PixelUtil::bulkPixelConversion(tempBox, data);
-
-        delete[] tempBox.data;
-        tempBox.data = 0;
 
         // Restore defaults
         OGRE_CHECK_GL_ERROR(glPixelStorei(GL_PACK_ALIGNMENT, 4));
@@ -421,7 +323,7 @@ namespace Ogre {
         }
         else
         {
-            GLES2HardwarePixelBuffer::blit(src, srcBox, dstBox);
+            GLHardwarePixelBufferCommon::blit(src, srcBox, dstBox);
         }
     }
     
@@ -476,18 +378,18 @@ namespace Ogre {
     // blitFromMemory doing hardware trilinear scaling
     void GLES2TextureBuffer::blitFromMemory(const PixelBox &src, const Box &dstBox)
     {
+        if(!mBuffer.contains(dstBox))
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Destination box out of range");
+
         // Fall back to normal GLHardwarePixelBuffer::blitFromMemory in case 
         // the source dimensions match the destination ones, in which case no scaling is needed
         // FIXME: always uses software path, as blitFromTexture is not implemented
         if(true ||
            (src.getSize() == dstBox.getSize()))
         {
-            GLES2HardwarePixelBuffer::blitFromMemory(src, dstBox);
+            _blitFromMemory(src, dstBox);
             return;
         }
-        if(!mBuffer.contains(dstBox))
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Destination box out of range",
-                        "GLES2TextureBuffer::blitFromMemory");
 
         TextureType type = (src.getDepth() != 1) ? TEX_TYPE_3D : TEX_TYPE_2D;
 
@@ -510,7 +412,7 @@ namespace Ogre {
     //********* GLES2RenderBuffer
     //----------------------------------------------------------------------------- 
     GLES2RenderBuffer::GLES2RenderBuffer(GLenum format, uint32 width, uint32 height, GLsizei numSamples):
-    GLES2HardwarePixelBuffer(width, height, 1, GLES2PixelUtil::getClosestOGREFormat(format), HBU_GPU_ONLY)
+    GLHardwarePixelBufferCommon(width, height, 1, GLES2PixelUtil::getClosestOGREFormat(format), HBU_GPU_ONLY)
     {
         GLES2RenderSystem* rs = getGLES2RenderSystem();
 

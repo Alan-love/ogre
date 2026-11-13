@@ -37,6 +37,7 @@ namespace Ogre {
 
     // forward decls
     struct VisibleObjectsBoundsInfo;
+    struct Froxelizer;
 
     /** \addtogroup Core
     *  @{
@@ -48,19 +49,19 @@ namespace Ogre {
 
     /** This utility class is used to hold the information used to generate the matrices
     and other information required to automatically populate GpuProgramParameters.
-    @remarks
-        This class exercises a lazy-update scheme in order to avoid having to update all
-        the information a GpuProgramParameters class could possibly want all the time. 
-        It relies on the SceneManager to update it when the base data has changed, and
-        will calculate concatenated matrices etc only when required, passing back precalculated
-        matrices when they are requested more than once when the underlying information has
-        not altered.
+
+    This class exercises a lazy-update scheme in order to avoid having to update all
+    the information a GpuProgramParameters class could possibly want all the time.
+    It relies on the SceneManager to update it when the base data has changed, and
+    will calculate concatenated matrices etc only when required, passing back precalculated
+    matrices when they are requested more than once when the underlying information has
+    not altered.
     */
     class _OgreExport AutoParamDataSource : public SceneMgtAlloc
     {
     private:
         const Light& getLight(size_t index) const;
-        mutable Affine3 mWorldMatrix[256];
+        mutable Affine3 mWorldMatrix[OGRE_MAX_NUM_BONES + 1];
         mutable size_t mWorldMatrixCount;
         mutable const Affine3* mWorldMatrixArray;
         mutable Affine3 mWorldViewMatrix;
@@ -85,6 +86,13 @@ namespace Ogre {
         mutable Vector4 mLodCameraPosition;
         mutable Vector4 mLodCameraPositionObjectSpace;
 
+        // Light arrays fastpath
+        mutable std::vector<Vector4f> mLightPosViewSpaceArray;
+        mutable std::vector<Vector4f> mLightAttenuationArray;
+        mutable std::vector<Vector4f> mSpotlightParamsArray;
+        mutable std::vector<Vector4f> mLightDirViewSpaceArray;
+        mutable std::vector<ColourValue> mLightDiffuseColourPowerScaledArray;
+
         mutable bool mWorldMatrixDirty;
         mutable bool mViewMatrixDirty;
         mutable bool mProjMatrixDirty;
@@ -105,6 +113,7 @@ namespace Ogre {
         mutable bool mShadowCamDepthRangesDirty[OGRE_MAX_SIMULTANEOUS_LIGHTS];
         ColourValue mAmbientLight;
         ColourValue mFogColour;
+        ColourValue mShadowColour;
         Vector4f mFogParams;
         Vector4f mPointParams;
         int mPassNumber;
@@ -113,8 +122,10 @@ namespace Ogre {
         mutable bool mLodCameraPositionDirty;
         mutable bool mLodCameraPositionObjectSpaceDirty;
 
+        std::unique_ptr<Froxelizer> mFroxelizer;
         const Renderable* mCurrentRenderable;
         const Camera* mCurrentCamera;
+        std::vector<const Camera*> mCameraArray;
         bool mCameraRelativeRendering;
         Vector3 mCameraRelativePosition;
         const LightList* mCurrentLightList;
@@ -127,14 +138,24 @@ namespace Ogre {
 
         SceneNode mDummyNode;
         Light mBlankLight;
+        /// Last light sets
+        uint32 mLastLightHash;
+        /// Gpu params that need rebinding (mask of GpuParamVariability)
+        uint16 mGpuParamsDirty;
+        bool mCurrentUseIdentityView;
+        bool mCurrentUseIdentityProj;
+
+        bool refreshFroxelData() const;
     public:
         AutoParamDataSource();
+        ~AutoParamDataSource();
         /** Updates the current renderable */
         void setCurrentRenderable(const Renderable* rend);
         /** Sets the world matrices, avoid query from renderable again */
         void setWorldMatrices(const Affine3* m, size_t count);
         /** Updates the current camera */
         void setCurrentCamera(const Camera* cam, bool useCameraRelative);
+        void setCameraArray(const std::vector<const Camera*> cameras);
         /** Sets the light list that should be used, and it's base index from the global list */
         void setCurrentLightList(const LightList* ll);
         /** Sets the current texture projector for a index */
@@ -158,12 +179,17 @@ namespace Ogre {
 		const Camera* getCurrentCamera() const;
 
         const Affine3& getWorldMatrix(void) const;
-        const Affine3* getWorldMatrixArray(void) const;
-        size_t getWorldMatrixCount(void) const;
+        const Affine3* getBoneMatrixArray(void) const;
+        OGRE_DEPRECATED const Affine3* getWorldMatrixArray(void) const { return getBoneMatrixArray(); }
+        size_t getBoneMatrixCount(void) const;
+        OGRE_DEPRECATED size_t getWorldMatrixCount(void) const { return getBoneMatrixCount(); }
         const Affine3& getViewMatrix(void) const;
+        Affine3 getViewMatrix(const Camera* cam) const;
         const Matrix4& getViewProjectionMatrix(void) const;
         const Matrix4& getProjectionMatrix(void) const;
+        Matrix4 getProjectionMatrix(const Camera* cam) const;
         const Matrix4& getWorldViewProjMatrix(void) const;
+        Matrix4 getWorldViewProjMatrix(size_t index) const;
         const Affine3& getWorldViewMatrix(void) const;
         const Affine3& getInverseWorldMatrix(void) const;
         const Affine3& getInverseWorldViewMatrix(void) const;
@@ -188,8 +214,15 @@ namespace Ogre {
         Vector4 getLightAs4DVector(size_t index) const;
         Vector3 getLightDirection(size_t index) const;
         Real getLightPowerScale(size_t index) const;
-        const Vector4f& getLightAttenuation(size_t index) const;
+        Vector4f getLightAttenuation(size_t index) const;
         Vector4f getSpotlightParams(size_t index) const;
+        // Light arrays fastpath
+        const Vector4f* getLightPositionViewSpaceArray(size_t size) const;
+        const Vector4f* getLightAttenuationArray(size_t size) const;
+        const Vector4f* getSpotlightParamsArray(size_t size) const;
+        const Vector4f* getLightDirectionViewSpaceArray(size_t size) const;
+        const ColourValue* getLightDiffuseColourPowerScaledArray(size_t size) const;
+
         void setAmbientLightColour(const ColourValue& ambient);
         const ColourValue& getAmbientLightColour(void) const;
         const ColourValue& getSurfaceAmbientColour(void) const;
@@ -219,6 +252,7 @@ namespace Ogre {
         Real getShadowExtrusionDistance(void) const;
         const Vector4& getSceneDepthRange() const;
         const Vector4& getShadowSceneDepthRange(size_t index) const;
+        void setShadowColour(const ColourValue& colour);
         const ColourValue& getShadowColour() const;
         Matrix4 getInverseViewProjMatrix(void) const;
         Matrix4 getInverseTransposeViewProjMatrix() const;
@@ -258,13 +292,22 @@ namespace Ogre {
         Vector3 getViewDirection() const;
         Vector3 getViewSideVector() const;
         Vector3 getViewUpVector() const;
-        Real getFOV() const;
-        Real getNearClipDistance() const;
-        Real getFarClipDistance() const;
+        float getFOV() const;
+        float getNearClipDistance() const;
+        float getFarClipDistance() const;
         int getPassNumber(void) const;
+        int getMaterialLodIndex() const;
         void setPassNumber(const int passNumber);
         void incPassNumber(void);
+        void markGpuParamsDirty(uint16 mask) { mGpuParamsDirty |= mask; }
+        uint16 getGpuParamsDirty() const { return mGpuParamsDirty; }
+        void resetGpuParamsDirty() { mGpuParamsDirty = 0; }
         void updateLightCustomGpuParameter(const GpuProgramParameters::AutoConstantEntry& constantEntry, GpuProgramParameters *params) const;
+
+        const Vector4f& getFroxelTileParams() const;
+        const Vector4f& getFroxelDepthParams() const;
+        const std::vector<uint32>& getFroxelGrid() const;
+        const std::vector<uint32>& getFroxelRecords() const;
     };
     /** @} */
     /** @} */

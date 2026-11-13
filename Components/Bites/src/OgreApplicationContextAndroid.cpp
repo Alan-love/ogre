@@ -79,8 +79,8 @@ void ApplicationContextAndroid::_fireInputEventAndroid(AInputEvent* event, int w
         Ogre::RenderWindow* win = getRenderWindow();
 
         evt.tfinger.fingerId = AMotionEvent_getPointerId(event, 0);
-        evt.tfinger.x = AMotionEvent_getRawX(event, 0) / win->getWidth() * win->getViewPointToPixelScale();
-        evt.tfinger.y = AMotionEvent_getRawY(event, 0) / win->getHeight() * win->getViewPointToPixelScale();
+        evt.tfinger.x = AMotionEvent_getX(event, 0) / win->getWidth() * win->getViewPointToPixelScale();
+        evt.tfinger.y = AMotionEvent_getY(event, 0) / win->getHeight() * win->getViewPointToPixelScale();
 
         if(evt.type == FINGERMOTION) {
             if(evt.tfinger.fingerId != lastTouch.fingerId)
@@ -117,13 +117,10 @@ void ApplicationContextAndroid::shutdown()
 
 void ApplicationContextAndroid::pollEvents()
 {
-    for(WindowList::iterator it = mWindows.begin(); it != mWindows.end(); ++it)
+    for(auto& w : mWindows)
     {
-        Ogre::RenderWindow* win = it->render;
-        win->windowMovedOrResized();
-        // it->native becomes invalid after surface change
-        // win->resize(w, h);
-        windowResized(win);
+        w.render->windowMovedOrResized();
+        windowResized(w.render);
     }
 }
 

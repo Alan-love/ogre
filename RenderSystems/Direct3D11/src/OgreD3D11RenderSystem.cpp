@@ -37,7 +37,6 @@ THE SOFTWARE.
 #include "OgreViewport.h"
 #include "OgreLogManager.h"
 #include "OgreMeshManager.h"
-#include "OgreSceneManagerEnumerator.h"
 #include "OgreD3D11HardwareBufferManager.h"
 #include "OgreD3D11HardwareBuffer.h"
 #include "OgreD3D11VertexDeclaration.h"
@@ -45,7 +44,6 @@ THE SOFTWARE.
 #include "OgreD3D11HLSLProgramFactory.h"
 
 #include "OgreD3D11HardwareOcclusionQuery.h"
-#include "OgreFrustum.h"
 #include "OgreD3D11MultiRenderTarget.h"
 #include "OgreD3D11HLSLProgram.h"
 
@@ -53,6 +51,7 @@ THE SOFTWARE.
 #include "OgreD3D11HardwarePixelBuffer.h"
 #include "OgreD3D11RenderTarget.h"
 #include "OgreException.h"
+#include "OgreRoot.h"
 
 #if OGRE_NO_QUAD_BUFFER_STEREO == 0
 #include "OgreD3D11StereoDriverBridge.h"
@@ -204,6 +203,12 @@ namespace Ogre
             delete mHLSLProgramFactory;
             mHLSLProgramFactory = 0;
         }
+
+#if OGRE_NO_QUAD_BUFFER_STEREO == 0
+        // Stereo driver must be freed after device is created
+        D3D11StereoDriverBridge* stereoBridge = D3D11StereoDriverBridge::getSingletonPtr();
+        OGRE_DELETE stereoBridge;
+#endif
 
         LogManager::getSingleton().logMessage( "D3D11: " + getName() + " destroyed." );
     }
@@ -650,7 +655,7 @@ namespace Ogre
 
 #if OGRE_NO_QUAD_BUFFER_STEREO == 0
         // Stereo driver must be created before device is created
-        StereoModeType stereoMode = StringConverter::parseStereoMode(mOptions["Stereo Mode"].currentValue);
+        auto stereoMode = StringConverter::parseBool(mOptions["Frame Sequential Stereo"].currentValue);
         D3D11StereoDriverBridge* stereoBridge = OGRE_NEW D3D11StereoDriverBridge(stereoMode);
 #endif
 
@@ -752,7 +757,7 @@ namespace Ogre
 
 			fireEvent("RenderSystemCapabilitiesCreated");
 
-			initialiseFromRenderSystemCapabilities(mCurrentCapabilities, mPrimaryWindow);
+			HighLevelGpuProgramManager::getSingleton().addFactory(mHLSLProgramFactory);
 
 		}
 		else
@@ -784,7 +789,15 @@ namespace Ogre
         //rsc->setCapability(RSC_FIXED_FUNCTION);
 
         rsc->setCapability(RSC_HWSTENCIL);
-        rsc->setStencilBufferBitDepth(8);
+
+#ifdef NTDDI_WIN10_TH2
+        D3D11_FEATURE_DATA_D3D11_OPTIONS3 fOpt3 = {};
+        HRESULT hr = mDevice->CheckFeatureSupport( D3D11_FEATURE_D3D11_OPTIONS3, &fOpt3, sizeof( fOpt3 ) );
+        if( SUCCEEDED( hr ) && fOpt3.VPAndRTArrayIndexFromAnyShaderFeedingRasterizer )
+        {
+            rsc->setCapability( RSC_VP_RT_INDEX_ANY_SHADER );
+        }
+#endif
 
         UINT formatSupport;
         if(mFeatureLevel >= D3D_FEATURE_LEVEL_9_2
@@ -812,11 +825,12 @@ namespace Ogre
         rsc->setCapability(RSC_HWOCCLUSION);
         rsc->setCapability(RSC_HWOCCLUSION_ASYNCHRONOUS);
 
+        rsc->setCapability(RSC_UNIFORM_BUFFERS);
+
         convertVertexShaderCaps(rsc);
         convertPixelShaderCaps(rsc);
         convertGeometryShaderCaps(rsc);
         convertHullShaderCaps(rsc);
-        convertDomainShaderCaps(rsc);
         convertComputeShaderCaps(rsc);
         rsc->addShaderProfile("hlsl");
 
@@ -885,14 +899,9 @@ namespace Ogre
 #endif
 
         rsc->setNumMultiRenderTargets(std::min(numMultiRenderTargets, (int)OGRE_MAX_MULTIPLE_RENDER_TARGETS));
-        rsc->setCapability(RSC_MRT_DIFFERENT_BIT_DEPTHS);
-
-        rsc->setCapability(RSC_POINT_EXTENDED_PARAMETERS);
-        rsc->setMaxPointSize(256); // TODO: guess!
     
         rsc->setCapability(RSC_VERTEX_TEXTURE_FETCH);
         rsc->setNumVertexTextureUnits(4);
-        rsc->setVertexTextureUnitsShared(true);
 
         rsc->setCapability(RSC_MIPMAP_LOD_BIAS);
 
@@ -906,20 +915,6 @@ namespace Ogre
 
         return rsc;
 
-    }
-    //-----------------------------------------------------------------------
-    void D3D11RenderSystem::initialiseFromRenderSystemCapabilities(
-        RenderSystemCapabilities* caps, RenderTarget* primary)
-    {
-        if(caps->getRenderSystemName() != getName())
-        {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, 
-                "Trying to initialize D3D11RenderSystem from RenderSystemCapabilities that do not support Direct3D11",
-                "D3D11RenderSystem::initialiseFromRenderSystemCapabilities");
-        }
-        
-        // add hlsl
-        HighLevelGpuProgramManager::getSingleton().addFactory(mHLSLProgramFactory);
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::convertVertexShaderCaps(RenderSystemCapabilities* rsc) const
@@ -956,13 +951,8 @@ namespace Ogre
 
         rsc->setCapability(RSC_VERTEX_PROGRAM);
 
-        // TODO: constant buffers have no limits but lower models do
-        // 16 boolean params allowed
-        rsc->setVertexProgramConstantBoolCount(16);
-        // 16 integer params allowed, 4D
-        rsc->setVertexProgramConstantIntCount(16);
         // float params, always 4D
-        rsc->setVertexProgramConstantFloatCount(512);
+        rsc->setVertexProgramConstantFloatCount(D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT);
 
     }
     //---------------------------------------------------------------------
@@ -999,13 +989,8 @@ namespace Ogre
             rsc->addShaderProfile("ps_5_0");
         }
 
-        // TODO: constant buffers have no limits but lower models do
-        // 16 boolean params allowed
-        rsc->setFragmentProgramConstantBoolCount(16);
-        // 16 integer params allowed, 4D
-        rsc->setFragmentProgramConstantIntCount(16);
         // float params, always 4D
-        rsc->setFragmentProgramConstantFloatCount(512);
+        rsc->setFragmentProgramConstantFloatCount(D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT);
 
     }
     //---------------------------------------------------------------------
@@ -1015,39 +1000,19 @@ namespace Ogre
         if (mFeatureLevel >= D3D_FEATURE_LEVEL_11_0)
         {
             rsc->addShaderProfile("hs_5_0");
+            rsc->addShaderProfile("ds_5_0");
             
-            rsc->setCapability(RSC_TESSELLATION_HULL_PROGRAM);
+            rsc->setCapability(RSC_TESSELLATION_PROGRAM);
 
-            // TODO: constant buffers have no limits but lower models do
-            // 16 boolean params allowed
-            rsc->setTessellationHullProgramConstantBoolCount(16);
-            // 16 integer params allowed, 4D
-            rsc->setTessellationHullProgramConstantIntCount(16);
             // float params, always 4D
-            rsc->setTessellationHullProgramConstantFloatCount(512);
+            rsc->setTessellationHullProgramConstantFloatCount(D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT);
+            rsc->setTessellationDomainProgramConstantFloatCount(D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT);
         }
 
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::convertDomainShaderCaps(RenderSystemCapabilities* rsc) const
     {
-        // Only for shader model 5.0
-        if (mFeatureLevel >= D3D_FEATURE_LEVEL_11_0)
-        {
-            rsc->addShaderProfile("ds_5_0");
-
-            rsc->setCapability(RSC_TESSELLATION_DOMAIN_PROGRAM);
-
-
-            // TODO: constant buffers have no limits but lower models do
-            // 16 boolean params allowed
-            rsc->setTessellationDomainProgramConstantBoolCount(16);
-            // 16 integer params allowed, 4D
-            rsc->setTessellationDomainProgramConstantIntCount(16);
-            // float params, always 4D
-            rsc->setTessellationDomainProgramConstantFloatCount(512);
-        }
-
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::convertComputeShaderCaps(RenderSystemCapabilities* rsc) const
@@ -1067,16 +1032,8 @@ namespace Ogre
             rsc->addShaderProfile("cs_5_0");
         }
 
-
-
-        // TODO: constant buffers have no limits but lower models do
-        // 16 boolean params allowed
-        rsc->setComputeProgramConstantBoolCount(16);
-        // 16 integer params allowed, 4D
-        rsc->setComputeProgramConstantIntCount(16);
         // float params, always 4D
-        rsc->setComputeProgramConstantFloatCount(512);
-
+        rsc->setComputeProgramConstantFloatCount(D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT);
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::convertGeometryShaderCaps(RenderSystemCapabilities* rsc) const
@@ -1096,9 +1053,7 @@ namespace Ogre
             rsc->addShaderProfile("gs_5_0");
         }
 
-        rsc->setGeometryProgramConstantFloatCount(512);
-        rsc->setGeometryProgramConstantIntCount(16);
-        rsc->setGeometryProgramConstantBoolCount(16);
+        rsc->setGeometryProgramConstantFloatCount(D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT);
         rsc->setGeometryProgramNumOutputVertices(1024);
     }
     //-----------------------------------------------------------------------
@@ -1204,7 +1159,7 @@ namespace Ogre
             mDevice->CreateDepthStencilView(pDepthStencil.Get(), &descDSV, &depthStencilView));
 
         //Create the abstract container
-        D3D11DepthBuffer *newDepthBuffer = new D3D11DepthBuffer( DepthBuffer::POOL_DEFAULT, this, depthStencilView,
+        D3D11DepthBuffer *newDepthBuffer = new D3D11DepthBuffer( renderTarget->getDepthBufferPool(), this, depthStencilView,
                                                 descDepth.Width, descDepth.Height,
                                                 descDepth.SampleDesc.Count, descDepth.SampleDesc.Quality,
                                                 false );
@@ -1348,9 +1303,8 @@ namespace Ogre
         // release device depended resources
         fireDeviceEvent(&mDevice, "DeviceLost");
 
-        SceneManagerEnumerator::SceneManagerIterator scnIt = SceneManagerEnumerator::getSingleton().getSceneManagerIterator();
-        while(scnIt.hasMoreElements())
-            scnIt.getNext()->_releaseManualHardwareResources();
+        for(auto& it : Root::getSingleton().getSceneManagers())
+            it.second->_releaseManualHardwareResources();
 
         notifyDeviceLost(&mDevice);
 
@@ -1370,9 +1324,8 @@ namespace Ogre
 
         MeshManager::getSingleton().reloadAll(Resource::LF_PRESERVE_STATE);
 
-        scnIt = SceneManagerEnumerator::getSingleton().getSceneManagerIterator();
-        while(scnIt.hasMoreElements())
-            scnIt.getNext()->_restoreManualHardwareResources();
+        for(auto& it : Root::getSingleton().getSceneManagers())
+            it.second->_restoreManualHardwareResources();
 
         // Invalidate active view port.
         mActiveViewport = NULL;
@@ -1472,16 +1425,12 @@ namespace Ogre
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_setTexture( size_t stage, bool enabled, const TexturePtr& tex )
     {
-        static D3D11TexturePtr dt;
-        dt = static_pointer_cast<D3D11Texture>(tex);
-        if (enabled && dt && dt->getSize() > 0)
+        if (enabled && tex && tex->getSize() > 0)
         {
             // note used
-            dt->touch();
-            ID3D11ShaderResourceView * pTex = dt->getSrvView();
-            mTexStageDesc[stage].pTex = pTex;
+            tex->touch();
+            mTexStageDesc[stage].pTex = static_cast<D3D11Texture*>(tex.get());
             mTexStageDesc[stage].used = true;
-            mTexStageDesc[stage].type = dt->getTextureType();
 
             mLastTextureUnitState = stage+1;
         }
@@ -1510,7 +1459,8 @@ namespace Ogre
     {
         mCullingMode = mode;
 
-		mRasterizerDesc.CullMode = D3D11Mappings::get(mode, flipFrontFace());
+		mRasterizerDesc.CullMode = D3D11Mappings::get(mode);
+        mRasterizerDesc.FrontCounterClockwise = !flipFrontFace();
         mRasterizerDescChanged = true;
     }
     void D3D11RenderSystem::_setDepthClamp(bool enable)
@@ -1521,36 +1471,12 @@ namespace Ogre
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_setDepthBufferParams( bool depthTest, bool depthWrite, CompareFunction depthFunction )
     {
-        _setDepthBufferCheckEnabled( depthTest );
-        _setDepthBufferWriteEnabled( depthWrite );
-        _setDepthBufferFunction( depthFunction );
-    }
-    //---------------------------------------------------------------------
-    void D3D11RenderSystem::_setDepthBufferCheckEnabled( bool enabled )
-    {
-        mDepthStencilDesc.DepthEnable = enabled;
-        mDepthStencilDescChanged = true;
-    }
-    //---------------------------------------------------------------------
-    void D3D11RenderSystem::_setDepthBufferWriteEnabled( bool enabled )
-    {
-        if (enabled)
-        {
-            mDepthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-        }
-        else
-        {
-            mDepthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-        }
-        mDepthStencilDescChanged = true;
-    }
-    //---------------------------------------------------------------------
-    void D3D11RenderSystem::_setDepthBufferFunction( CompareFunction func )
-    {
-        if(isReverseDepthBufferEnabled())
-            func = reverseCompareFunction(func);
+        mDepthStencilDesc.DepthEnable = depthTest;
+        mDepthStencilDesc.DepthWriteMask = depthWrite ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
 
-        mDepthStencilDesc.DepthFunc = D3D11Mappings::get(func);
+        if(isReverseDepthBufferEnabled())
+            depthFunction = reverseCompareFunction(depthFunction);
+        mDepthStencilDesc.DepthFunc = D3D11Mappings::get(depthFunction);
         mDepthStencilDescChanged = true;
     }
     //---------------------------------------------------------------------
@@ -1619,7 +1545,7 @@ namespace Ogre
     void D3D11RenderSystem::setStencilState(const StencilState& state)
     {
 		// We honor user intent in case of one sided operation, and carefully tweak it in case of two sided operations.
-		bool flipFront = state.twoSidedOperation && flipFrontFace();
+		bool flipFront = state.twoSidedOperation;
 		bool flipBack = state.twoSidedOperation && !flipFront;
 
         mDepthStencilDesc.StencilEnable = state.enabled;
@@ -1650,6 +1576,12 @@ namespace Ogre
             mDevice.GetImmediateContext()->ClearState();
             CHECK_DEVICE_ERROR("Clear State");
             _setRenderTargetViews();
+            if(mRasterizerDesc.ScissorEnable)
+            {
+                // Reapply scissor rects
+                mDevice.GetImmediateContext()->RSSetScissorRects(1, &mScissorRect);
+                CHECK_DEVICE_ERROR("set scissor rects");
+            }
         }
     }
 
@@ -1678,7 +1610,7 @@ namespace Ogre
             //Retrieve depth buffer
             D3D11DepthBuffer *depthBuffer = static_cast<D3D11DepthBuffer*>(target->getDepthBuffer());
 
-            if( target->getDepthBufferPool() != DepthBuffer::POOL_NO_DEPTH && !depthBuffer )
+            if( target->getDepthBufferPool() != RBP_NONE && !depthBuffer )
             {
                 //Depth is automatically managed and there is no depth buffer attached to this RT
                 //or the Current D3D device doesn't match the one this Depth buffer was created
@@ -1767,10 +1699,8 @@ namespace Ogre
     //---------------------------------------------------------------------
     void D3D11RenderSystem::setVertexDeclaration(VertexDeclaration* decl, VertexBufferBinding* binding)
     {
-        D3D11VertexDeclaration* d3ddecl = 
-            static_cast<D3D11VertexDeclaration*>(decl);
-
-        d3ddecl->bindToShader(mBoundVertexProgram, binding);
+        D3D11VertexDeclaration* d3ddecl = static_cast<D3D11VertexDeclaration*>(decl);
+        d3ddecl->bindToShader(mBoundProgram[GPT_VERTEX_PROGRAM], binding);
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::setVertexBufferBinding(VertexBufferBinding* binding)
@@ -1823,13 +1753,58 @@ namespace Ogre
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_dispatchCompute(const Vector3i& workgroupDim)
     {
+        mDevice.GetImmediateContext()->CSSetShader(mBoundProgram[GPT_COMPUTE_PROGRAM]->getComputeShader(),
+                                                    mClassInstances[GPT_COMPUTE_PROGRAM],
+                                                    mNumClassInstances[GPT_COMPUTE_PROGRAM]);
+        CHECK_DEVICE_ERROR("set compute shader");
+
+        ID3D11ShaderResourceView* nullSrv[] = { 0 };
+
+        ID3D11UnorderedAccessView* uavs[OGRE_MAX_TEXTURE_LAYERS] = {NULL};
+        ID3D11ShaderResourceView * srvs[OGRE_MAX_TEXTURE_LAYERS] = {NULL};
+        ID3D11SamplerState* samplers[OGRE_MAX_TEXTURE_LAYERS] = {NULL};
+
+        // samplers mapping
+        size_t numberOfSamplers = std::min(mLastTextureUnitState,(size_t)(OGRE_MAX_TEXTURE_LAYERS + 1));
+        for (size_t n = 0; n < numberOfSamplers; n++)
+        {
+            if(!mTexStageDesc[n].used)
+                continue;
+
+            if(mTexStageDesc[n].pTex->getUsage() & TU_UNORDERED_ACCESS)
+                uavs[n] = mTexStageDesc[n].pTex->getUavView();
+            else
+            {
+                srvs[n] = mTexStageDesc[n].pTex->getSrvView();
+                samplers[n] = mTexStageDesc[n].pSampler;
+            }
+        }
+
+        if(mFeatureLevel >= D3D_FEATURE_LEVEL_11_0)
+        {
+            // unbind SRVs from other stages
+            mDevice.GetImmediateContext()->VSSetShaderResources(0, 1, nullSrv);
+            mDevice.GetImmediateContext()->PSSetShaderResources(0, 1, nullSrv);
+            mSamplerStatesChanged = true;
+
+            mDevice.GetImmediateContext()->CSSetUnorderedAccessViews(0, static_cast<UINT>(numberOfSamplers), uavs, NULL);
+            CHECK_DEVICE_ERROR("set compute UAVs");
+        }
+
+        if (mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
+        {
+            mDevice.GetImmediateContext()->CSSetSamplers(static_cast<UINT>(0), static_cast<UINT>(numberOfSamplers), samplers);
+            CHECK_DEVICE_ERROR("set compute shader samplers");
+            mDevice.GetImmediateContext()->CSSetShaderResources(static_cast<UINT>(0), static_cast<UINT>(numberOfSamplers), srvs);
+            CHECK_DEVICE_ERROR("set compute shader resources");
+        }
+
         // Bound unordered access views
         mDevice.GetImmediateContext()->Dispatch(workgroupDim[0], workgroupDim[1], workgroupDim[2]);
 
         // unbind
         ID3D11UnorderedAccessView* views[] = { 0 };
-        ID3D11ShaderResourceView* srvs[] = { 0 };
-        mDevice.GetImmediateContext()->CSSetShaderResources( 0, 1, srvs );
+        mDevice.GetImmediateContext()->CSSetShaderResources( 0, 1, nullSrv );
         mDevice.GetImmediateContext()->CSSetUnorderedAccessViews( 0, 1, views, NULL );
         mDevice.GetImmediateContext()->CSSetShader( NULL, NULL, 0 );
     }
@@ -1843,19 +1818,7 @@ namespace Ogre
             return;
         }
 
-        HardwareVertexBufferSharedPtr globalInstanceVertexBuffer = getGlobalInstanceVertexBuffer();
-        VertexDeclaration* globalVertexDeclaration = getGlobalInstanceVertexBufferVertexDeclaration();
-
-        bool hasInstanceData = op.useGlobalInstancingVertexBufferIsAvailable &&
-                    globalInstanceVertexBuffer && globalVertexDeclaration != NULL 
-                || op.vertexData->vertexBufferBinding->hasInstanceData();
-
         size_t numberOfInstances = op.numberOfInstances;
-
-        if (op.useGlobalInstancingVertexBufferIsAvailable)
-        {
-            numberOfInstances *= getGlobalNumberOfInstances();
-        }
 
         // Call super class
         RenderSystem::_render(op);
@@ -1913,7 +1876,7 @@ namespace Ogre
                 ID3D11SamplerState *sampler = NULL;
                 sD3DTextureStageDesc & stage = mTexStageDesc[n];
                 opState->mSamplerStates[n]  = stage.used ? stage.pSampler : NULL;
-                opState->mTextures[n]       = stage.used ? stage.pTex : NULL;
+                opState->mTextures[n]       = stage.used ? stage.pTex->getSrvView() : NULL;
             }
             for (size_t n = opState->mTexturesCount; n < OGRE_MAX_TEXTURE_LAYERS; n++)
 			{
@@ -1964,7 +1927,7 @@ namespace Ogre
             }
 
             /// Geometry Shader binding
-            if (mBoundGeometryProgram && mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
+            if (mBoundProgram[GPT_GEOMETRY_PROGRAM] && mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
             {
                 mDevice.GetImmediateContext()->GSSetSamplers(0, opState->mSamplerStatesCount, opState->mSamplerStates);
                 CHECK_DEVICE_ERROR("set geometry shader samplers");
@@ -1972,17 +1935,8 @@ namespace Ogre
                 CHECK_DEVICE_ERROR("set geometry shader resources");
             }
 
-            /// Compute Shader binding
-            if (mBoundComputeProgram && mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
-            {
-                mDevice.GetImmediateContext()->CSSetSamplers(static_cast<UINT>(0), static_cast<UINT>(opState->mSamplerStatesCount), opState->mSamplerStates);
-                CHECK_DEVICE_ERROR("set compute shader samplers");
-                mDevice.GetImmediateContext()->CSSetShaderResources(static_cast<UINT>(0), static_cast<UINT>(opState->mTexturesCount), &opState->mTextures[0]);
-                CHECK_DEVICE_ERROR("set compute shader resources");
-            }
-
             /// Hull Shader binding
-            if (mBoundTessellationHullProgram && mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
+            if (mBoundProgram[GPT_HULL_PROGRAM] && mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
             {
                 mDevice.GetImmediateContext()->HSSetSamplers(static_cast<UINT>(0), static_cast<UINT>(opState->mSamplerStatesCount), opState->mSamplerStates);
                 CHECK_DEVICE_ERROR("set hull shader samplers");
@@ -1991,7 +1945,7 @@ namespace Ogre
             }
             
             /// Domain Shader binding
-            if (mBoundTessellationDomainProgram && mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
+            if (mBoundProgram[GPT_DOMAIN_PROGRAM] && mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
             {
                 mDevice.GetImmediateContext()->DSSetSamplers(static_cast<UINT>(0), static_cast<UINT>(opState->mSamplerStatesCount), opState->mSamplerStates);
                 CHECK_DEVICE_ERROR("set domain shader samplers");
@@ -2005,9 +1959,8 @@ namespace Ogre
         mDevice.GetImmediateContext()->SOGetTargets(1, pSOTarget.GetAddressOf());
 
         //check consistency of vertex-fragment shaders
-        if (!mBoundVertexProgram ||
-             (!mBoundFragmentProgram && op.operationType != RenderOperation::OT_POINT_LIST && !pSOTarget ) 
-           ) 
+        if (!mBoundProgram[GPT_VERTEX_PROGRAM] ||
+            (!mBoundProgram[GPT_FRAGMENT_PROGRAM] && op.operationType != RenderOperation::OT_POINT_LIST && !pSOTarget))
         {
             
             OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
@@ -2016,10 +1969,10 @@ namespace Ogre
         }
 
         // Check consistency of tessellation shaders
-        if( (mBoundTessellationHullProgram && !mBoundTessellationDomainProgram) ||
-            (!mBoundTessellationHullProgram && mBoundTessellationDomainProgram) )
+        if( (mBoundProgram[GPT_HULL_PROGRAM] && !mBoundProgram[GPT_DOMAIN_PROGRAM]) ||
+            (!mBoundProgram[GPT_HULL_PROGRAM] && mBoundProgram[GPT_DOMAIN_PROGRAM]) )
         {
-            if (mBoundTessellationHullProgram && !mBoundTessellationDomainProgram) {
+            if (mBoundProgram[GPT_HULL_PROGRAM] && !mBoundProgram[GPT_DOMAIN_PROGRAM]) {
             OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
                 "Attempted to use tessellation, but domain shader is missing",
                 "D3D11RenderSystem::_render");
@@ -2035,49 +1988,41 @@ namespace Ogre
         // Defer program bind to here because we must bind shader class instances,
         // and this can only be made in SetShader calls.
         // Also, bind shader resources
-        if (mBoundVertexProgram)
+        if (mBoundProgram[GPT_VERTEX_PROGRAM])
         {
-            mDevice.GetImmediateContext()->VSSetShader(mBoundVertexProgram->getVertexShader(), 
+            mDevice.GetImmediateContext()->VSSetShader(mBoundProgram[GPT_VERTEX_PROGRAM]->getVertexShader(),
                                                        mClassInstances[GPT_VERTEX_PROGRAM], 
                                                        mNumClassInstances[GPT_VERTEX_PROGRAM]);
             CHECK_DEVICE_ERROR("set vertex shader");
         }
-        if (mBoundFragmentProgram)
+        if (mBoundProgram[GPT_FRAGMENT_PROGRAM])
         {
-            mDevice.GetImmediateContext()->PSSetShader(mBoundFragmentProgram->getPixelShader(),
+            mDevice.GetImmediateContext()->PSSetShader(mBoundProgram[GPT_FRAGMENT_PROGRAM]->getPixelShader(),
                                                        mClassInstances[GPT_FRAGMENT_PROGRAM], 
                                                        mNumClassInstances[GPT_FRAGMENT_PROGRAM]);
             CHECK_DEVICE_ERROR("set pixel shader");
         }
-        if (mBoundGeometryProgram)
+        if (mBoundProgram[GPT_GEOMETRY_PROGRAM])
         {
-            mDevice.GetImmediateContext()->GSSetShader(mBoundGeometryProgram->getGeometryShader(),
+            mDevice.GetImmediateContext()->GSSetShader(mBoundProgram[GPT_GEOMETRY_PROGRAM]->getGeometryShader(),
                                                        mClassInstances[GPT_GEOMETRY_PROGRAM], 
                                                        mNumClassInstances[GPT_GEOMETRY_PROGRAM]);
             CHECK_DEVICE_ERROR("set geometry shader");
         }
-        if (mBoundTessellationHullProgram)
+        if (mBoundProgram[GPT_HULL_PROGRAM])
         {
-            mDevice.GetImmediateContext()->HSSetShader(mBoundTessellationHullProgram->getHullShader(),
+            mDevice.GetImmediateContext()->HSSetShader(mBoundProgram[GPT_HULL_PROGRAM]->getHullShader(),
                                                        mClassInstances[GPT_HULL_PROGRAM], 
                                                        mNumClassInstances[GPT_HULL_PROGRAM]);
             CHECK_DEVICE_ERROR("set hull shader");
         }
-        if (mBoundTessellationDomainProgram)
+        if (mBoundProgram[GPT_DOMAIN_PROGRAM])
         {
-            mDevice.GetImmediateContext()->DSSetShader(mBoundTessellationDomainProgram->getDomainShader(),
+            mDevice.GetImmediateContext()->DSSetShader(mBoundProgram[GPT_DOMAIN_PROGRAM]->getDomainShader(),
                                                        mClassInstances[GPT_DOMAIN_PROGRAM], 
                                                        mNumClassInstances[GPT_DOMAIN_PROGRAM]);
             CHECK_DEVICE_ERROR("set domain shader");
         }
-        if (mBoundComputeProgram)
-        {
-            mDevice.GetImmediateContext()->CSSetShader(mBoundComputeProgram->getComputeShader(),
-                                                       mClassInstances[GPT_COMPUTE_PROGRAM], 
-                                                       mNumClassInstances[GPT_COMPUTE_PROGRAM]);
-            CHECK_DEVICE_ERROR("set compute shader");
-        }
-
 
         setVertexDeclaration(op.vertexData->vertexDeclaration, op.vertexData->vertexBufferBinding);
         setVertexBufferBinding(op.vertexData->vertexBufferBinding);
@@ -2087,7 +2032,7 @@ namespace Ogre
         D3D11_PRIMITIVE_TOPOLOGY primType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
         DWORD primCount = 0;
 
-        if(mBoundTessellationHullProgram && mBoundTessellationDomainProgram)
+        if(mBoundProgram[GPT_HULL_PROGRAM] && mBoundProgram[GPT_DOMAIN_PROGRAM])
         {
             // useful primitives for tessellation
             switch( op.operationType )
@@ -2117,8 +2062,8 @@ namespace Ogre
         {
             //rendering without tessellation.   
             int operationType = op.operationType;
-            if(mGeometryProgramBound && mBoundGeometryProgram && mBoundGeometryProgram->isAdjacencyInfoRequired())
-                operationType |= RenderOperation::OT_DETAIL_ADJACENCY_BIT;
+            if(mPolygonMode == PM_POINTS)
+                operationType = RenderOperation::OT_POINT_LIST;
 
             switch( operationType )
             {
@@ -2193,7 +2138,7 @@ namespace Ogre
             {
                 if(op.useIndexes)
                 {
-                    if(hasInstanceData)
+                    if(numberOfInstances > 1)
                     {
                         mDevice.GetImmediateContext()->DrawIndexedInstanced(
                             static_cast<UINT>(op.indexData->indexCount), 
@@ -2216,7 +2161,7 @@ namespace Ogre
                     {
                         mDevice.GetImmediateContext()->DrawAuto();
                     }
-                    else if(hasInstanceData)
+                    else if(numberOfInstances > 1)
                     {
                         mDevice.GetImmediateContext()->DrawInstanced(
                             static_cast<UINT>(op.vertexData->vertexCount),
@@ -2238,15 +2183,14 @@ namespace Ogre
                     if(!op.useIndexes && op.vertexData->vertexCount == -1) // -1 is a sign to use DrawAuto
                         errorDescription.append(" auto");
                     else
-                        errorDescription.append(op.useIndexes ? " indexed" : "").append(hasInstanceData ? " instanced" : "");
+                        errorDescription.append(op.useIndexes ? " indexed" : "").append(numberOfInstances > 1 ? " instanced" : "");
                     errorDescription.append("\nError Description:").append(mDevice.getErrorDescription());
-                    errorDescription.append("\nActive OGRE shaders:")
-                        .append(mBoundVertexProgram ? ("\nVS = " + mBoundVertexProgram->getName()).c_str() : "")
-                        .append(mBoundTessellationHullProgram ? ("\nHS = " + mBoundTessellationHullProgram->getName()).c_str() : "")
-                        .append(mBoundTessellationDomainProgram ? ("\nDS = " + mBoundTessellationDomainProgram->getName()).c_str() : "")
-                        .append(mBoundGeometryProgram ? ("\nGS = " + mBoundGeometryProgram->getName()).c_str() : "")
-                        .append(mBoundFragmentProgram ? ("\nFS = " + mBoundFragmentProgram->getName()).c_str() : "")
-                        .append(mBoundComputeProgram ? ("\nCS = " + mBoundComputeProgram->getName()).c_str() : "");
+                    errorDescription.append("\nActive OGRE shaders:");
+                    for(auto shader : mBoundProgram)
+                    {
+                        if(shader)
+                            errorDescription.append(("\n"+to_string(shader->getType())+" = " + shader->getName()).c_str());
+                    }
 
                     OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, errorDescription, "D3D11RenderSystem::_render");
                 }
@@ -2274,96 +2218,49 @@ namespace Ogre
     {
         if (!prg)
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
-                "Null program bound.",
-                "D3D11RenderSystem::bindGpuProgram");
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Null program bound");
         }
 
-        switch (prg->getType())
-        {
-        case GPT_VERTEX_PROGRAM:
-            {
-                // get the shader
-                mBoundVertexProgram = static_cast<D3D11HLSLProgram*>(prg);
-            }
-            break;
-        case GPT_FRAGMENT_PROGRAM:
-            {
-                mBoundFragmentProgram = static_cast<D3D11HLSLProgram*>(prg);
-            }
-            break;
-        case GPT_GEOMETRY_PROGRAM:
-            {
-                mBoundGeometryProgram = static_cast<D3D11HLSLProgram*>(prg);
-            }
-            break;
-        case GPT_HULL_PROGRAM:
-            {
-                mBoundTessellationHullProgram = static_cast<D3D11HLSLProgram*>(prg);
-            }
-            break;
-        case GPT_DOMAIN_PROGRAM:
-            {
-                mBoundTessellationDomainProgram = static_cast<D3D11HLSLProgram*>(prg);
-            }
-            break;
-        case GPT_COMPUTE_PROGRAM:
-            {
-                mBoundComputeProgram = static_cast<D3D11HLSLProgram*>(prg);
-            }
-            break;
-        };
+        mBoundProgram[prg->getType()] = static_cast<D3D11HLSLProgram*>(prg);
 
         RenderSystem::bindGpuProgram(prg);
    }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::unbindGpuProgram(GpuProgramType gptype)
     {
+        mActiveParameters[gptype].reset();
+        mBoundProgram[gptype] = NULL;
 
         switch(gptype)
         {
         case GPT_VERTEX_PROGRAM:
             {
-                mActiveVertexGpuProgramParameters.reset();
-                mBoundVertexProgram = NULL;
-                //mDevice->VSSetShader(NULL);
                 mDevice.GetImmediateContext()->VSSetShader(NULL, NULL, 0);
             }
             break;
         case GPT_FRAGMENT_PROGRAM:
             {
-                mActiveFragmentGpuProgramParameters.reset();
-                mBoundFragmentProgram = NULL;
-                //mDevice->PSSetShader(NULL);
                 mDevice.GetImmediateContext()->PSSetShader(NULL, NULL, 0);
             }
 
             break;
         case GPT_GEOMETRY_PROGRAM:
             {
-                mActiveGeometryGpuProgramParameters.reset();
-                mBoundGeometryProgram = NULL;
                 mDevice.GetImmediateContext()->GSSetShader( NULL, NULL, 0 );
             }
             break;
         case GPT_HULL_PROGRAM:
             {
-                mActiveTessellationHullGpuProgramParameters.reset();
-                mBoundTessellationHullProgram = NULL;
                 mDevice.GetImmediateContext()->HSSetShader( NULL, NULL, 0 );
             }
             break;
         case GPT_DOMAIN_PROGRAM:
             {
-                mActiveTessellationDomainGpuProgramParameters.reset();
-                mBoundTessellationDomainProgram = NULL;
                 mDevice.GetImmediateContext()->DSSetShader( NULL, NULL, 0 );
             }
             break;
         case GPT_COMPUTE_PROGRAM:
             {
-                mActiveComputeGpuProgramParameters.reset();
-                mBoundComputeProgram = NULL;
                 mDevice.GetImmediateContext()->CSSetShader( NULL, NULL, 0 );
             }
             break;
@@ -2375,6 +2272,37 @@ namespace Ogre
     //---------------------------------------------------------------------
     void D3D11RenderSystem::bindGpuProgramParameters(GpuProgramType gptype, const GpuProgramParametersPtr& params, uint16 mask)
     {
+        if (!mBoundProgram[gptype])
+            return;
+
+        std::vector<ID3D11Buffer*> buffers = {NULL};
+
+        if(params->getConstantList().size())
+        {
+            auto& cbuffer = updateDefaultUniformBuffer(gptype, params->getConstantList());
+            buffers[0] = static_cast<D3D11HardwareBuffer*>(cbuffer.get())->getD3DBuffer();
+        }
+
+        auto& bufferInfoMap = mBoundProgram[gptype]->getBufferInfoMap();
+        for (const auto& usage : params->getSharedParameters())
+        {
+            auto it = bufferInfoMap.find(usage.getName());
+            auto bufSize = usage.getSharedParams()->getConstantList().size();
+            if(it == bufferInfoMap.end() || bufSize == 0)
+                continue; // TODO: error?
+
+            auto hwBuffer = usage.getSharedParams()->_getHardwareBuffer();
+            if (!hwBuffer || hwBuffer->getSizeInBytes() < bufSize)
+            {
+                hwBuffer = mHardwareBufferManager->createUniformBuffer(bufSize);
+                usage.getSharedParams()->_setHardwareBuffer(hwBuffer);
+            }
+
+            size_t slot = it->second;
+            buffers.resize(std::max(slot + 1, buffers.size()));
+            buffers[slot] = static_cast<D3D11HardwareBuffer*>(hwBuffer.get())->getD3DBuffer();
+        }
+
         if (mask & (uint16)GPV_GLOBAL)
         {
             params->_updateSharedParams();
@@ -2386,9 +2314,7 @@ namespace Ogre
         {
         case GPT_VERTEX_PROGRAM:
             {
-                if (mBoundVertexProgram)
                 {
-                    auto buffers = mBoundVertexProgram->getConstantBuffers(params);
                     mDevice.GetImmediateContext()->VSSetConstantBuffers( 0, buffers.size(), buffers.data());
                     CHECK_DEVICE_ERROR("set vertex shader constant buffers");
                 }
@@ -2396,9 +2322,7 @@ namespace Ogre
             break;
         case GPT_FRAGMENT_PROGRAM:
             {
-                if (mBoundFragmentProgram)
                 {
-                    auto buffers = mBoundFragmentProgram->getConstantBuffers(params);
                     mDevice.GetImmediateContext()->PSSetConstantBuffers( 0, buffers.size(), buffers.data());
                     CHECK_DEVICE_ERROR("set fragment shader constant buffers");
                 }
@@ -2406,9 +2330,7 @@ namespace Ogre
             break;
         case GPT_GEOMETRY_PROGRAM:
             {
-                if (mBoundGeometryProgram)
                 {
-                    auto buffers = mBoundGeometryProgram->getConstantBuffers(params);
                     mDevice.GetImmediateContext()->GSSetConstantBuffers( 0, buffers.size(), buffers.data());
                     CHECK_DEVICE_ERROR("set Geometry shader constant buffers");
                 }
@@ -2416,9 +2338,7 @@ namespace Ogre
             break;
         case GPT_HULL_PROGRAM:
             {
-                if (mBoundTessellationHullProgram)
                 {
-                    auto buffers = mBoundTessellationHullProgram->getConstantBuffers(params);
                     mDevice.GetImmediateContext()->HSSetConstantBuffers( 0, buffers.size(), buffers.data());
                     CHECK_DEVICE_ERROR("set Hull shader constant buffers");
                 }
@@ -2426,9 +2346,7 @@ namespace Ogre
             break;
         case GPT_DOMAIN_PROGRAM:
             {
-                if (mBoundTessellationDomainProgram)
                 {
-                    auto buffers = mBoundTessellationDomainProgram->getConstantBuffers(params);
                     mDevice.GetImmediateContext()->DSSetConstantBuffers( 0, buffers.size(), buffers.data());
                     CHECK_DEVICE_ERROR("set Domain shader constant buffers");
                 }
@@ -2436,9 +2354,7 @@ namespace Ogre
             break;
         case GPT_COMPUTE_PROGRAM:
             {
-                if (mBoundComputeProgram)
                 {
-                    auto buffers = mBoundComputeProgram->getConstantBuffers(params);
                     mDevice.GetImmediateContext()->CSSetConstantBuffers( 0, buffers.size(), buffers.data());
                     CHECK_DEVICE_ERROR("set Compute shader constant buffers");
                 }
@@ -2493,59 +2409,7 @@ namespace Ogre
     //---------------------------------------------------------------------
     void D3D11RenderSystem::setSubroutine(GpuProgramType gptype, const String& slotName, const String& subroutineName)
     {
-        unsigned int slotIdx = 0;
-        switch(gptype)
-        {
-        case GPT_VERTEX_PROGRAM:
-            {
-                if (mBoundVertexProgram)
-                {
-                    slotIdx = mBoundVertexProgram->getSubroutineSlot(slotName);
-                }
-            }
-            break;
-        case GPT_FRAGMENT_PROGRAM:
-            {
-                if (mBoundFragmentProgram)
-                {
-                    slotIdx = mBoundFragmentProgram->getSubroutineSlot(slotName);
-                }
-            }
-            break;
-        case GPT_GEOMETRY_PROGRAM:
-            {
-                if (mBoundGeometryProgram)
-                {
-                    slotIdx = mBoundGeometryProgram->getSubroutineSlot(slotName);
-                }
-            }
-            break;
-        case GPT_HULL_PROGRAM:
-            {
-                if (mBoundTessellationHullProgram)
-                {
-                    slotIdx = mBoundTessellationHullProgram->getSubroutineSlot(slotName);
-                }
-            }
-            break;
-        case GPT_DOMAIN_PROGRAM:
-            {
-                if (mBoundTessellationDomainProgram)
-                {
-                    slotIdx = mBoundTessellationDomainProgram->getSubroutineSlot(slotName);
-                }
-            }
-            break;
-        case GPT_COMPUTE_PROGRAM:
-            {
-                if (mBoundComputeProgram)
-                {
-                    slotIdx = mBoundComputeProgram->getSubroutineSlot(slotName);
-                }
-            }
-            break;
-        };
-        
+        unsigned int slotIdx = mBoundProgram[gptype] ? mBoundProgram[gptype]->getSubroutineSlot(slotName) : 0;
         // Set subroutine for slot
         setSubroutine(gptype, slotIdx, subroutineName);
     }
@@ -2636,8 +2500,7 @@ namespace Ogre
     Real D3D11RenderSystem::getMaximumDepthInputValue(void)
     {
         // Range [0.0f, 1.0f]
-        // D3D inverts even identity view matrices, so maximum INPUT is -1.0
-        return -1.0f;
+        return 1.0f;
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::determineFSAASettings(uint fsaa, const String& fsaaHint, 
@@ -2668,7 +2531,7 @@ namespace Ogre
                 { 4, 0 },  // MSAA 4x
                 { 2, 0 },  // MSAA 2x
                 { 1, 0 },  // MSAA 1x
-                { NULL },
+                { 0 },
         };
 
         // Find matching AA mode
@@ -2726,12 +2589,7 @@ namespace Ogre
 		mStereoDriver = NULL;
 #endif
 
-        mBoundVertexProgram = NULL;
-        mBoundFragmentProgram = NULL;
-        mBoundGeometryProgram = NULL;
-        mBoundTessellationHullProgram = NULL;
-        mBoundTessellationDomainProgram = NULL;
-        mBoundComputeProgram = NULL;
+        mBoundProgram.fill(NULL);
 
         ZeroMemory( &mBlendDesc, sizeof(mBlendDesc));
 
@@ -2775,41 +2633,6 @@ namespace Ogre
         {
             OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Attribute not found: " + name, "RenderSystem::getCustomAttribute");
         }
-    }
-    //---------------------------------------------------------------------
-    bool D3D11RenderSystem::_getDepthBufferCheckEnabled( void )
-    {
-        return mDepthStencilDesc.DepthEnable == TRUE;
-    }
-    //---------------------------------------------------------------------
-    D3D11HLSLProgram* D3D11RenderSystem::_getBoundVertexProgram() const
-    {
-        return mBoundVertexProgram;
-    }
-    //---------------------------------------------------------------------
-    D3D11HLSLProgram* D3D11RenderSystem::_getBoundFragmentProgram() const
-    {
-        return mBoundFragmentProgram;
-    }
-    //---------------------------------------------------------------------
-    D3D11HLSLProgram* D3D11RenderSystem::_getBoundGeometryProgram() const
-    {
-        return mBoundGeometryProgram;
-    }
-    //---------------------------------------------------------------------
-    D3D11HLSLProgram* D3D11RenderSystem::_getBoundTessellationHullProgram() const
-    {
-        return mBoundTessellationHullProgram;
-    }
-    //---------------------------------------------------------------------
-    D3D11HLSLProgram* D3D11RenderSystem::_getBoundTessellationDomainProgram() const
-    {
-        return mBoundTessellationDomainProgram;
-    }
-    //---------------------------------------------------------------------
-    D3D11HLSLProgram* D3D11RenderSystem::_getBoundComputeProgram() const
-    {
-        return mBoundComputeProgram;
     }
 	//---------------------------------------------------------------------
 	bool D3D11RenderSystem::setDrawBuffer(ColourBufferType colourBuffer)

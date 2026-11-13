@@ -35,14 +35,10 @@ same license as the rest of the engine.
 #include "DeferredLightCP.h"
 #include "SSAOLogic.h"
 #include "GBufferSchemeHandler.h"
-#include "NullSchemeHandler.h"
-
-#include "OgreShaderExGBuffer.h"
 
 using namespace Ogre;
 
-const Ogre::uint8 DeferredShadingSystem::PRE_GBUFFER_RENDER_QUEUE = Ogre::RENDER_QUEUE_1;
-const Ogre::uint8 DeferredShadingSystem::POST_GBUFFER_RENDER_QUEUE = Ogre::RENDER_QUEUE_8;
+const Ogre::uint8 DeferredShadingSystem::POST_GBUFFER_RENDER_QUEUE = Ogre::RENDER_QUEUE_TRANSPARENTS;
 
 DeferredShadingSystem::DeferredShadingSystem(
         Viewport *vp, SceneManager *sm,  Camera *cam
@@ -61,8 +57,8 @@ DeferredShadingSystem::DeferredShadingSystem(
 
 void DeferredShadingSystem::initialize()
 {
-    for(int i=0; i<DSM_COUNT; ++i)
-        mInstance[i]=0;
+    for(auto & i : mInstance)
+        i=0;
 
     createResources();
     
@@ -76,20 +72,19 @@ void DeferredShadingSystem::initialize()
 DeferredShadingSystem::~DeferredShadingSystem()
 {
     CompositorChain *chain = CompositorManager::getSingleton().getCompositorChain(mViewport);
-    for(int i=0; i<DSM_COUNT; ++i)
-        chain->_removeInstance(mInstance[i]);
+    for(auto & i : mInstance)
+        chain->_removeInstance(i);
     CompositorManager::getSingleton().removeCompositorChain(mViewport);
 
     Ogre::CompositorManager& compMgr = Ogre::CompositorManager::getSingleton();
-    CompositorLogicMap::const_iterator itor = mCompositorLogics.begin();
-    CompositorLogicMap::const_iterator end  = mCompositorLogics.end();
-    while( itor != end )
+    for (const auto& logic : mCompositorLogics)
     {
-        compMgr.unregisterCompositorLogic( itor->first );
-        delete itor->second;
-        ++itor;
+        compMgr.unregisterCompositorLogic(logic.first);
     }
     mCompositorLogics.clear();
+
+    compMgr.unregisterCustomCompositionPass("DeferredLight");
+    MaterialManager::getSingleton().removeListener(mGBufferSchemeHandler.get(), "GBuffer");
 }
 
 void DeferredShadingSystem::setMode(DSMode mode)
@@ -142,7 +137,7 @@ void DeferredShadingSystem::setActive(bool active)
 
         RTShader::ShaderGenerator& rtShaderGen = RTShader::ShaderGenerator::getSingleton();
         // we do lights ourselves if active
-        rtShaderGen.getRenderState(RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME)->setLightCountAutoUpdate(!mActive);
+        rtShaderGen.getRenderState(MSN_SHADERGEN)->setLightCountAutoUpdate(!mActive);
 
         // mCurrentMode could have changed with a prior call to setMode, so iterate all
         setMode(mCurrentMode);
@@ -162,31 +157,32 @@ void DeferredShadingSystem::createResources(void)
 
     //Hook up the compositor logic and scheme handlers.
     //This can theoretically happen in a loaded plugin, but in this case the demo contains the code.
-    static bool firstTime = true;
-    if (firstTime)
-    {
-        MaterialManager::getSingleton().addListener(new GBufferSchemeHandler, "GBuffer");
-        MaterialManager::getSingleton().addListener(new NullSchemeHandler, "NoGBuffer");
+    mGBufferSchemeHandler.reset(new GBufferSchemeHandler);
+    MaterialManager::getSingleton().addListener(mGBufferSchemeHandler.get(), "GBuffer");
 
-        compMan.registerCustomCompositionPass("DeferredLight", new DeferredLightCompositionPass);
+    mDeferredLightPass.reset(new DeferredLightCompositionPass);
+    compMan.registerCustomCompositionPass("DeferredLight", mDeferredLightPass.get());
 
-        rtShaderGen.createScheme("GBuffer");
-
-        firstTime = false;
-    }
+    rtShaderGen.createScheme("GBuffer");
 
 
     RTShader::RenderState* schemRenderState = rtShaderGen.getRenderState("GBuffer");
     schemRenderState->setLightCountAutoUpdate(false); // does not use lights
-    RTShader::GBuffer* subRenderState = rtShaderGen.createSubRenderState<RTShader::GBuffer>();
-    subRenderState->setOutBuffers({RTShader::GBuffer::TL_DIFFUSE_SPECULAR, RTShader::GBuffer::TL_NORMAL_VIEWDEPTH});
+    auto subRenderState = rtShaderGen.createSubRenderState(RTShader::SRS_GBUFFER);
+    subRenderState->setParameter("target_buffers", StringVector{"diffuse_specular", "normal_viewdepth"});
     schemRenderState->addTemplateSubRenderState(subRenderState);
 
-    mCompositorLogics["SSAOLogic"] = new SSAOLogic;
-    compMan.registerCompositorLogic("SSAOLogic", mCompositorLogics["SSAOLogic"]);
+    mCompositorLogics["SSAOLogic"] = std::make_unique<SSAOLogic>();
+    compMan.registerCompositorLogic("SSAOLogic", mCompositorLogics["SSAOLogic"].get());
 
     // Create the main GBuffer compositor
     mGBufferInstance = compMan.addCompositor(mViewport, "DeferredShading/GBuffer");
+
+    if(!GpuProgramManager::getSingleton().isSyntaxSupported("hlsl"))
+    {
+        // need to clear depth to 1.0 for GL
+        mGBufferInstance->getTechnique()->getTargetPass(0)->getPass(0)->setClearColour(ColourValue(0.0, 0.0, 0.0, 1.0));
+    }
     
     // Create filters
     mInstance[DSM_SHOWLIT] = compMan.addCompositor(mViewport, "DeferredShading/ShowLit");

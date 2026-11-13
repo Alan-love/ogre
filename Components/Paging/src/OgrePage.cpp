@@ -37,7 +37,6 @@ THE SOFTWARE.
 #include "OgrePageContentCollectionFactory.h"
 #include "OgrePageContentCollection.h"
 #include "OgreLogManager.h"
-#include "OgreFileSystemLayer.h"
 #include <iomanip>
 
 namespace Ogre
@@ -46,8 +45,6 @@ namespace Ogre
     const uint32 Page::CHUNK_ID = StreamSerialiser::makeIdentifier("PAGE");
     const uint16 Page::CHUNK_VERSION = 1;
     const uint32 Page::CHUNK_CONTENTCOLLECTION_DECLARATION_ID = StreamSerialiser::makeIdentifier("PCNT");
-    const uint16 Page::WORKQUEUE_PREPARE_REQUEST = 1;
-    const uint16 Page::WORKQUEUE_CHANGECOLLECTION_REQUEST = 3;
 
     //---------------------------------------------------------------------
     Page::Page(PageID pageID, PagedWorldSection* parent)
@@ -56,20 +53,13 @@ namespace Ogre
         , mDeferredProcessInProgress(false)
         , mModified(false)
         , mDebugNode(0)
+        , mInUnload(false)
     {
-        WorkQueue* wq = Root::getSingleton().getWorkQueue();
-        mWorkQueueChannel = wq->getChannel("Ogre/Page");
-        wq->addRequestHandler(mWorkQueueChannel, this);
-        wq->addResponseHandler(mWorkQueueChannel, this);
         touch();
     }
     //---------------------------------------------------------------------
     Page::~Page()
     {
-        WorkQueue* wq = Root::getSingleton().getWorkQueue();
-        wq->removeRequestHandler(mWorkQueueChannel, this);
-        wq->removeResponseHandler(mWorkQueueChannel, this);
-
         destroyAllContentCollections();
         if (mDebugNode)
         {
@@ -85,10 +75,9 @@ namespace Ogre
     //---------------------------------------------------------------------
     void Page::destroyAllContentCollections()
     {
-        for (ContentCollectionList::iterator i = mContentCollections.begin(); 
-            i != mContentCollections.end(); ++i)
+        for (auto & cc : mContentCollections)
         {
-            delete *i;
+            delete cc;
         }
         mContentCollections.clear();
     }
@@ -110,7 +99,7 @@ namespace Ogre
         if (nextFrame < mFrameLastHeld)
         {
             // we must have wrapped around
-            dist = mFrameLastHeld + (std::numeric_limits<unsigned long>::max() - mFrameLastHeld);
+            dist = nextFrame + (std::numeric_limits<unsigned long>::max() - mFrameLastHeld);
         }
         else
             dist = nextFrame - mFrameLastHeld;
@@ -182,52 +171,39 @@ namespace Ogre
         if (!mDeferredProcessInProgress)
         {
             destroyAllContentCollections();
-            PageRequest req(this);
             mDeferredProcessInProgress = true;
-            Root::getSingleton().getWorkQueue()->addRequest(mWorkQueueChannel, WORKQUEUE_PREPARE_REQUEST, 
-                req, 0, synchronous);
+            mInUnload = false;
+
+            if(synchronous)
+            {
+                auto res = handleRequest(NULL, NULL);
+                handleResponse(res, NULL);
+                delete res;
+            }
+            else
+            {
+                Root::getSingleton().getWorkQueue()->addTask([this]() {
+                    auto res = handleRequest(NULL, NULL);
+                    Root::getSingleton().getWorkQueue()->addMainThreadTask([this, res]() {
+                        handleResponse(res, NULL);
+                        delete res;
+                    });
+                });
+            }
+
         }
 
     }
     //---------------------------------------------------------------------
     void Page::unload()
     {
+        mInUnload = true;
         destroyAllContentCollections();
-    }
-    //---------------------------------------------------------------------
-    bool Page::canHandleRequest(const WorkQueue::Request* req, const WorkQueue* srcQ)
-    {
-        PageRequest preq = any_cast<PageRequest>(req->getData());
-        // only deal with own requests
-        // we do this because if we delete a page we want any pending tasks to be discarded
-        if (preq.srcPage != this)
-            return false;
-        else
-            return RequestHandler::canHandleRequest(req, srcQ);
-
-    }
-    //---------------------------------------------------------------------
-    bool Page::canHandleResponse(const WorkQueue::Response* res, const WorkQueue* srcQ)
-    {
-        PageRequest preq = any_cast<PageRequest>(res->getRequest()->getData());
-        // only deal with own requests
-        // we do this because if we delete a page we want any pending tasks to be discarded
-        if (preq.srcPage != this)
-            return false;
-        else
-            return true;
-
     }
     //---------------------------------------------------------------------
     WorkQueue::Response* Page::handleRequest(const WorkQueue::Request* req, const WorkQueue* srcQ)
     {
         // Background thread (maybe)
-
-        PageRequest preq = any_cast<PageRequest>(req->getData());
-        // only deal with own requests; we shouldn't ever get here though
-        if (preq.srcPage != this)
-            return 0;
-
         PageResponse res;
         res.pageData = OGRE_NEW PageData();
         WorkQueue::Response* response = 0;
@@ -250,14 +226,9 @@ namespace Ogre
     {
         // Main thread
         PageResponse pres = any_cast<PageResponse>(res->getData());
-        PageRequest preq = any_cast<PageRequest>(res->getRequest()->getData());
-
-        // only deal with own requests
-        if (preq.srcPage!= this)
-            return;
 
         // final loading behaviour
-        if (res->succeeded())
+        if (res->succeeded() && !mInUnload)
         {
             if(!pres.pageData->collectionsToAdd.empty())
                 std::swap(mContentCollections, pres.pageData->collectionsToAdd);
@@ -294,10 +265,9 @@ namespace Ogre
     {
         mParent->_loadProceduralPage(this);
 
-        for (ContentCollectionList::iterator i = mContentCollections.begin();
-            i != mContentCollections.end(); ++i)
+        for (auto & cc : mContentCollections)
         {
-            (*i)->load();
+            cc->load();
         }
     }
     //---------------------------------------------------------------------
@@ -323,15 +293,14 @@ namespace Ogre
         stream.write(&mID);
 
         // content collections
-        for (ContentCollectionList::iterator i = mContentCollections.begin();
-            i != mContentCollections.end(); ++i)
+        for (auto & cc : mContentCollections)
         {
             // declaration
             stream.writeChunkBegin(CHUNK_CONTENTCOLLECTION_DECLARATION_ID);
-            stream.write(&(*i)->getType());
+            stream.write(&cc->getType());
             stream.writeChunkEnd(CHUNK_CONTENTCOLLECTION_DECLARATION_ID);
             // data
-            (*i)->save(stream);
+            cc->save(stream);
         }
 
         stream.writeChunkEnd(CHUNK_ID);
@@ -344,10 +313,9 @@ namespace Ogre
         updateDebugDisplay();
 
         // content collections
-        for (ContentCollectionList::iterator i = mContentCollections.begin();
-            i != mContentCollections.end(); ++i)
+        for (auto & cc : mContentCollections)
         {
-            (*i)->frameStart(timeSinceLastFrame);
+            cc->frameStart(timeSinceLastFrame);
         }
 
 
@@ -356,10 +324,9 @@ namespace Ogre
     void Page::frameEnd(Real timeElapsed)
     {
         // content collections
-        for (ContentCollectionList::iterator i = mContentCollections.begin();
-            i != mContentCollections.end(); ++i)
+        for (auto & cc : mContentCollections)
         {
-            (*i)->frameEnd(timeElapsed);
+            cc->frameEnd(timeElapsed);
         }
 
     }
@@ -367,10 +334,9 @@ namespace Ogre
     void Page::notifyCamera(Camera* cam)
     {
         // content collections
-        for (ContentCollectionList::iterator i = mContentCollections.begin();
-            i != mContentCollections.end(); ++i)
+        for (auto & cc : mContentCollections)
         {
-            (*i)->notifyCamera(cam);
+            cc->notifyCamera(cam);
         }
 
     }
@@ -452,13 +418,7 @@ namespace Ogre
 
         str    << std::setw(8) << std::setfill('0') << std::hex << mID << ".page";
 
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
-        static FileSystemLayer fs("");
-        // For the iOS we need to prefix the file name with the path to the Caches folder
-        return fs.getWritablePath(str.str());
-#else
         return str.str();
-#endif
     }
 
 

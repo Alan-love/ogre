@@ -32,6 +32,17 @@ THE SOFTWARE
 #include <string>
 #include <memory>
 
+// extra namespace to trigger LNK2019 on binary incompatible builds
+// instead of crashing at runtime
+#if defined(_MSC_VER) && defined(_DEBUG)
+#define OGRE_DEBUG_NS_BEGIN namespace DEBUG_BUILD_REQUIRED {
+#define OGRE_DEBUG_NS_END }
+namespace Ogre { namespace DEBUG_BUILD_REQUIRED { } using namespace DEBUG_BUILD_REQUIRED; }
+#else
+#define OGRE_DEBUG_NS_BEGIN
+#define OGRE_DEBUG_NS_END
+#endif
+
 namespace Ogre {
     #define OGRE_TOKEN_PASTE_INNER(x, y) x ## y
     #define OGRE_TOKEN_PASTE(x, y) OGRE_TOKEN_PASTE_INNER(x, y)
@@ -39,6 +50,13 @@ namespace Ogre {
     #define OGRE_VERSION    ((OGRE_VERSION_MAJOR << 16) | (OGRE_VERSION_MINOR << 8) | OGRE_VERSION_PATCH)
 
     #define OGRE_MIN_VERSION(MAJOR, MINOR, PATCH) OGRE_VERSION >= ((MAJOR << 16) | (MINOR << 8) | PATCH)
+
+// OSX needs this correctly export typeinfo, however on MSVC there is huge fallout with it. Linux is fine either way.
+#if OGRE_COMPILER == OGRE_COMPILER_MSVC
+    #define _OgreMaybeExport
+#else
+    #define _OgreMaybeExport _OgreExport
+#endif
 
     // define the real number values to be used
     // default to use 'float' unless precompiler option set
@@ -86,6 +104,8 @@ namespace Ogre {
     class ColourValue;
     class ConfigDialog;
     template <typename T> class Controller;
+    typedef Controller<float> ControllerFloat;
+    typedef Controller<float> ControllerReal;
     template <typename T> class ControllerFunction;
     class ControllerManager;
     template <typename T> class ControllerValue;
@@ -166,7 +186,6 @@ namespace Ogre {
     class ParticleSystemRenderer;
     template<typename T> class FactoryObj;
     typedef FactoryObj<ParticleSystemRenderer> ParticleSystemRendererFactory;
-    class ParticleVisualData;
     class Pass;
     class PatchMesh;
     class PixelBox;
@@ -203,9 +222,10 @@ namespace Ogre {
     class ResourceGroupManager;
     class ResourceManager;
     class RibbonTrail;
+OGRE_DEBUG_NS_BEGIN
     class Root;
+OGRE_DEBUG_NS_END
     class SceneManager;
-    class SceneManagerEnumerator;
     class SceneNode;
     class SceneQuery;
     class SceneQueryListener;
@@ -231,7 +251,6 @@ namespace Ogre {
     class SubMesh;
     class TagPoint;
     class Technique;
-    class TempBlendedBufferInfo;
     class ExternalTextureSource;
     class TextureUnitState;
     class Texture;
@@ -239,8 +258,9 @@ namespace Ogre {
     class TransformKeyFrame;
     class Timer;
     class UserObjectBindings;
-    template <int dims, typename T> class Vector;
+    template <int dims, typename T> class _OgreMaybeExport Vector;
     typedef Vector<2, Real> Vector2;
+    typedef Vector<2, float> Vector2f;
     typedef Vector<2, int> Vector2i;
     typedef Vector<3, Real> Vector3;
     typedef Vector<3, float> Vector3f;
@@ -315,6 +335,24 @@ namespace Ogre
 
     template <typename T, size_t Alignment = OGRE_SIMD_ALIGNMENT>
     using aligned_vector = std::vector<T, AlignedAllocator<T, Alignment>>;
+
+    _OgreExport extern const String MOT_ENTITY;
+    _OgreExport extern const String MOT_LIGHT;
+    _OgreExport extern const String MOT_MANUAL_OBJECT;
+    _OgreExport extern const String MOT_PARTICLE_SYSTEM;
+    _OgreExport extern const String MOT_BILLBOARD_SET;
+    _OgreExport extern const String MOT_BILLBOARD_CHAIN;
+    _OgreExport extern const String MOT_RIBBON_TRAIL;
+    _OgreExport extern const String MOT_RECTANGLE2D;
+    _OgreExport extern const String MOT_STATIC_GEOMETRY;
+    _OgreExport extern const String MOT_CAMERA;
+    /// @deprecated use #MOT_FRUSTUM
+    _OgreExport extern const String MOT_FRUSTRUM;
+    _OgreExport extern const String MOT_FRUSTUM;
+    _OgreExport extern const String MOT_MOVABLE_PLANE;
+    _OgreExport extern const String MOT_INSTANCE_BATCH;
+    _OgreExport extern const String MOT_INSTANCED_ENTITY;
+    _OgreExport extern const String MOT_SIMPLE_RENDERABLE;
 }
 
 #endif // __OgrePrerequisites_H__

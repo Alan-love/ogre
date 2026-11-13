@@ -201,22 +201,16 @@ namespace Ogre
     {
         Material::Techniques::const_iterator t;
         for(t = material->getTechniques().begin(); t != material->getTechniques().end(); ++t)
+        for (auto *technique : material->getTechniques())
         {
-            Technique *technique = *t;
-            Technique::Passes::const_iterator i;
-            for(i = technique->getPasses().begin(); i != technique->getPasses().end(); ++i)
+            for (auto *pass : technique->getPasses())
             {
-                Pass *pass = *i;
-                Pass::TextureUnitStates::const_iterator it;
-                for(it = pass->getTextureUnitStates().begin(); it != pass->getTextureUnitStates().end(); ++it)
+                for(auto *texUnit : pass->getTextureUnitStates())
                 {
-                    TextureUnitState *texUnit = *it;
-
                     if( texUnit->getName() == "InstancingVTF" )
                     {
                         texUnit->setTextureName( mMatrixTexture->getName(), textureType );
                         texUnit->setTextureFiltering( TFO_NONE );
-                        texUnit->setBindingType( TextureUnitState::BT_VERTEX );
                     }
                 }
             }
@@ -224,7 +218,7 @@ namespace Ogre
             if( technique->getShadowCasterMaterial() )
             {
                 MaterialPtr matCaster = technique->getShadowCasterMaterial();
-                setupMaterialToUseVTF( textureType, matCaster );
+                setupMaterialToUseVTF(textureType, matCaster );
             }
         }
     }
@@ -425,11 +419,6 @@ namespace Ogre
     void BaseInstanceBatchVTF::getWorldTransforms( Matrix4* xform ) const
     {
         *xform = Matrix4::IDENTITY;
-    }
-    //-----------------------------------------------------------------------
-    unsigned short BaseInstanceBatchVTF::getNumWorldTransforms(void) const
-    {
-        return 1;
     }
     //-----------------------------------------------------------------------
     void BaseInstanceBatchVTF::_updateRenderQueue(RenderQueue* queue)
@@ -693,7 +682,7 @@ namespace Ogre
         const RenderSystemCapabilities *capabilities = renderSystem->getCapabilities();
 
         //VTF must be supported
-        if( capabilities->hasCapability( RSC_VERTEX_TEXTURE_FETCH ) )
+        if( capabilities->getNumVertexTextureUnits() )
         {
             //TODO: Check PF_FLOAT32_RGBA is supported (should be, since it was the 1st one)
             const size_t numBones = std::max<size_t>( 1, baseSubMesh->blendIndexToBoneIndexMap.size() );

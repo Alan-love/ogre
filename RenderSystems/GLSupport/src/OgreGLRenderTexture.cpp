@@ -30,6 +30,7 @@ Copyright (c) 2000-2014 Torus Knot Software Ltd
 #include "OgreGLHardwarePixelBufferCommon.h"
 #include "OgreGLRenderSystemCommon.h"
 #include "OgreRoot.h"
+#include "OgreViewport.h"
 
 namespace Ogre {
 
@@ -39,20 +40,22 @@ namespace Ogre {
 
     template<> GLRTTManager* Singleton<GLRTTManager>::msSingleton = NULL;
 
-    GLFrameBufferObjectCommon::GLFrameBufferObjectCommon(int32 fsaa)
-        : mFB(0), mMultisampleFB(0), mNumSamples(fsaa)
+    GLFrameBufferObjectCommon::GLFrameBufferObjectCommon()
+        : mContext(NULL), mFB(0), mMultisampleFB(0), mNumSamples(0), mRTTManager(GLRTTManager::getSingletonPtr())
     {
-        auto* rs = static_cast<GLRenderSystemCommon*>(
-            Root::getSingleton().getRenderSystem());
-        mContext = rs->_getCurrentContext();
-
         // Initialise state
         mDepth.buffer = 0;
         mStencil.buffer = 0;
-        for(size_t x = 0; x < OGRE_MAX_MULTIPLE_RENDER_TARGETS; ++x)
+        for(auto & x : mColour)
         {
-            mColour[x].buffer=0;
+            x.buffer=0;
         }
+    }
+
+    GLFrameBufferObjectCommon::~GLFrameBufferObjectCommon()
+    {
+        for(int i = 0; i < OGRE_MAX_MULTIPLE_RENDER_TARGETS; ++i)
+            mRTTManager->releaseRenderBuffer(mMultisampleColourBuffer[i]);
     }
 
     void GLFrameBufferObjectCommon::bindSurface(size_t attachment, const GLSurfaceDesc &target)
@@ -61,7 +64,21 @@ namespace Ogre {
         mColour[attachment] = target;
         // Re-initialise
         if(mColour[0].buffer)
+        {
+            if(PixelUtil::isDepth(target.buffer->getFormat()))
+            {
+                mColour[0].numSamples = 0;
+                mContext = 0; // force re-init - e.g. when adding depth to MRT
+            }
+            mNumSamples = mColour[0].numSamples;
+            bind(true);
             initialise();
+
+            // restore previous render target
+            auto rs = static_cast<GLRenderSystemCommon*>(Root::getSingleton().getRenderSystem());
+            if(auto prevTarget = rs->getActiveRenderTarget())
+                rs->bindRenderTarget(prevTarget);
+        }
     }
 
     void GLFrameBufferObjectCommon::unbindSurface(size_t attachment)
@@ -117,6 +134,7 @@ namespace Ogre {
                 case PF_DEPTH16:
                     format = PF_FLOAT16_R;
                     break;
+                case PF_DEPTH24_STENCIL8:
                 case PF_DEPTH32F:
                 case PF_DEPTH32:
                     format = PF_FLOAT32_R;
@@ -152,11 +170,55 @@ namespace Ogre {
         return PF_BYTE_RGBA; // native endian
     }
 
+    static uint32 getKey(unsigned format, uint32 width, uint32 height, uint fsaa, uint16 poolId, uint mrtIndex)
+    {
+        uint32 key = HashCombine(0, format);
+        key = HashCombine(key, width);
+        key = HashCombine(key, height);
+        key = HashCombine(key, fsaa);
+        key = HashCombine(key, poolId);
+        key = HashCombine(key, mrtIndex);
+        return key;
+    }
+
+    GLSurfaceDesc GLRTTManager::requestRenderBuffer(unsigned format, uint32 width, uint32 height, uint fsaa,
+                                                    uint16 poolId, uint mrtIndex)
+    {
+        GLSurfaceDesc retval;
+        retval.buffer = 0; // Return 0 buffer if GL_NONE is requested
+        if (format != 0)
+        {
+            uint32 key = getKey(format, width, height, fsaa, poolId, mrtIndex);
+            RenderBufferMap::iterator it = mRenderBufferMap.find(key);
+            if (it != mRenderBufferMap.end())
+            {
+                retval.buffer = it->second.buffer;
+                // Increase refcount
+                ++it->second.refcount;
+            }
+            else
+            {
+                // New one
+                retval.buffer = createNewRenderBuffer(format, width, height, fsaa);
+                mRenderBufferMap[key] = retval.buffer;
+            }
+
+            retval.zoffset = 0;
+            retval.numSamples = fsaa;
+            retval.poolId = poolId;
+            retval.mrtIndex = mrtIndex;
+        }
+        // std::cerr << "Requested renderbuffer with format " << std::hex << format << std::dec << " of " << width <<
+        // "x" << height << " :" << retval.buffer << std::endl;
+        return retval;
+    }
+
     void GLRTTManager::releaseRenderBuffer(const GLSurfaceDesc &surface)
     {
         if(surface.buffer == 0)
             return;
-        RBFormat key(surface.buffer->getGLFormat(), surface.buffer->getWidth(), surface.buffer->getHeight(), surface.numSamples);
+        uint32 key = getKey(surface.buffer->getGLFormat(), surface.buffer->getWidth(), surface.buffer->getHeight(),
+                            surface.numSamples, surface.poolId, surface.mrtIndex);
         RenderBufferMap::iterator it = mRenderBufferMap.find(key);
         if(it != mRenderBufferMap.end())
         {
@@ -173,14 +235,78 @@ namespace Ogre {
         }
     }
 
+    void GLFrameBufferObjectCommon::createAndBindRenderBuffer(unsigned format, uint32 width, uint32 height,
+                                                              uint8 mrtIndex)
+    {
+#define GL_COLOR_ATTACHMENT0 0x8CE0 // same for all GL versions
+        // Create AA render buffer (colour)
+        // note, this can be shared too because we blit it to the final FBO
+        // right after the render is finished
+        auto multisampleBuffer =
+            mRTTManager->requestRenderBuffer(format, width, height, mNumSamples, mPoolId, mrtIndex);
+
+        // Attach it, because we won't be attaching below and non-multisample has
+        // actually been attached to other FBO
+        multisampleBuffer.buffer->bindToFramebuffer(GL_COLOR_ATTACHMENT0 + mrtIndex, multisampleBuffer.zoffset);
+        mMultisampleColourBuffer[mrtIndex] = multisampleBuffer;
+    }
+
     GLRenderTexture::GLRenderTexture(const String &name,
                                                const GLSurfaceDesc &target,
-                                               bool writeGamma,
-                                               uint fsaa)
+                                               bool writeGamma)
         : RenderTexture(target.buffer, target.zoffset)
     {
         mName = name;
         mHwGamma = writeGamma;
-        mFSAA = fsaa;
+    }
+
+    //-----------------------------------------------------------------------------
+    GLFBORenderTexture::GLFBORenderTexture(const String& name, const GLSurfaceDesc& target, bool writeGamma,
+                                           GLFrameBufferObjectCommon* fbo)
+        : GLRenderTexture(name, target, writeGamma), mFB(fbo)
+    {
+        mFB->setRenderTargetPool(mDepthBufferPoolId);
+        // Bind target to surface 0 and initialise
+        mFB->bindSurface(0, target);
+        // Get attributes
+        mWidth = mFB->getWidth();
+        mHeight = mFB->getHeight();
+        mFSAA = mFB->getFSAA();
+    }
+
+    void GLFBORenderTexture::getCustomAttribute(const String& name, void* pData)
+    {
+        if( name == GLRenderTexture::CustomAttributeString_FBO )
+        {
+            *static_cast<GLFrameBufferObjectCommon **>(pData) = mFB.get();
+        }
+        else if(name == GLRenderTexture::CustomAttributeString_GLCONTEXT)
+        {
+            *static_cast<GLContext**>(pData) = mFB->getContext();
+        }
+        else if (name == "GL_FBOID")
+        {
+            *static_cast<uint32*>(pData) = mFB->getGLFBOID();
+        }
+        else if (name == "GL_MULTISAMPLEFBOID")
+        {
+            *static_cast<uint32*>(pData) = mFB->getGLMultisampleFBOID();
+        }
+    }
+
+    //-----------------------------------------------------------------------------
+    bool GLFBORenderTexture::attachDepthBuffer( DepthBuffer *depthBuffer )
+    {
+        bool result;
+        if( (result = GLRenderTexture::attachDepthBuffer( depthBuffer )) )
+            mFB->attachDepthBuffer( depthBuffer );
+
+        return result;
+    }
+    //-----------------------------------------------------------------------------
+    void GLFBORenderTexture::_detachDepthBuffer()
+    {
+        mFB->detachDepthBuffer();
+        GLRenderTexture::_detachDepthBuffer();
     }
 }

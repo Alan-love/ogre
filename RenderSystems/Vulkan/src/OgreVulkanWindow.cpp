@@ -37,30 +37,27 @@ THE SOFTWARE.
 #include "OgrePixelFormat.h"
 #include "OgreVulkanTextureGpuManager.h"
 #include "OgreHardwarePixelBuffer.h"
-#include "OgreViewport.h"
-
-#include "vulkan/vulkan_core.h"
-
-#if OGRE_PLATFORM == OGRE_PLATFORM_LINUX
-#include <X11/Xlib.h>
-#include "vulkan/vulkan_xlib.h"
-#elif OGRE_PLATFORM == OGRE_PLATFORM_WIN32
-#include <windows.h>
-#include "vulkan/vulkan_win32.h"
-#elif OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
+#if OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
 #include <android/native_window.h>
-#include "vulkan/vulkan_android.h"
+#elif OGRE_PLATFORM == OGRE_PLATFORM_WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #endif
-
 #include "OgreDepthBuffer.h"
 
 #define TODO_handleSeparatePresentQueue
 
 namespace Ogre
 {
+#if defined( VK_USE_PLATFORM_METAL_EXT )
+    // OgreVulkanWindowApple.mm - resolves an NSWindow*/NSView*/CAMetalLayer*
+    // handle to the CAMetalLayer required by VK_EXT_metal_surface
+    void *getCAMetalLayer( size_t windowHandle );
+#endif
+
     VulkanWindow::VulkanWindow( const String &title, uint32 width, uint32 height, bool fullscreenMode ) :
         mLowestLatencyVSync( false ),
-        mHwGamma( false ),
+        mHdrDisplay( false ),
         mDevice( 0 ),
         mTexture( 0 ),
         mDepthTexture( 0 ),
@@ -90,6 +87,19 @@ namespace Ogre
             vkGetPhysicalDeviceSurfaceFormatsKHR(mDevice->mPhysicalDevice, mSurfaceKHR, &numFormats, formats.data()));
 
         PixelFormatGpu pixelFormat = PF_UNKNOWN;
+
+        if (mHdrDisplay)
+        {
+            for (size_t i = 0; i < numFormats; ++i)
+            {
+                if (formats[i].format == VK_FORMAT_R16G16B16A16_SFLOAT &&
+                    formats[i].colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT)
+                {
+                    return PF_FLOAT16_RGBA;
+                }
+            }
+        }
+
         for( size_t i = 0; i < numFormats && pixelFormat == PF_UNKNOWN; ++i )
         {
             switch( formats[i].format )
@@ -121,6 +131,26 @@ namespace Ogre
     //-------------------------------------------------------------------------
     void VulkanWindow::createSwapchain( void )
     {
+        VkSurfaceCapabilitiesKHR surfaceCaps;
+        OGRE_VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(mDevice->mPhysicalDevice, mSurfaceKHR, &surfaceCaps));
+
+        if (surfaceCaps.currentExtent.width != 0xFFFFFFFFu)
+        {
+            // surface size is defined by the window system - the swapchain must
+            // match it. Notably on MoltenVK, where min/maxImageExtent leave room,
+            // any other size makes vkAcquireNextImageKHR return
+            // VK_ERROR_OUT_OF_DATE_KHR forever (-> swapchain recreation loop)
+            mWidth = surfaceCaps.currentExtent.width;
+            mHeight = surfaceCaps.currentExtent.height;
+        }
+        else
+        {
+            // Swapchain may be smaller/bigger than requested
+            mWidth = Math::Clamp(mWidth, surfaceCaps.minImageExtent.width, surfaceCaps.maxImageExtent.width);
+            mHeight =
+                Math::Clamp(mHeight, surfaceCaps.minImageExtent.height, surfaceCaps.maxImageExtent.height);
+        }
+
         mTexture->setWidth(mWidth);
         mTexture->setHeight(mHeight);
         mTexture->createInternalResources();
@@ -129,14 +159,6 @@ namespace Ogre
         mDepthTexture->setHeight(mHeight);
         mDepthTexture->setNumMipmaps(0);
         mDepthTexture->createInternalResources();
-
-        VkSurfaceCapabilitiesKHR surfaceCaps;
-        OGRE_VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(mDevice->mPhysicalDevice, mSurfaceKHR, &surfaceCaps));
-
-        // Swapchain may be smaller/bigger than requested
-        mWidth = Math::Clamp(mWidth, surfaceCaps.minImageExtent.width, surfaceCaps.maxImageExtent.width);
-        mHeight =
-            Math::Clamp(mHeight, surfaceCaps.minImageExtent.height, surfaceCaps.maxImageExtent.height);
 
         VkBool32 supported;
         OGRE_VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(mDevice->mPhysicalDevice, mDevice->mGraphicsQueue.mFamilyIdx,
@@ -182,6 +204,10 @@ namespace Ogre
         swapchainCreateInfo.minImageCount = minImageCount;
         swapchainCreateInfo.imageFormat = VulkanMappings::get(mTexture->getFormat());
         swapchainCreateInfo.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+        if (mHdrDisplay && swapchainCreateInfo.imageFormat == VK_FORMAT_R16G16B16A16_SFLOAT)
+        {
+            swapchainCreateInfo.imageColorSpace = VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
+        }
         swapchainCreateInfo.imageExtent.width = getWidth();
         swapchainCreateInfo.imageExtent.height = getHeight();
         swapchainCreateInfo.imageArrayLayers = 1u;
@@ -242,14 +268,17 @@ namespace Ogre
         VkSemaphoreCreateInfo semaphoreCreateInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         for (uint32 i = 0; i < numSwapchainImages; i++)
         {
-            mSwapchainImageViews[i] = mTexture->_createView(0, 0, 0, 1u, mSwapchainImages[i]);
+            mSwapchainImageViews[i] = mTexture->_createView(0, 1, 0, 1u, mSwapchainImages[i]);
             OGRE_VK_CHECK(vkCreateSemaphore(mDevice->mDevice, &semaphoreCreateInfo, 0, &mImageReadySemaphores[i]));
             OGRE_VK_CHECK(vkCreateSemaphore(mDevice->mDevice, &semaphoreCreateInfo, 0, &mRenderFinishedSemaphores[i]));
         }
 
         acquireNextImage();
 
-        mDevice->mRenderSystem->notifySwapchainCreated( this );
+        mRenderPassDescriptor->mColour[0] = mTexture;
+        mRenderPassDescriptor->mDepth = mDepthTexture;
+        mRenderPassDescriptor->mNumColourEntries = 1;
+        mRenderPassDescriptor->entriesModified(true);
     }
     //-------------------------------------------------------------------------
     void VulkanWindow::destroySwapchain( void )
@@ -263,7 +292,8 @@ namespace Ogre
 
         mTexture->unload();
         mDepthTexture->unload();
-        mDevice->mRenderSystem->notifySwapchainDestroyed( this );
+        mRenderPassDescriptor->releaseFbo();
+        mDevice->mRenderSystem->notifySwapchainDestroyed();
 
         for(auto iv : mSwapchainImageViews)
         {
@@ -296,7 +326,16 @@ namespace Ogre
         uint32 imageIdx = 0u;
         auto res =
             vkAcquireNextImageKHR(mDevice->mDevice, mSwapchain, UINT64_MAX, semaphore, VK_NULL_HANDLE, &imageIdx);
-        if (res != VK_ERROR_OUT_OF_DATE_KHR && res != VK_SUBOPTIMAL_KHR && res != VK_SUCCESS)
+
+        if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
+        {
+            mDevice->stall();
+            destroySwapchain();
+            createSwapchain();
+            return;
+        }
+
+        if (res != VK_SUCCESS)
         {
             LogManager::getSingleton().logError("vkAcquireNextImageKHR failed with" + vkResultToString(res));
             return;
@@ -314,21 +353,9 @@ namespace Ogre
         if (mClosed)
             return;
 
-        if (mWidth == width && mHeight == height)
-            return;
-
         if (width != 0 && height != 0)
         {
-            mWidth = width;
-            mHeight = height;
-
-            // recreate swapchain
-            mDevice->stall();
-            destroySwapchain();
-            createSwapchain();
-
-            for (auto it : mViewportList)
-                it.second->_updateDimensions();
+            RenderWindow::resize(width, height);
         }
     }
 
@@ -368,7 +395,7 @@ namespace Ogre
     //-------------------------------------------------------------------------
     void VulkanWindow::createSurface(size_t windowHandle)
     {
-#if OGRE_PLATFORM == OGRE_PLATFORM_LINUX
+#if defined(VK_USE_PLATFORM_XLIB_KHR)
         Display *dpy = XOpenDisplay(NULL);
 
         VkXlibSurfaceCreateInfoKHR surfCreateInfo = {VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR};
@@ -383,7 +410,7 @@ namespace Ogre
         }
 
         OGRE_VK_CHECK(vkCreateXlibSurfaceKHR(mDevice->mInstance, &surfCreateInfo, 0, &mSurfaceKHR));
-#elif OGRE_PLATFORM == OGRE_PLATFORM_WIN32
+#elif defined(VK_USE_PLATFORM_WIN32_KHR)
         HINSTANCE hInst = NULL;
         static TCHAR staticVar;
         GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, &staticVar, &hInst);
@@ -393,23 +420,55 @@ namespace Ogre
         surfCreateInfo.hwnd = (HWND)windowHandle;
 
         OGRE_VK_CHECK(vkCreateWin32SurfaceKHR(mDevice->mInstance, &surfCreateInfo, 0, &mSurfaceKHR));
-#elif OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
+#elif defined(VK_USE_PLATFORM_ANDROID_KHR)
         VkAndroidSurfaceCreateInfoKHR surfCreateInfo = {VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
         surfCreateInfo.window = (ANativeWindow*)windowHandle;
 
         OGRE_VK_CHECK(vkCreateAndroidSurfaceKHR(mDevice->mInstance, &surfCreateInfo, 0, &mSurfaceKHR));
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
+        CAMetalLayer* layer = (CAMetalLayer*)getCAMetalLayer(windowHandle);
+        if (!layer)
+        {
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
+                        "windowHandle does not resolve to a CAMetalLayer");
+        }
+
+        VkMetalSurfaceCreateInfoEXT surfCreateInfo = {VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT};
+        surfCreateInfo.pLayer = layer;
+
+        OGRE_VK_CHECK(vkCreateMetalSurfaceEXT(mDevice->mInstance, &surfCreateInfo, 0, &mSurfaceKHR));
+#else
+        OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unsupported Vulkan platform");
+#endif
+    }
+
+    void VulkanWindow::createSurface(size_t wlSurface, size_t wlDisplay)
+    {
+#if defined(VK_USE_PLATFORM_WAYLAND_KHR)
+        VkWaylandSurfaceCreateInfoKHR surfCreateInfo = {VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR};
+        surfCreateInfo.display = (struct wl_display*)wlDisplay;
+        surfCreateInfo.surface = (struct wl_surface*)wlSurface;
+
+        OGRE_VK_CHECK(vkCreateWaylandSurfaceKHR(mDevice->mInstance, &surfCreateInfo, 0, &mSurfaceKHR));
+#else
+        OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unsupported Vulkan platform");
 #endif
     }
 
     const char *VulkanWindow::getRequiredExtensionName()
     {
-#if OGRE_PLATFORM == OGRE_PLATFORM_LINUX
+#if defined(VK_USE_PLATFORM_XLIB_KHR)
         return VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
-#elif OGRE_PLATFORM == OGRE_PLATFORM_WIN32
+#elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
+        return VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
+#elif defined(VK_USE_PLATFORM_WIN32_KHR)
         return VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
-#elif OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
+#elif defined(VK_USE_PLATFORM_ANDROID_KHR)
         return VK_KHR_ANDROID_SURFACE_EXTENSION_NAME;
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
+        return VK_EXT_METAL_SURFACE_EXTENSION_NAME;
 #endif
+        return "";
     }
 
     void VulkanWindow::create(const String& name, unsigned int width, unsigned int height, bool fullScreen,
@@ -423,6 +482,8 @@ namespace Ogre
         mHeight = height;
         mFSAA = 1;
 
+        size_t wlDisplay = 0;
+
         if( miscParams )
         {
             NameValuePairList::const_iterator end = miscParams->end();
@@ -430,6 +491,15 @@ namespace Ogre
             auto opt = miscParams->find( "externalWindowHandle" );
             if( opt != end )
                 mWindowHandle = StringConverter::parseSizeT( opt->second );
+
+            opt = miscParams->find( "externalWlSurface" );
+            if( opt != end )
+                mWindowHandle = StringConverter::parseSizeT( opt->second );
+
+
+            opt = miscParams->find( "externalWlDisplay" );
+            if( opt != end )
+                wlDisplay = StringConverter::parseSizeT( opt->second );
 
             opt = miscParams->find( "vsync" );
             if( opt != end )
@@ -443,19 +513,31 @@ namespace Ogre
             opt = miscParams->find( "gamma" );
             if( opt != end )
                 mHwGamma = StringConverter::parseBool( opt->second );
+            opt = miscParams->find( "hdrDisplay" );
+            if( opt != end )
+            {
+                mHdrDisplay = StringConverter::parseBool( opt->second );
+                mHwGamma = mHdrDisplay; // hdr implies hw gamma
+            }
         }
 
-        OgreAssert( mWindowHandle,  "externalWindowHandle required" );
+#ifdef VK_USE_PLATFORM_WAYLAND_KHR
+        OgreAssert( mWindowHandle && wlDisplay, "externalWlSurface and externalWlDisplay required");
+        createSurface(mWindowHandle, wlDisplay);
+#else
+        OgreAssert( mWindowHandle, "externalWindowHandle required");
         createSurface(mWindowHandle);
+        (void)wlDisplay;
+#endif
 
         auto texMgr = TextureManager::getSingletonPtr();
         mTexture = new VulkanTextureGpuWindow("RenderWindow", TEX_TYPE_2D, texMgr, this);;
         mTexture->setFormat(chooseSurfaceFormat(mHwGamma));
+        mTexture->setHardwareGammaEnabled(mHwGamma);
         mTexture->setFSAA(mFSAA, "");
 
-        mDepthTexture = new VulkanTextureGpuRenderTarget("RenderWindow DepthBuffer", TEX_TYPE_2D, texMgr);
-        mDepthTexture->setFormat(PF_DEPTH32F);
-        mDepthTexture->setUsage(TU_RENDERTARGET);
+        mDepthTexture = new VulkanTextureGpu(texMgr, "RenderWindow DepthBuffer", 0, "", true, 0);
+        mDepthTexture->setFormat(PF_DEPTH32);
         mDepthTexture->setFSAA(mFSAA, "");
 #if 0
         mStencilBuffer = 0;
@@ -463,6 +545,7 @@ namespace Ogre
             mStencilBuffer = mDepthBuffer;
 #endif
 
+        mRenderPassDescriptor.reset(new VulkanRenderPassDescriptor(&mDevice->mGraphicsQueue, mDevice->mRenderSystem));
         createSwapchain();
     }
     //-------------------------------------------------------------------------

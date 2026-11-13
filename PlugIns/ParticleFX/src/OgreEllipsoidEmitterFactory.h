@@ -37,7 +37,7 @@ THE SOFTWARE.
 namespace Ogre {
 
     /** Factory class for particle emitter of type "Ellipsoid".
-    @remarks
+
         Creates instances of EllipsoidEmitter to be used in particle systems. 
     */
     class EllipsoidEmitterFactory : public ParticleEmitterFactory
@@ -49,9 +49,7 @@ namespace Ogre {
 
         ParticleEmitter* createEmitter(ParticleSystem* psys) override
         {
-            ParticleEmitter* emit = OGRE_NEW EllipsoidEmitter(psys);
-            mEmitters.push_back(emit);
-            return emit;
+            return new EllipsoidEmitter(psys);
         }
 
     };

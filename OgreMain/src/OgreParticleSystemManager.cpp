@@ -59,7 +59,6 @@ namespace Ogre {
     {
         removeAllTemplates(true); // Destroy all templates
         OGRE_LOCK_AUTO_MUTEX;
-        ResourceGroupManager::getSingleton()._unregisterScriptLoader(this);
         // delete billboard factory
         if (mBillboardRendererFactory)
         {
@@ -75,22 +74,6 @@ namespace Ogre {
             mFactory = 0;
         }
 
-    }
-    //-----------------------------------------------------------------------
-    const StringVector& ParticleSystemManager::getScriptPatterns(void) const
-    {
-        return mScriptPatterns;
-    }
-    //-----------------------------------------------------------------------
-    Real ParticleSystemManager::getLoadingOrder(void) const
-    {
-        /// Load late
-        return 1000.0f;
-    }
-    //-----------------------------------------------------------------------
-    void ParticleSystemManager::parseScript(DataStreamPtr& stream, const String& groupName)
-    {
-        ScriptCompilerManager::getSingleton().parseScript(stream, groupName);
     }
     //-----------------------------------------------------------------------
     void ParticleSystemManager::addEmitterFactory(ParticleEmitterFactory* factory)
@@ -111,7 +94,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void ParticleSystemManager::addRendererFactory(ParticleSystemRendererFactory* factory)
     {
-            OGRE_LOCK_AUTO_MUTEX ;
+        OGRE_LOCK_AUTO_MUTEX ;
         String name = factory->getType();
         mRendererFactories[name] = factory;
         LogManager::getSingleton().logMessage("Particle Renderer Type '" + name + "' registered");
@@ -248,8 +231,7 @@ namespace Ogre {
 
         if (pFact == mEmitterFactories.end())
         {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Cannot find requested emitter type.", 
-                "ParticleSystemManager::_createEmitter");
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Cannot find emitter type '" + emitterType + "'");
         }
 
         return pFact->second->createEmitter(psys);
@@ -282,8 +264,7 @@ namespace Ogre {
 
         if (pFact == mAffectorFactories.end())
         {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Cannot find requested affector type.", 
-                "ParticleSystemManager::_createAffector");
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Cannot find affector type '" + affectorType + "'");
         }
 
         return pFact->second->createAffector(psys);
@@ -373,7 +354,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     //-----------------------------------------------------------------------
     //-----------------------------------------------------------------------
-    String ParticleSystemFactory::FACTORY_TYPE_NAME = "ParticleSystem";
+    const String MOT_PARTICLE_SYSTEM = "ParticleSystem";
     //-----------------------------------------------------------------------
     MovableObject* ParticleSystemFactory::createInstanceImpl( const String& name, 
             const NameValuePairList* params)
@@ -414,7 +395,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     const String& ParticleSystemFactory::getType(void) const
     {
-        return FACTORY_TYPE_NAME;
+        return MOT_PARTICLE_SYSTEM;
     }
     //-----------------------------------------------------------------------
 }

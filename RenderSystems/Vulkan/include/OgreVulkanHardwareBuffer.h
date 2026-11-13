@@ -33,23 +33,27 @@ Copyright (c) 2000-2014 Torus Knot Software Ltd
 
 #include "OgreHardwareBuffer.h"
 
+#include "vk_mem_alloc.h"
+
 namespace Ogre
 {
     class VulkanHardwareBuffer : public HardwareBuffer
     {
     private:
         VkBuffer mBuffer;
-        VkDeviceMemory  mMemory;
+        VmaAllocation mAllocation;
         VulkanDevice *mDevice;
-        uint32 mLastFrameUsed;
-        uint32 mLastFrameGpuWrote;
+        uint32 mTarget;
+        void *mMappedPtr;
+
+        void discard();
     public:
         VulkanHardwareBuffer(uint32 target, size_t sizeBytes, Usage usage, bool useShadowBuffer, VulkanDevice* device);
         virtual ~VulkanHardwareBuffer();
 
-        void _notifyDeviceStalled( void );
+        void _notifyDeviceStalled(void) {}
 
-        VkBuffer getVkBuffer();
+        VkBuffer getVkBuffer() const { return mBuffer; }
 
         void* lockImpl(size_t offset, size_t length, LockOptions options) override;
         void unlockImpl() override;

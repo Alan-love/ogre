@@ -1,17 +1,19 @@
-set(MEDIA_DIR ${CMAKE_BINARY_DIR}/bin/media/)
+set(MEDIA_DIR ${CMAKE_BINARY_DIR}/bin/media)
 
 set(CMAKE_EXECUTABLE_SUFFIX ".html")
-set(CMAKE_EXE_LINKER_FLAGS "--preload-file ${MEDIA_DIR}/@. -s EXPORTED_FUNCTIONS=\"[ '_passAssetAsArrayBuffer', '_clearScene', '_main']\" -s USE_SDL=2")
+set(SHELL_FILE ${CMAKE_CURRENT_SOURCE_DIR}/shell.html)
+set(CMAKE_EXE_LINKER_FLAGS "--preload-file ${MEDIA_DIR}/@. --shell-file ${SHELL_FILE} -s EXPORTED_FUNCTIONS=\"[ '_passAssetAsArrayBuffer', '_clearScene', '_main']\" -s USE_SDL=2 -s MAX_WEBGL_VERSION=2")
 
 add_definitions(-s USE_SDL=2)
 
 if(TRUE)
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s ASSERTIONS=1 -s DISABLE_EXCEPTION_CATCHING=0")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s ASSERTIONS=1")
 endif()
 
 include_directories(${PROJECT_SOURCE_DIR}/Samples/Character/include)
 add_executable(EmscriptenSample Main.cpp Context.cpp)
 target_link_libraries(EmscriptenSample OgreBites ${OGRE_LIBRARIES})
+set_target_properties(EmscriptenSample PROPERTIES LINK_DEPENDS ${SHELL_FILE})
 
 file(COPY
     "${CMAKE_SOURCE_DIR}/Samples/Emscripten/media" 
@@ -22,11 +24,13 @@ file(COPY
     "${CMAKE_SOURCE_DIR}/Samples/Media/materials/textures/rockwall.tga"
     "${CMAKE_SOURCE_DIR}/Media/packs/SdkTrays.zip"
     "${CMAKE_SOURCE_DIR}/Samples/Media/packs/Sinbad.zip"
-    DESTINATION ${MEDIA_DIR})
+    "${CMAKE_SOURCE_DIR}/Samples/Media/packs/cubemapsJS.zip"
+    "${CMAKE_SOURCE_DIR}/Samples/Media/materials/scripts/SinbadPBR.material"
+    DESTINATION ${MEDIA_DIR}/)
 
 file(COPY
-    "${CMAKE_SOURCE_DIR}/Media/RTShaderLib/GLSL"
-    DESTINATION "${MEDIA_DIR}/RTShaderLib/")
+    "${CMAKE_SOURCE_DIR}/Media/RTShaderLib"
+    DESTINATION "${MEDIA_DIR}/")
 
 file(COPY
     "${CMAKE_SOURCE_DIR}/Media/Main"

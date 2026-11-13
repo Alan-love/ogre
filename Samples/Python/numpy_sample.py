@@ -22,7 +22,7 @@ def main():
     
     ## [np_to_ogre]
     ogre_img = Ogre.Image()
-    ogre_img.loadDynamicImage(arr, 256, 256, Ogre.PF_BYTE_RGB)
+    ogre_img.loadDynamicImage(arr)
     
     Ogre.TextureManager.getSingleton().loadImage("gradient", "General", ogre_img)
     ## [np_to_ogre]
@@ -36,7 +36,6 @@ def main():
     rect = scn_mgr.createScreenSpaceRect(True)
     rect.setCorners(-0.5, 0.5, 0.5, -0.5) # in normalized screen space
     rect.setMaterial(mat)
-    rect.setBoundingBox(Ogre.AxisAlignedBox.BOX_INFINITE)
 
     scn_mgr.getRootSceneNode().createChildSceneNode().attachObject(rect)
     ## [apply_to_rect]
@@ -54,7 +53,7 @@ def main():
     
     ## [ogre_to_np]
     mem = np.empty((win.getHeight(), win.getWidth(), 3), dtype=np.uint8)
-    pb = Ogre.PixelBox(win.getWidth(), win.getHeight(), 1, Ogre.PF_BYTE_RGB, mem)
+    pb = Ogre.PixelBox(mem)
     win.copyContentsToMemory(pb, pb)
     ## [ogre_to_np]
     

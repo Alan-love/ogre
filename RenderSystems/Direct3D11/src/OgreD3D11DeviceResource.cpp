@@ -56,7 +56,8 @@ namespace Ogre
 
     D3D11DeviceResourceManager::~D3D11DeviceResourceManager()
     {
-        assert(mResources.empty());
+        OgreAssertDbg(mResources.empty(),
+                      "Not all resources have been released! Are you holding on to a reference somewhere?");
         assert(gs_D3D11DeviceResourceManager == this);
         gs_D3D11DeviceResourceManager = NULL;
     }
@@ -82,9 +83,10 @@ namespace Ogre
     {
         assert(mResourcesCopy.empty()); // reentrancy is not expected nor supported
         mResourcesCopy = mResources;
-        for(std::vector<D3D11DeviceResource*>::iterator it = mResourcesCopy.begin(), it_end = mResourcesCopy.end(); it != it_end; ++it)
-            if(D3D11DeviceResource* deviceResource = *it)
-                deviceResource->notifyDeviceLost(device);
+        for (auto *r : mResourcesCopy) {
+            if(r)
+                r->notifyDeviceLost(device);
+        }
         mResourcesCopy.clear();
     }
 
@@ -92,10 +94,10 @@ namespace Ogre
     {
         assert(mResourcesCopy.empty()); // reentrancy is not expected nor supported
         mResourcesCopy = mResources;
-        for(std::vector<D3D11DeviceResource*>::iterator it = mResourcesCopy.begin(), it_end = mResourcesCopy.end(); it != it_end; ++it)
-            if(D3D11DeviceResource* deviceResource = *it)
-                deviceResource->notifyDeviceRestored(device);
+        for (auto *r : mResourcesCopy) {
+            if(r)
+                r->notifyDeviceRestored(device);
+        }
         mResourcesCopy.clear();
     }
-
 }

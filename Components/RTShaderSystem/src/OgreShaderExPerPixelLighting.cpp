@@ -33,12 +33,12 @@ namespace RTShader {
 /************************************************************************/
 /*                                                                      */
 /************************************************************************/
-String PerPixelLighting::Type = "SGX_PerPixelLighting";
+const String SRS_PER_PIXEL_LIGHTING = "SGX_PerPixelLighting";
 
 //-----------------------------------------------------------------------
 const String& PerPixelLighting::getType() const
 {
-    return Type;
+    return SRS_PER_PIXEL_LIGHTING;
 }
 
 bool PerPixelLighting::setParameter(const String& name, const String& value)
@@ -93,9 +93,6 @@ bool PerPixelLighting::resolveGlobalParameters(ProgramSet* programSet)
     // Get derived scene colour.
     mDerivedSceneColour = psProgram->resolveParameter(GpuProgramParameters::ACT_DERIVED_SCENE_COLOUR);
 
-    // Get surface shininess.
-    mSurfaceShininess = psProgram->resolveParameter(GpuProgramParameters::ACT_SURFACE_SHININESS);
-
     mViewNormal = psMain->getLocalParameter(Parameter::SPC_NORMAL_VIEW_SPACE);
 
     if(!mViewNormal)
@@ -122,6 +119,9 @@ bool PerPixelLighting::resolveGlobalParameters(ProgramSet* programSet)
 
     if (mSpecularEnable)
     {
+        // Get surface shininess.
+        mSurfaceShininess = psProgram->resolveParameter(GpuProgramParameters::ACT_SURFACE_SHININESS);
+
         mOutSpecular = psMain->resolveLocalParameter(Parameter::SPC_COLOR_SPECULAR);
 
         mVSInPosition = vsMain->getLocalParameter(Parameter::SPC_POSITION_OBJECT_SPACE);
@@ -135,6 +135,12 @@ bool PerPixelLighting::resolveGlobalParameters(ProgramSet* programSet)
         mWorldViewMatrix = vsProgram->resolveParameter(GpuProgramParameters::ACT_WORLDVIEW_MATRIX);
     }
 
+    if(mLtcLUT1SamplerIndex > -1)
+    {
+        mLTCLUT1 = psProgram->resolveParameter(GCT_SAMPLER2D, "ltcLUT1Sampler", mLtcLUT1SamplerIndex);
+        mLTCLUT2 = psProgram->resolveParameter(GCT_SAMPLER2D, "ltcLUT2Sampler", mLtcLUT1SamplerIndex + 1);
+    }
+
     return true;
 }
 
@@ -146,62 +152,36 @@ bool PerPixelLighting::resolvePerLightParameters(ProgramSet* programSet)
     Function* vsMain = vsProgram->getEntryPointFunction();
     Function* psMain = psProgram->getEntryPointFunction();
 
-    bool needViewPos = false;
-
     // Resolve per light parameters.
-    for (unsigned int i=0; i < mLightParamsList.size(); ++i)
-    {       
-        switch (mLightParamsList[i].mType)
+    mPositions = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_POSITION_VIEW_SPACE_ARRAY, mLightCount);
+    mDirections = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_DIRECTION_VIEW_SPACE_ARRAY, mLightCount);
+    mAttenuatParams = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_ATTENUATION_ARRAY, mLightCount);
+    mSpotParams = psProgram->resolveParameter(GpuProgramParameters::ACT_SPOTLIGHT_PARAMS_ARRAY, mLightCount);
+
+    // Resolve diffuse colour.
+    if ((mTrackVertexColourType & TVC_DIFFUSE) == 0)
+    {
+        mDiffuseColours = psProgram->resolveParameter(GpuProgramParameters::ACT_DERIVED_LIGHT_DIFFUSE_COLOUR_ARRAY, mLightCount);
+    }
+    else
+    {
+        mDiffuseColours = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_DIFFUSE_COLOUR_POWER_SCALED_ARRAY, mLightCount);
+    }
+
+    if (mSpecularEnable)
+    {
+        // Resolve specular colour.
+        if ((mTrackVertexColourType & TVC_SPECULAR) == 0)
         {
-        case Light::LT_DIRECTIONAL:
-            mLightParamsList[i].mDirection = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_DIRECTION_VIEW_SPACE, i);
-            mLightParamsList[i].mPSInDirection = mLightParamsList[i].mDirection;
-            needViewPos = mSpecularEnable || needViewPos;
-            break;
-
-        case Light::LT_POINT:
-            mLightParamsList[i].mPosition = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_POSITION_VIEW_SPACE, i);
-            mLightParamsList[i].mAttenuatParams = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_ATTENUATION, i);
-            
-            needViewPos = true;
-            break;
-
-        case Light::LT_SPOTLIGHT:
-            mLightParamsList[i].mPosition = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_POSITION_VIEW_SPACE, i);
-            mLightParamsList[i].mDirection = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_DIRECTION_VIEW_SPACE, i);
-            mLightParamsList[i].mPSInDirection = mLightParamsList[i].mDirection;
-            mLightParamsList[i].mAttenuatParams = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_ATTENUATION, i);
-            mLightParamsList[i].mSpotParams = psProgram->resolveParameter(GpuProgramParameters::ACT_SPOTLIGHT_PARAMS, i);
-
-            needViewPos = true;
-            break;
-        }
-
-        // Resolve diffuse colour.
-        if ((mTrackVertexColourType & TVC_DIFFUSE) == 0)
-        {
-            mLightParamsList[i].mDiffuseColour = psProgram->resolveParameter(GpuProgramParameters::ACT_DERIVED_LIGHT_DIFFUSE_COLOUR, i);
+            mSpecularColours = psProgram->resolveParameter(GpuProgramParameters::ACT_DERIVED_LIGHT_SPECULAR_COLOUR_ARRAY, mLightCount);
         }
         else
         {
-            mLightParamsList[i].mDiffuseColour = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_DIFFUSE_COLOUR_POWER_SCALED, i);
+            mSpecularColours = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_SPECULAR_COLOUR_POWER_SCALED_ARRAY, mLightCount);
         }   
-
-        if (mSpecularEnable)
-        {
-            // Resolve specular colour.
-            if ((mTrackVertexColourType & TVC_SPECULAR) == 0)
-            {
-                mLightParamsList[i].mSpecularColour = psProgram->resolveParameter(GpuProgramParameters::ACT_DERIVED_LIGHT_SPECULAR_COLOUR, i);
-            }
-            else
-            {
-                mLightParamsList[i].mSpecularColour = psProgram->resolveParameter(GpuProgramParameters::ACT_LIGHT_SPECULAR_COLOUR_POWER_SCALED, i);
-            }   
-        }       
     }
 
-    if (needViewPos)
+    //if (needViewPos)
     {
         mWorldViewMatrix = vsProgram->resolveParameter(GpuProgramParameters::ACT_WORLDVIEW_MATRIX);
         if(!mVSInPosition)
@@ -209,15 +189,6 @@ bool PerPixelLighting::resolvePerLightParameters(ProgramSet* programSet)
         mVSOutViewPos = vsMain->resolveOutputParameter(Parameter::SPC_POSITION_VIEW_SPACE);
 
         mViewPos = psMain->resolveInputParameter(mVSOutViewPos);
-        mToLight = psMain->resolveLocalParameter(Parameter::SPC_LIGHTDIRECTION_VIEW_SPACE0);
-        mToView = psMain->resolveLocalParameter(Parameter::SPC_POSTOCAMERA_VIEW_SPACE);
-
-        for (auto& l : mLightParamsList)
-        {
-            if(l.mType != Light::LT_POINT && l.mType != Light::LT_SPOTLIGHT)
-                continue;
-            l.mToLight = mToLight;
-        }
     }
 
     if(mTwoSidedLighting)
@@ -240,8 +211,10 @@ bool PerPixelLighting::resolveDependencies(ProgramSet* programSet)
 
     psProgram->addDependency(SGX_LIB_PERPIXELLIGHTING);
 
-    if(mNormalisedEnable)
-        psProgram->addPreprocessorDefines("NORMALISED");
+    addDefines(psProgram);
+
+    if(mLtcLUT1SamplerIndex > -1)
+        psProgram->addPreprocessorDefines("HAVE_AREA_LIGHTS");
 
     return true;
 }
@@ -261,17 +234,12 @@ bool PerPixelLighting::addFunctionInvocations(ProgramSet* programSet)
     // Add the global illumination functions.
     addPSGlobalIlluminationInvocation(stage);
 
-    if (mToView)
-        stage.mul(Vector3(-1), mViewPos, mToView);
-
     if(mFrontFacing)
         stage.callFunction("SGX_Flip_Backface_Normal", mFrontFacing, mTargetFlipped, mViewNormal);
 
-    // Add per light functions.
-    for (const auto& lp : mLightParamsList)
-    {
-        addIlluminationInvocation(&lp, stage);
-    }
+    mShadowFactor = psMain->getLocalParameter("lShadowFactor");
+
+    addIlluminationInvocation(stage, psMain->getLocalParameter("lights"));
 
     // Assign back temporary variables
     stage.assign(mOutDiffuse, mInDiffuse);
@@ -283,8 +251,11 @@ bool PerPixelLighting::addFunctionInvocations(ProgramSet* programSet)
 void PerPixelLighting::addVSInvocation(const FunctionStageRef& stage)
 {
     // Transform normal in view space.
-    if(!mLightParamsList.empty() && mVSInNormal)
-        stage.callFunction(FFP_FUNC_TRANSFORM, mWorldViewITMatrix, mVSInNormal, mVSOutNormal);
+    if(mLightCount && mVSInNormal)
+    {
+        stage.callBuiltin("mul", mWorldViewITMatrix, mVSInNormal, mVSOutNormal);
+        stage.callBuiltin("normalize", mVSOutNormal, mVSOutNormal);
+    }
 
     // Transform view space position if need to.
     if (mVSOutViewPos)
@@ -310,12 +281,12 @@ void PerPixelLighting::addPSGlobalIlluminationInvocation(const FunctionStageRef&
         }
         else
         {
-            stage.assign(In(mDerivedAmbientLightColour).xyz(), Out(mOutDiffuse).xyz());
+            stage.assign(mDerivedAmbientLightColour, mOutDiffuse);
         }
 
         if (mTrackVertexColourType & TVC_EMISSIVE)
         {
-            stage.add(mInDiffuse, mOutDiffuse, mOutDiffuse);
+            stage.add(In(mInDiffuse).xyz(), In(mOutDiffuse).xyz(), Out(mOutDiffuse).xyz());
         }
         else
         {
@@ -327,37 +298,25 @@ void PerPixelLighting::addPSGlobalIlluminationInvocation(const FunctionStageRef&
 //-----------------------------------------------------------------------
 const String& PerPixelLightingFactory::getType() const
 {
-    return PerPixelLighting::Type;
+    return SRS_PER_PIXEL_LIGHTING;
 }
 
 //-----------------------------------------------------------------------
-SubRenderState* PerPixelLightingFactory::createInstance(ScriptCompiler* compiler, 
-                                                        PropertyAbstractNode* prop, Pass* pass, SGScriptTranslator* translator)
+SubRenderState* PerPixelLightingFactory::createInstance(const ScriptProperty& prop, Pass* pass, SGScriptTranslator* translator)
 {
-    if (prop->name != "lighting_stage" || prop->values.empty())
+    if (prop.name != "lighting_stage" || prop.values.empty())
         return NULL;
 
-    auto it = prop->values.begin();
-    String val;
-
-    if(!SGScriptTranslator::getString(*it++, &val))
-    {
-        compiler->addError(ScriptCompiler::CE_INVALIDPARAMETERS, prop->file, prop->line);
-        return NULL;
-    }
-
-    if (val != "per_pixel")
+    if(prop.values[0] != "per_pixel")
         return NULL;
 
     auto ret = createOrRetrieveInstance(translator);
 
     // process the flags
-    while(it != prop->values.end())
+    for(auto it = prop.values.begin() + 1; it != prop.values.end(); it++)
     {
-        if (!SGScriptTranslator::getString(*it++, &val) || !ret->setParameter(val, "true"))
-        {
-            compiler->addError(ScriptCompiler::CE_INVALIDPARAMETERS, prop->file, prop->line, val);
-        }
+        if (!ret->setParameter(*it, "true"))
+            translator->emitError(*it);
     }
 
     return ret;

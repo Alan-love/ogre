@@ -31,9 +31,9 @@ THE SOFTWARE.
 
 #include "OgreVulkanPrerequisites.h"
 
-#include "vulkan/vulkan_core.h"
-
 #include "OgreHeaderPrefix.h"
+
+#include "vk_mem_alloc.h"
 
 namespace Ogre
 {
@@ -58,7 +58,8 @@ namespace Ogre
             VkCommandBuffer mCommandBuffer;
             VkFence mProtectingFence;
 
-            std::vector<std::pair<VkBuffer, VkDeviceMemory>> mBufferGraveyard;
+            std::vector<std::pair<VkBuffer, VmaAllocation>> mBufferGraveyard;
+            std::vector<std::shared_ptr<VulkanDescriptorPool>> mDescriptorPoolGraveyard;
         };
 
         enum EncoderState
@@ -84,8 +85,8 @@ namespace Ogre
         VulkanDevice *mOwnerDevice;
 
         uint8 mNumFramesInFlight;
-    protected:
         uint8 mCurrentFrameIdx;
+    protected:
 
         // clang-format off
         // One per buffered frame
@@ -181,8 +182,8 @@ namespace Ogre
         void init( VkDevice device, VkQueue queue, VulkanRenderSystem *renderSystem );
         void destroy( void );
 
-        void queueForDeletion(VkBuffer buffer, VkDeviceMemory memory);
-
+        void queueForDeletion(VkBuffer buffer, VmaAllocation allocation);
+        void queueForDeletion(const std::shared_ptr<VulkanDescriptorPool>& descriptorPool);
     protected:
         void newCommandBuffer( void );
         void endCommandBuffer( void );
@@ -193,7 +194,7 @@ namespace Ogre
         void getGraphicsEncoder( void );
         void getComputeEncoder( void );
         /** Call this function when you need to start copy/transfer operations
-        @remarks
+
             buffer and texture pointers cannot be both nullptr at the same time
 
             You don't have to pair every getCopyEncoder call with an endCopyEncoder call. In

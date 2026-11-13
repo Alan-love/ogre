@@ -37,7 +37,7 @@ THE SOFTWARE.
 namespace Ogre {
 
     /** Class for serializing a Skeleton to/from XML.
-    @remarks
+
         This class behaves the same way as SkeletonSerializer in the main project,
         but is here to allow conversions to / from XML. This class is 
         deliberately not included in the main project because <UL>
@@ -65,7 +65,7 @@ namespace Ogre {
     private:
         void writeSkeleton(const Skeleton* pSkel, pugi::xml_node& root);
         void writeBone(pugi::xml_node& bonesElement, const Bone* pBone);
-        void writeBoneParent(pugi::xml_node& boneHierarchyNode, String boneName , String parentName);
+        void writeBoneParent(pugi::xml_node& boneHierarchyNode, const String& boneName , const String& parentName);
         void writeAnimation(pugi::xml_node& animsNode, const Animation* anim);
         void writeAnimationTrack(pugi::xml_node& tracksNode,
             const NodeAnimationTrack* track);
@@ -74,7 +74,6 @@ namespace Ogre {
             const LinkedSkeletonAnimationSource& link);
         
         void readBones(Skeleton* skel, pugi::xml_node& mBonesNode);
-        void readBones2(Skeleton* skel, pugi::xml_node& mBonesNode);
         void createHierarchy(Skeleton* skel, pugi::xml_node& mHierNode);
         void readKeyFrames(NodeAnimationTrack* track, const pugi::xml_node& mKeyfNode);
         void readAnimations(Skeleton* skel, pugi::xml_node& mAnimNode) ;

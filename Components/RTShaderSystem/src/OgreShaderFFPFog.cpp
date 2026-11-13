@@ -33,7 +33,7 @@ namespace RTShader {
 /************************************************************************/
 /*                                                                      */
 /************************************************************************/
-String FFPFog::Type = "FFP_Fog";
+const String SRS_FOG = "FFP_Fog";
 
 //-----------------------------------------------------------------------
 FFPFog::FFPFog()
@@ -45,7 +45,7 @@ FFPFog::FFPFog()
 //-----------------------------------------------------------------------
 const String& FFPFog::getType() const
 {
-    return Type;
+    return SRS_FOG;
 }
 
 //-----------------------------------------------------------------------
@@ -111,15 +111,15 @@ bool FFPFog::resolveDependencies(ProgramSet* programSet)
     Program* vsProgram = programSet->getCpuProgram(GPT_VERTEX_PROGRAM);
     Program* psProgram = programSet->getCpuProgram(GPT_FRAGMENT_PROGRAM);
 
-    vsProgram->addDependency(FFP_LIB_FOG);
-    psProgram->addDependency(FFP_LIB_COMMON);
-
     // Per pixel fog.
     if (mCalcMode == CM_PER_PIXEL)
     {
         psProgram->addDependency(FFP_LIB_FOG);
-
-    }   
+    }
+    else
+    {
+        vsProgram->addDependency(FFP_LIB_FOG);
+    }
 
     return true;
 }
@@ -127,64 +127,35 @@ bool FFPFog::resolveDependencies(ProgramSet* programSet)
 //-----------------------------------------------------------------------
 bool FFPFog::addFunctionInvocations(ProgramSet* programSet)
 {
+    if (mFogMode == FOG_NONE)
+        return true;
+
     Program* vsProgram = programSet->getCpuProgram(GPT_VERTEX_PROGRAM);
     Program* psProgram = programSet->getCpuProgram(GPT_FRAGMENT_PROGRAM);
     Function* vsMain = vsProgram->getEntryPointFunction();
     Function* psMain = psProgram->getEntryPointFunction();
-
-    const char* fogfunc = NULL;
     
     // Per pixel fog.
     if (mCalcMode == CM_PER_PIXEL)
     {
         vsMain->getStage(FFP_VS_FOG).assign(In(mVSOutPos).w(), mVSOutDepth);
+        psProgram->addPreprocessorDefines(StringUtil::format("FOG_TYPE=%d", mFogMode));
 
-        switch (mFogMode)
-        {
-        case FOG_LINEAR:
-            fogfunc = FFP_FUNC_PIXELFOG_LINEAR;
-            break;
-        case FOG_EXP:
-            fogfunc = FFP_FUNC_PIXELFOG_EXP;
-            break;
-        case FOG_EXP2:
-            fogfunc = FFP_FUNC_PIXELFOG_EXP2;
-            break;
-        case FOG_NONE:
-            return true;
-        }
         psMain->getStage(FFP_PS_FOG)
-            .callFunction(fogfunc,
+            .callFunction("FFP_PixelFog",
                           {In(mPSInDepth), In(mFogParams), In(mFogColour), In(mPSOutDiffuse), Out(mPSOutDiffuse)});
     }
 
     // Per vertex fog.
     else
     {
-        switch (mFogMode)
-        {
-        case FOG_LINEAR:
-            fogfunc = FFP_FUNC_VERTEXFOG_LINEAR;
-            break;
-        case FOG_EXP:
-            fogfunc = FFP_FUNC_VERTEXFOG_EXP;
-            break;
-        case FOG_EXP2:
-            fogfunc = FFP_FUNC_VERTEXFOG_EXP2;
-            break;
-        case FOG_NONE:
-            return true;
-        }
-
+        vsProgram->addPreprocessorDefines(StringUtil::format("FOG_TYPE=%d", mFogMode));
         //! [func_invoc]
         auto vsFogStage = vsMain->getStage(FFP_VS_FOG);
-        vsFogStage.callFunction(fogfunc, mVSOutPos, mFogParams, mVSOutFogFactor);
+        vsFogStage.callFunction("FFP_FogFactor", In(mVSOutPos).w(), mFogParams, mVSOutFogFactor);
         //! [func_invoc]
-        psMain->getStage(FFP_VS_FOG)
-            .callFunction(FFP_FUNC_LERP, {In(mFogColour), In(mPSOutDiffuse), In(mPSInFogFactor), Out(mPSOutDiffuse)});
+        psMain->getStage(FFP_VS_FOG).callBuiltin("mix", mFogColour, mPSOutDiffuse, mPSInFogFactor, mPSOutDiffuse);
     }
-
-
 
     return true;
 }
@@ -217,7 +188,7 @@ bool FFPFog::preAddToRenderState(const RenderState* renderState, Pass* srcPass, 
 //-----------------------------------------------------------------------
 bool FFPFog::setParameter(const String& name, const String& value)
 {
-	if(name == "calc_mode")
+	if(name == "calc_mode" && !value.empty())
 	{
         CalcMode cm = value == "per_vertex" ? CM_PER_VERTEX : CM_PER_PIXEL;
 		setCalcMode(cm);
@@ -230,41 +201,24 @@ bool FFPFog::setParameter(const String& name, const String& value)
 //-----------------------------------------------------------------------
 const String& FFPFogFactory::getType() const
 {
-    return FFPFog::Type;
+    return SRS_FOG;
 }
 
 //-----------------------------------------------------------------------
-SubRenderState* FFPFogFactory::createInstance(ScriptCompiler* compiler, 
-                                                    PropertyAbstractNode* prop, Pass* pass, SGScriptTranslator* translator)
+SubRenderState* FFPFogFactory::createInstance(const ScriptProperty& prop, Pass* pass, SGScriptTranslator* translator)
 {
-    if (prop->name == "fog_stage")
+    if (prop.name == "fog_stage")
     {
-        if(prop->values.size() >= 1)
+        if(prop.values.size() >= 1)
         {
-            String strValue;
-
-            if(false == SGScriptTranslator::getString(prop->values.front(), &strValue))
-            {
-                compiler->addError(ScriptCompiler::CE_INVALIDPARAMETERS, prop->file, prop->line);
-                return NULL;
-            }
-
-            if (strValue == "ffp")
+            if (prop.values[0] == "ffp")
             {
                 SubRenderState* subRenderState = createOrRetrieveInstance(translator);
-                FFPFog* fogSubRenderState = static_cast<FFPFog*>(subRenderState);
-                AbstractNodeList::const_iterator it = prop->values.begin();
 
-                if(prop->values.size() >= 2)
+                if(prop.values.size() >= 2)
                 {
-                    ++it;
-                    if (false == SGScriptTranslator::getString(*it, &strValue))
-                    {
-                        compiler->addError(ScriptCompiler::CE_STRINGEXPECTED, prop->file, prop->line);
-                        return NULL;
-                    }
-
-                    fogSubRenderState->setParameter("calc_mode", strValue);
+                    if(!subRenderState->setParameter("calc_mode", prop.values[1]))
+                        translator->emitError();
                 }
                 
                 return subRenderState;

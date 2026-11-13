@@ -108,7 +108,6 @@ namespace Ogre {
             /// Set state to SceneManager and RenderSystem
             virtual void execute(SceneManager *sm, RenderSystem *rs) = 0;
         };
-        typedef std::map<int, MaterialPtr> OGRE_DEPRECATED QuadMaterialMap;
         typedef std::pair<int, RenderSystemOperation*> RenderSystemOpPair;
         typedef std::vector<RenderSystemOpPair> RenderSystemOpPairs;
         /** Operation setup for a RenderTarget (collected).
@@ -123,7 +122,7 @@ namespace Ogre {
                 : target(inTarget), currentQueueGroupID(0), visibilityMask(0xFFFFFFFF), lodBias(1.0f),
                   onlyInitial(false), hasBeenRendered(false), findVisibleObjects(false),
                   materialScheme(MaterialManager::DEFAULT_SCHEME_NAME), shadowsEnabled(true),
-                  alignCameraToFace(-1)
+                  alignCameraToFace(-1), swapBuffers(true)
             {
             }
             /// Target
@@ -168,6 +167,8 @@ namespace Ogre {
 
             String cameraOverride;
             int alignCameraToFace;
+
+            bool swapBuffers;
         };
         typedef std::vector<TargetOperation> CompiledState;
         
@@ -183,7 +184,7 @@ namespace Ogre {
 
         /** Set alive/active flag. The compositor instance will create resources when alive,
             and destroy them when inactive.
-        @remarks
+
             Killing an instance means also disabling it: setAlive(false) implies
             setEnabled(false)
         */
@@ -224,7 +225,7 @@ namespace Ogre {
         const TexturePtr& getTextureInstance(const String& name, size_t mrtIndex);
 
         /** Get the render target for a given render texture name. 
-        @remarks
+
             You can use this to add listeners etc, but do not use it to update the
             targets manually or any other modifications, the compositor instance 
             is in charge of this.
@@ -261,7 +262,7 @@ namespace Ogre {
         void setTechnique(CompositionTechnique* tech, bool reuseTextures = true);
 
         /** Pick a technique to use to render this compositor based on a scheme. 
-        @remarks
+
             If there is no specific supported technique with this scheme name, 
             then the first supported technique with no specific scheme will be used.
         @see CompositionTechnique::setSchemeName
@@ -279,7 +280,7 @@ namespace Ogre {
         const String& getScheme() const { return mTechnique ? mTechnique->getSchemeName() : BLANKSTRING; }
 
         /** Notify this instance that the primary surface has been resized. 
-        @remarks
+
             This will allow the instance to recreate its resources that 
             are dependent on the size. 
         */
@@ -313,7 +314,7 @@ namespace Ogre {
         */
         void _fireNotifyResourcesCreated(bool forResizeOnly);
         
-        /** Notify listeners ressources
+        /** Notify listeners resources
         */
         void _fireNotifyResourcesReleased(bool forResizeOnly);
     private:
@@ -328,10 +329,10 @@ namespace Ogre {
         /// Is this instance allocating resources?
         bool mAlive;
         /// Map from name->local texture.
-        typedef std::map<String,TexturePtr> LocalTextureMap;
+        typedef std::unordered_map<String,TexturePtr> LocalTextureMap;
         LocalTextureMap mLocalTextures;
         /// Store a list of MRTs we've created.
-        typedef std::map<String,MultiRenderTarget*> LocalMRTMap;
+        typedef std::unordered_map<String,MultiRenderTarget*> LocalMRTMap;
         LocalMRTMap mLocalMRTs;
         typedef std::map<CompositionTechnique::TextureDefinition*, TexturePtr> ReserveTextureMap;
         /** Textures that are not currently in use, but that we want to keep for now,
@@ -351,13 +352,11 @@ namespace Ogre {
             and queued with queueRenderSystemOp.
         */
         virtual void collectPasses(TargetOperation &finalState, const CompositionTargetPass *target);
-        
-        /** Create a local dummy material with one technique but no passes.
-            The material is detached from the Material Manager to make sure it is destroyed
-            when going out of scope.
-        */
-        MaterialPtr createLocalMaterial(const String& srcName);
-        
+
+        TexturePtr getLocalTexture(const CompositionTechnique::TextureDefinition& def, PixelFormat p,
+                                   const String& fsaaHint, const String& localName,
+                                   std::set<Texture*>& assignedTextures);
+
         /** Create local rendertextures and other resources. Builds mLocalTextures.
         */
         void createResources(bool forResizeOnly);
@@ -371,10 +370,6 @@ namespace Ogre {
         CompositionTechnique::TextureDefinition*
         resolveTexReference(const CompositionTechnique::TextureDefinition* texDef);
 
-        /** Get RenderTarget for a named local texture.
-        */
-        RenderTarget *getTargetForTex(const String &name, int slice);
-        
         /** Get source texture name for a named local texture.
         @param name
             The local name of the texture as given to it in the compositor.
@@ -393,8 +388,7 @@ namespace Ogre {
         /** Search for options like AA and hardware gamma which we may want to 
             inherit from the main render target to which we're attached. 
         */
-        void deriveTextureRenderTargetOptions(const String& texname, 
-            bool *hwGammaWrite, uint *fsaa, String* fsaaHint);
+        void deriveOptionsFromRenderTarget(CompositionTechnique::TextureDefinition& def, String& fsaaHint);
 
         /// Notify this instance that the primary viewport's camera has changed.
         void notifyCameraChanged(Camera* camera);

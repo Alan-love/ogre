@@ -85,7 +85,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     GLSLLinkProgram::~GLSLLinkProgram(void)
     {
-        glDeleteObjectARB(mGLProgramHandle);
+        glDeleteObjectARB((GLhandleARB)mGLProgramHandle);
 
         delete mUniformCache;
         mUniformCache = 0;
@@ -98,7 +98,7 @@ namespace Ogre {
         {           
             glGetError(); //Clean up the error. Otherwise will flood log.
 
-            mGLProgramHandle = glCreateProgramObjectARB();
+            mGLProgramHandle = (size_t)glCreateProgramObjectARB();
 
             GLenum glErr = glGetError();
             if(glErr != GL_NO_ERROR)
@@ -124,7 +124,7 @@ namespace Ogre {
         }
         if (mLinked)
         {
-            glUseProgramObjectARB( mGLProgramHandle );
+            glUseProgramObjectARB( (GLhandleARB)mGLProgramHandle );
 
             GLenum glErr = glGetError();
             if(glErr != GL_NO_ERROR)
@@ -168,7 +168,7 @@ namespace Ogre {
         for (size_t i = 0; i < numAttribs; ++i)
         {
             const CustomAttribute& a = msCustomAttributes[i];
-            GLint attrib = glGetAttribLocationARB(mGLProgramHandle, a.name);
+            GLint attrib = glGetAttribLocationARB((GLhandleARB)mGLProgramHandle, a.name);
 
             if (attrib != -1)
             {
@@ -273,21 +273,21 @@ namespace Ogre {
                             transpose, params->getFloatPointer(def->physicalIndex));
                         break;
                     case GCT_MATRIX_2X3:
-                        if (GLEW_VERSION_2_1)
+                        if (GLAD_GL_VERSION_2_1)
                         {
                             glUniformMatrix2x3fv(currentUniform->mLocation, glArraySize, 
                                 GL_FALSE, params->getFloatPointer(def->physicalIndex));
                         }
                         break;
                     case GCT_MATRIX_2X4:
-                        if (GLEW_VERSION_2_1)
+                        if (GLAD_GL_VERSION_2_1)
                         {
                             glUniformMatrix2x4fv(currentUniform->mLocation, glArraySize, 
                                 GL_FALSE, params->getFloatPointer(def->physicalIndex));
                         }
                         break;
                     case GCT_MATRIX_3X2:
-                        if (GLEW_VERSION_2_1)
+                        if (GLAD_GL_VERSION_2_1)
                         {
                             glUniformMatrix3x2fv(currentUniform->mLocation, glArraySize, 
                                 GL_FALSE, params->getFloatPointer(def->physicalIndex));
@@ -298,21 +298,21 @@ namespace Ogre {
                             transpose, params->getFloatPointer(def->physicalIndex));
                         break;
                     case GCT_MATRIX_3X4:
-                        if (GLEW_VERSION_2_1)
+                        if (GLAD_GL_VERSION_2_1)
                         {
                             glUniformMatrix3x4fv(currentUniform->mLocation, glArraySize, 
                                 GL_FALSE, params->getFloatPointer(def->physicalIndex));
                         }
                         break;
                     case GCT_MATRIX_4X2:
-                        if (GLEW_VERSION_2_1)
+                        if (GLAD_GL_VERSION_2_1)
                         {
                             glUniformMatrix4x2fv(currentUniform->mLocation, glArraySize, 
                                 GL_FALSE, params->getFloatPointer(def->physicalIndex));
                         }
                         break;
                     case GCT_MATRIX_4X3:
-                        if (GLEW_VERSION_2_1)
+                        if (GLAD_GL_VERSION_2_1)
                         {
                             glUniformMatrix4x3fv(currentUniform->mLocation, glArraySize, 
                                 GL_FALSE, params->getFloatPointer(def->physicalIndex));
@@ -327,8 +327,10 @@ namespace Ogre {
                     case GCT_SAMPLER2D:
                     case GCT_SAMPLER2DSHADOW:
                     case GCT_SAMPLER2DARRAY:
+                    case GCT_SAMPLER2DARRAYSHADOW:
                     case GCT_SAMPLER3D:
                     case GCT_SAMPLERCUBE:
+                    case GCT_SAMPLERCUBESHADOW:
                         // samplers handled like 1-element ints
                     case GCT_INT1:
                         glUniform1ivARB(currentUniform->mLocation, glArraySize, (GLint*)val);
@@ -407,7 +409,7 @@ namespace Ogre {
                         StringVector vec = StringUtil::split(expr);
                         if ((vec[0] == "in" || vec[0] == "attribute") && vec[2] == a.name)
                         {
-                            glBindAttribLocationARB(mGLProgramHandle, a.attrib, a.name);
+                            glBindAttribLocationARB((GLhandleARB)mGLProgramHandle, a.attrib, a.name);
                             foundAttr = true;
                         }
                     }
@@ -423,19 +425,19 @@ namespace Ogre {
             // attach Geometry Program
             mShaders[GPT_GEOMETRY_PROGRAM]->attachToProgramObject(mGLProgramHandle);
 
-            //Don't set adjacency flag. We handle it internally and expose "false"
+            if (GLAD_GL_EXT_geometry_shader4)
+            {
+                RenderOperation::OperationType inputOperationType = gshader->getInputOperationType();
+                glProgramParameteriEXT(mGLProgramHandle, GL_GEOMETRY_INPUT_TYPE_EXT,
+                                       getGLGeometryInputPrimitiveType(inputOperationType));
 
-            RenderOperation::OperationType inputOperationType = gshader->getInputOperationType();
-            glProgramParameteriEXT(mGLProgramHandle, GL_GEOMETRY_INPUT_TYPE_EXT,
-                getGLGeometryInputPrimitiveType(inputOperationType));
+                RenderOperation::OperationType outputOperationType = gshader->getOutputOperationType();
 
-            RenderOperation::OperationType outputOperationType = gshader->getOutputOperationType();
+                glProgramParameteriEXT(mGLProgramHandle, GL_GEOMETRY_OUTPUT_TYPE_EXT,
+                                       getGLGeometryOutputPrimitiveType(outputOperationType));
 
-            glProgramParameteriEXT(mGLProgramHandle, GL_GEOMETRY_OUTPUT_TYPE_EXT,
-                getGLGeometryOutputPrimitiveType(outputOperationType));
-
-            glProgramParameteriEXT(mGLProgramHandle, GL_GEOMETRY_VERTICES_OUT_EXT,
-                gshader->getMaxOutputVertices());
+                glProgramParameteriEXT(mGLProgramHandle, GL_GEOMETRY_VERTICES_OUT_EXT, gshader->getMaxOutputVertices());
+            }
         }
 
         if (mShaders[GPT_FRAGMENT_PROGRAM])
@@ -448,8 +450,8 @@ namespace Ogre {
         
         // now the link
 
-        glLinkProgramARB( mGLProgramHandle );
-        glGetObjectParameterivARB( mGLProgramHandle, GL_OBJECT_LINK_STATUS_ARB, &mLinked );
+        glLinkProgramARB( (GLhandleARB)mGLProgramHandle );
+        glGetObjectParameterivARB( (GLhandleARB)mGLProgramHandle, GL_OBJECT_LINK_STATUS_ARB, &mLinked );
 
         // force logging and raise exception if not linked
         GLenum glErr = glGetError();
@@ -479,8 +481,7 @@ namespace Ogre {
                 GLenum binaryFormat = 0; 
 
                 // create microcode
-                GpuProgramManager::Microcode newMicrocode = 
-                    GpuProgramManager::getSingleton().createMicrocode(binaryLength + sizeof(GLenum));
+                auto newMicrocode = GpuProgramManager::createMicrocode(binaryLength + sizeof(GLenum));
 
                 // get binary
                 uint8 * programBuffer = newMicrocode->getPtr() + sizeof(GLenum);

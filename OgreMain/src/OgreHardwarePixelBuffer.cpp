@@ -28,7 +28,6 @@ THE SOFTWARE.
 #include "OgreStableHeaders.h"
 #include "OgreHardwarePixelBuffer.h"
 #include "OgreImage.h"
-#include "OgreRenderTexture.h"
 
 namespace Ogre 
 {
@@ -36,8 +35,8 @@ namespace Ogre
     //-----------------------------------------------------------------------------    
     HardwarePixelBuffer::HardwarePixelBuffer(uint32 width, uint32 height, uint32 depth,
             PixelFormat format,
-            HardwareBuffer::Usage usage, bool useSystemMemory, bool useShadowBuffer):
-        HardwareBuffer(usage, useSystemMemory, useShadowBuffer),
+            HardwareBuffer::Usage usage, bool useShadowBuffer):
+        HardwareBuffer(usage, useShadowBuffer),
         mCurrentLockOptions(), mWidth(width), mHeight(height), mDepth(depth),
         mFormat(format)
     {
@@ -178,10 +177,11 @@ namespace Ogre
     }
     //-----------------------------------------------------------------------------    
     
-    RenderTexture *HardwarePixelBuffer::getRenderTarget(size_t zoffset)
+    RenderTexture *HardwarePixelBuffer::getRenderTarget(size_t zoffset) const
     {
         assert(mUsage & TU_RENDERTARGET);
-        return mSliceTRT.at(zoffset);
+        OgreAssert(zoffset < mSliceTRT.size(), "out of range");
+        return mSliceTRT[zoffset];
     }
     //-----------------------------------------------------------------------------    
 
@@ -191,4 +191,10 @@ namespace Ogre
             mSliceTRT[zoffset] = NULL;
     }
 
+
+    String HardwarePixelBuffer::getNameForRenderTexture(const String& parentName, uint32 layer) const
+    {
+        // the parent texture can either have multiple slices or faces - so we can call both layer here
+        return StringUtil::format("%s:layer%d", parentName.c_str(), layer);
+    }
 }

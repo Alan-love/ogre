@@ -10,6 +10,8 @@
 // To reduce checkboxes some developer features can be enabled with macros.
 #define SHOW_MESH_HULL 0
 #define ENABLE_THREADING 1
+#define ENABLE_COMPRESSION 1
+#define PREVENT_HOLES_BREAKS 0
 
 class _OgreSampleClassExport Sample_MeshLod :
     public OgreBites::SdkSample,
@@ -20,21 +22,21 @@ public:
 protected:
 
 // Events:
-    void setupContent();
-    void cleanupContent();
+    void setupContent() override;
+    void cleanupContent() override;
     void setupControls(int uimode = 0);
     void cleanupControls();
-    bool frameStarted(const Ogre::FrameEvent& evt);
+    bool frameStarted(const Ogre::FrameEvent& evt) override;
 
 // GUI input events:
-    void buttonHit(OgreBites::Button* button);
-    void sliderMoved(OgreBites::Slider* slider);
-    void itemSelected(OgreBites::SelectMenu* menu);
-    void checkBoxToggled(OgreBites::CheckBox * box);
+    void buttonHit(OgreBites::Button* button) override;
+    void sliderMoved(OgreBites::Slider* slider) override;
+    void itemSelected(OgreBites::SelectMenu* menu) override;
+    void checkBoxToggled(OgreBites::CheckBox * box) override;
 
 // Queued Lod injector events:
-    bool shouldInject(Ogre::LodWorkQueueRequest* request);
-    void injectionCompleted(Ogre::LodWorkQueueRequest* request);
+    bool shouldInject(Ogre::LodWorkQueueRequest* request) override;
+    void injectionCompleted(Ogre::LodWorkQueueRequest* request) override;
 
 // Other functions:
     void changeSelectedMesh(const Ogre::String& name); // Changes current mesh to a mesh with given mesh name.

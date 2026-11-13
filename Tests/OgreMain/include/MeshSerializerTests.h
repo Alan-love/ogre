@@ -32,7 +32,6 @@ THE SOFTWARE.
 #include <gtest/gtest.h>
 #include "OgreMesh.h"
 #include "OgreMeshSerializer.h"
-#include "OgreFileSystemLayer.h"
 
 using namespace Ogre;
 
@@ -46,11 +45,10 @@ protected:
     String mSkeletonFullPath;
     SkeletonPtr mSkeleton;
     Real mErrorFactor;
-    FileSystemLayer* mFSLayer;
 
 public:
-    void SetUp();
-    void TearDown();
+    void SetUp() override;
+    void TearDown() override;
     void testMesh(MeshVersion version);
     void assertMeshClone(Mesh* a, Mesh* b, MeshVersion version = MESH_VERSION_LATEST);
     void assertVertexDataClone(VertexData* a, VertexData* b, MeshVersion version = MESH_VERSION_LATEST);

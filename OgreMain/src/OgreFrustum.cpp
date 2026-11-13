@@ -31,7 +31,8 @@ THE SOFTWARE.
 
 namespace Ogre {
 
-    String Frustum::msMovableType = "Frustum";
+    const String MOT_FRUSTUM = "Frustum";
+    const String MOT_FRUSTRUM = MOT_FRUSTUM;
     const Real Frustum::INFINITE_FAR_PLANE_ADJUST = 0.00001;
     //-----------------------------------------------------------------------
     Frustum::Frustum(const String& name) : 
@@ -55,8 +56,7 @@ namespace Ogre {
         mLinkedReflectPlane(0),
         mLinkedObliqueProjPlane(0),
         mReflect(false),
-        mObliqueDepthProjection(false),
-        mOrientationMode(OR_DEGREE_0)
+        mObliqueDepthProjection(false)
     {
         // Alter superclass members
         mVisible = false;
@@ -91,30 +91,28 @@ namespace Ogre {
 
 
     //-----------------------------------------------------------------------
-    void Frustum::setFarClipDistance(Real farPlane)
+    void Frustum::setFarClipDistance(float farPlane)
     {
         mFarDist = farPlane;
         invalidateFrustum();
     }
 
     //-----------------------------------------------------------------------
-    Real Frustum::getFarClipDistance(void) const
-    {
-        return mFarDist;
-    }
-
-    //-----------------------------------------------------------------------
-    void Frustum::setNearClipDistance(Real nearPlane)
+    void Frustum::setNearClipDistance(float nearPlane)
     {
         OgreAssert(nearPlane > 0, "Invalid clip distance");
+
+        if(mFrustumExtentsManuallySet && mNearDist != nearPlane)
+        {
+            auto ratio = nearPlane / mNearDist;
+            mExtents.left *= ratio;
+            mExtents.right *= ratio;
+            mExtents.top *= ratio;
+            mExtents.bottom *= ratio;
+        }
+
         mNearDist = nearPlane;
         invalidateFrustum();
-    }
-
-    //-----------------------------------------------------------------------
-    Real Frustum::getNearClipDistance(void) const
-    {
-        return mNearDist;
     }
 
     //---------------------------------------------------------------------
@@ -160,14 +158,6 @@ namespace Ogre {
         updateFrustum();
 
         return mProjMatrixRSDepth;
-    }
-    //-----------------------------------------------------------------------
-    const Matrix4& Frustum::getProjectionMatrixRS(void) const
-    {
-
-        updateFrustum();
-
-        return mProjMatrixRS;
     }
     //-----------------------------------------------------------------------
     const Affine3& Frustum::getViewMatrix(void) const
@@ -352,13 +342,6 @@ namespace Ogre {
     {
         // Common calcs
         RealRect rect = calcProjectionParameters();
-
-        if (!OGRE_NO_VIEWPORT_ORIENTATIONMODE && mOrientationMode != OR_PORTRAIT)
-        {
-            std::swap(rect.left, rect.bottom);
-            std::swap(rect.right, rect.top);
-        }
-
         Real left = rect.left, right = rect.right, top = rect.top, bottom = rect.bottom;
 
         if (!mCustomProjMatrix)
@@ -462,21 +445,15 @@ namespace Ogre {
             } // ortho            
         } // !mCustomProjMatrix
 
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
-        // Deal with orientation mode
-        mProjMatrix = mProjMatrix * Quaternion(Degree(mOrientationMode * 90.f), Vector3::UNIT_Z);
-#endif
         RenderSystem* renderSystem = Root::getSingleton().getRenderSystem();
 
         if(renderSystem)
         {
             // API specific
-            renderSystem->_convertProjectionMatrix(mProjMatrix, mProjMatrixRS);
             renderSystem->_convertProjectionMatrix(mProjMatrix, mProjMatrixRSDepth, true);
         }
         else
         {
-            mProjMatrixRS = mProjMatrix;
             mProjMatrixRSDepth = mProjMatrix;
         }
 
@@ -659,10 +636,10 @@ namespace Ogre {
         mFrustumPlanes[FRUSTUM_PLANE_FAR].d = combo[3][3] - combo[2][3];
 
         // Renormalise any normals which were not unit length
-        for(int i=0; i<6; i++ ) 
+        for(auto & p : mFrustumPlanes)
         {
-            Real length = mFrustumPlanes[i].normal.normalise();
-            mFrustumPlanes[i].d /= length;
+            Real length = p.normal.normalise();
+            p.d /= length;
         }
 
         mRecalcFrustumPlanes = false;
@@ -756,7 +733,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     const String& Frustum::getMovableType(void) const
     {
-        return msMovableType;
+        return MOT_FRUSTUM;
     }
     //-----------------------------------------------------------------------
     Real Frustum::getBoundingRadius(void) const
@@ -1127,25 +1104,6 @@ namespace Ogre {
         volume.planes.push_back(mFrustumPlanes[FRUSTUM_PLANE_LEFT]);
         volume.planes.push_back(mFrustumPlanes[FRUSTUM_PLANE_RIGHT]);
         return volume;
-    }
-    //---------------------------------------------------------------------
-    void Frustum::setOrientationMode(OrientationMode orientationMode)
-    {
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE != 0
-        OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED,
-                    "Setting Frustrum orientation mode is not supported");
-#endif
-        mOrientationMode = orientationMode;
-        invalidateFrustum();
-    }
-    //---------------------------------------------------------------------
-    OrientationMode Frustum::getOrientationMode() const
-    {
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE != 0
-        OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED,
-                    "Getting Frustrum orientation mode is not supported");
-#endif
-        return mOrientationMode;
     }
 
 

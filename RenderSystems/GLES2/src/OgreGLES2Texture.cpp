@@ -94,33 +94,27 @@ namespace Ogre {
 
         // Adjust format if required
         mFormat = TextureManager::getSingleton().getNativeFormat(mTextureType, mFormat, mUsage);
-        GLenum texTarget = getGLES2TextureTarget();
 
-        // Check requested number of mipmaps
-        uint32 maxMips = getMaxMipmaps();
-        
-        if(PixelUtil::isCompressed(mFormat) && (mNumMipmaps == 0))
-            mNumRequestedMipmaps = 0;
-        
-        mNumMipmaps = mNumRequestedMipmaps;
-        if (mNumMipmaps > maxMips)
-            mNumMipmaps = maxMips;
+        if(mFormat == PF_BYTE_RGB && mHwGamma)
+            mFormat = PF_BYTE_RGBA; // we want a colour renderable format for mipmaps, so switch to RGBA
+
+        GLenum texTarget = getGLES2TextureTarget();
 
         // Generate texture name
         OGRE_CHECK_GL_ERROR(glGenTextures(1, &mTextureID));
 
+        // Set texture type
+        mRenderSystem->_getStateCacheManager()->bindGLTexture(texTarget, mTextureID);
+
         if (renderCaps->hasCapability(RSC_DEBUG))
             OGRE_CHECK_GL_ERROR(glLabelObjectEXT(GL_TEXTURE, mTextureID, -1, mName.c_str()));
 
-        // Set texture type
-        mRenderSystem->_getStateCacheManager()->bindGLTexture(texTarget, mTextureID);
-        
         // If we can do automip generation and the user desires this, do so
         mMipmapsHardwareGenerated = !PixelUtil::isCompressed(mFormat);
 
         // glGenerateMipmap require all mip levels to be prepared. So override how many this texture has.
         if((mUsage & TU_AUTOMIPMAP) && mMipmapsHardwareGenerated && mNumRequestedMipmaps)
-            mNumMipmaps = maxMips;
+            mNumMipmaps = getMaxMipmaps();
 
         if(mRenderSystem->hasMinGLVersion(3, 0) || mRenderSystem->checkExtension("GL_APPLE_texture_max_level"))
             mRenderSystem->_getStateCacheManager()->setTexParameteri(texTarget, GL_TEXTURE_MAX_LEVEL_APPLE, mNumRequestedMipmaps ? mNumMipmaps + 1 : 0);
@@ -180,14 +174,6 @@ namespace Ogre {
             std::vector<uint8> tmpdata(size);
             for (uint32 mip = 0; mip <= mNumMipmaps; mip++)
             {
-#if OGRE_DEBUG_MODE
-                LogManager::getSingleton().logMessage("GLES2Texture::create - Mip: " + StringConverter::toString(mip) +
-                                                      " Width: " + StringConverter::toString(width) +
-                                                      " Height: " + StringConverter::toString(height) +
-                                                      " Internal Format: " + StringUtil::format("%x", internalformat) +
-                                                      " Format: " + StringUtil::format("%x", format)
-                                                       );
-#endif
                 size = static_cast<GLsizei>(PixelUtil::getMemorySize(width, height, depth, mFormat));
                 
                 switch(mTextureType)
@@ -218,8 +204,10 @@ namespace Ogre {
                             width, height, depth, 0, 
                             size, &tmpdata[0]);
                         break;
+                    case TEX_TYPE_2D_MULTISAMPLE:
                     case TEX_TYPE_EXTERNAL_OES:
-                        OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Attempt to create mipmap for TEX_TYPE_EXTERNAL_OES, should never happen", "GLES2Texture::_createGLTexResource");
+                        OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
+                                    "Attempt to allocate storage for unsupported format");
                 };
                 
                 if(width > 1)
@@ -240,13 +228,6 @@ namespace Ogre {
 
         if(hasGLES30)
         {
-#if OGRE_DEBUG_MODE
-            LogManager::getSingleton().logMessage("GLES2Texture::create - Name: " + mName +
-                                                      " ID: " + StringConverter::toString(mTextureID) +
-                                                      " Width: " + StringConverter::toString(width) +
-                                                      " Height: " + StringConverter::toString(height) +
-                                                      " Internal Format: " + StringUtil::format("%x", internalformat));
-#endif
             switch(mTextureType)
             {
                 case TEX_TYPE_1D:
@@ -257,6 +238,8 @@ namespace Ogre {
                 case TEX_TYPE_2D_ARRAY:
                 case TEX_TYPE_3D:
                     OGRE_CHECK_GL_ERROR(glTexStorage3D(texTarget, GLsizei(mNumMipmaps+1), internalformat, GLsizei(width), GLsizei(height), GLsizei(depth)));
+                    break;
+                case TEX_TYPE_2D_MULTISAMPLE:
                     break;
                 case TEX_TYPE_EXTERNAL_OES:
                     // Not available for TEX_TYPE_EXTERNAL_OES
@@ -269,17 +252,6 @@ namespace Ogre {
         // Run through this process to pregenerate mipmap pyramid
         for(uint32 mip = 0; mip <= mNumMipmaps; mip++)
         {
-#if OGRE_DEBUG_MODE
-            LogManager::getSingleton().logMessage("GLES2Texture::create - Mip: " + StringConverter::toString(mip) +
-                                                  " Name: " + mName +
-                                                  " ID: " + StringConverter::toString(mTextureID) +
-                                                  " Width: " + StringConverter::toString(width) +
-                                                  " Height: " + StringConverter::toString(height) +
-                                                  " Internal Format: " + StringUtil::format("%x", internalformat) +
-                                                  " Format: " + StringUtil::format("%x", format) +
-                                                  " Datatype: " + StringUtil::format("%x", datatype)
-                                                  );
-#endif
             // Normal formats
             switch(mTextureType)
             {
@@ -333,7 +305,7 @@ namespace Ogre {
     {
         _createGLTexResource();
         
-        _createSurfaceList();
+        createSurfaceList();
 
         // Get final internal format
         mFormat = getBuffer(0,0)->getFormat();
@@ -354,7 +326,7 @@ namespace Ogre {
     {
         if (!isManuallyLoaded())
         {
-            freeInternalResources();
+            unloadImpl();
         }
         else
         {
@@ -390,32 +362,9 @@ namespace Ogre {
     }
 #endif
 
-    void GLES2Texture::_createSurfaceList()
+    HardwarePixelBufferPtr GLES2Texture::createSurface(uint32 face, uint32 mip, uint32 width, uint32 height,
+                                                       uint32 depth)
     {
-        mSurfaceList.clear();
-
-        uint32 depth = mDepth;
-
-        // For all faces and mipmaps, store surfaces as HardwarePixelBufferSharedPtr
-        for (size_t face = 0; face < getNumFaces(); face++)
-        {
-            uint32 width = mWidth;
-            uint32 height = mHeight;
-
-            for (uint32 mip = 0; mip <= getNumMipmaps(); mip++)
-            {
-                GLES2HardwarePixelBuffer* buf = OGRE_NEW GLES2TextureBuffer(
-                    this, static_cast<GLint>(face), mip, width, height, depth);
-
-                mSurfaceList.push_back(HardwarePixelBufferSharedPtr(buf));
-
-                if (width > 1)
-                    width = width / 2;
-                if (height > 1)
-                    height = height / 2;
-                if (depth > 1 && mTextureType != TEX_TYPE_2D_ARRAY)
-                    depth = depth / 2;
-            }
-        }
+        return std::make_shared<GLES2TextureBuffer>(this, face, mip, width, height, depth);
     }
 }

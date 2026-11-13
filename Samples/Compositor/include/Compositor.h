@@ -22,6 +22,8 @@ Also see acknowledgements in Readme.html
 #include "SdkSample.h"
 #include "SamplePlugin.h"
 
+#include <memory>
+
 using namespace Ogre;
 using namespace OgreBites;
 
@@ -32,18 +34,18 @@ class _OgreSampleClassExport Sample_Compositor : public SdkSample
  public:
     Sample_Compositor();
 
-    void setupContent(void);
-    void cleanupContent(void);
+    void setupContent(void) override;
+    void cleanupContent(void) override;
 
-    bool frameRenderingQueued(const FrameEvent& evt);
+    bool frameRenderingQueued(const FrameEvent& evt) override;
 
-    void checkBoxToggled(OgreBites::CheckBox * box);
-    void buttonHit(OgreBites::Button* button);
-    void itemSelected(OgreBites::SelectMenu* menu);
+    void checkBoxToggled(OgreBites::CheckBox * box) override;
+    void buttonHit(OgreBites::Button* button) override;
+    void itemSelected(OgreBites::SelectMenu* menu) override;
 
  protected:
 
-    void setupView(void);
+    void setupView(void) override;
     void setupControls(void);
     void setupScene(void);
     void createEffects(void);
@@ -58,7 +60,7 @@ class _OgreSampleClassExport Sample_Compositor : public SdkSample
     size_t mNumCompositorPages;
 
     //Used to unregister compositor logics and free memory
-    typedef std::map<String, CompositorLogic*> CompositorLogicMap;
+    typedef std::map<String, std::unique_ptr<CompositorLogic>> CompositorLogicMap;
     CompositorLogicMap mCompositorLogics;
 
     String mDebugCompositorName;
@@ -109,12 +111,12 @@ void Sample_Compositor::setupContent(void)
     // Register the compositor logics
     // See comment in beginning of HelperLogics.h for explanation
     Ogre::CompositorManager& compMgr = Ogre::CompositorManager::getSingleton();
-    mCompositorLogics["GaussianBlur"] = new GaussianBlurLogic;
-    mCompositorLogics["HDR"] = new HDRLogic;
-    mCompositorLogics["HeatVision"] = new HeatVisionLogic;
-    compMgr.registerCompositorLogic("GaussianBlur", mCompositorLogics["GaussianBlur"]);
-    compMgr.registerCompositorLogic("HDR", mCompositorLogics["HDR"]);
-    compMgr.registerCompositorLogic("HeatVision", mCompositorLogics["HeatVision"]);
+    mCompositorLogics["GaussianBlur"] = std::make_unique<GaussianBlurLogic>();
+    mCompositorLogics["HDR"] = std::make_unique<HDRLogic>();
+    mCompositorLogics["HeatVision"] = std::make_unique<HeatVisionLogic>();
+    compMgr.registerCompositorLogic("GaussianBlur", mCompositorLogics["GaussianBlur"].get());
+    compMgr.registerCompositorLogic("HDR", mCompositorLogics["HDR"].get());
+    compMgr.registerCompositorLogic("HeatVision", mCompositorLogics["HeatVision"].get());
 
 #ifdef OGRE_BUILD_COMPONENT_RTSHADERSYSTEM
     mShaderGenerator->createScheme("HDR"); // make sure HDR viewport is handled
@@ -130,10 +132,7 @@ void Sample_Compositor::setupContent(void)
     registerCompositors();
 
     setupControls();
-
-#if OGRE_PLATFORM != OGRE_PLATFORM_APPLE_IOS
     setDragLook(true);
-#endif
 }
 
 static bool blacklisted(const String& name)
@@ -242,16 +241,12 @@ void Sample_Compositor::cleanupContent(void)
     TextureManager::getSingleton().remove("HalftoneVolume", "General");
 
     Ogre::CompositorManager& compMgr = Ogre::CompositorManager::getSingleton();
-    CompositorLogicMap::const_iterator itor = mCompositorLogics.begin();
-    CompositorLogicMap::const_iterator end  = mCompositorLogics.end();
-    while( itor != end )
+    for (const auto& logic : mCompositorLogics)
     {
-        compMgr.unregisterCompositorLogic( itor->first );
-        delete itor->second;
-        ++itor;
+        compMgr.unregisterCompositorLogic(logic.first);
     }
     mCompositorLogics.clear();
-    MeshManager::getSingleton().remove("Myplane", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+    MeshManager::getSingleton().remove("Myplane", RGN_DEFAULT);
 }
 
 
@@ -273,10 +268,12 @@ void Sample_Compositor::setupControls(void)
 
     mTrayMgr->createSeparator(TL_TOPRIGHT, "DebugRTTSep1");  // this is a hack to give the debug RTT a bit more room
 
+    // make sure we query the correct scheme
+    MaterialManager::getSingleton().setActiveScheme(mViewport->getMaterialScheme());
+
     DecorWidget* debugRTTPanel = mTrayMgr->createDecorWidget(TL_NONE, "DebugRTTPanel", "SdkTrays/Picture");
     OverlayContainer* debugRTTContainer = (OverlayContainer*)debugRTTPanel->getOverlayElement();
     mDebugTextureTUS = debugRTTContainer->getMaterial()->getBestTechnique()->getPass(0)->getTextureUnitState(0);
-    //mDebugTextureTUS->setTextureName("CompositorDemo/DebugView");
     debugRTTContainer->setDimensions(128, 128);
     debugRTTContainer->getChild("DebugRTTPanel/PictureFrame")->setDimensions(144, 144);
     debugRTTPanel->hide();
@@ -332,10 +329,8 @@ void Sample_Compositor::checkBoxToggled(OgreBites::CheckBox * box)
             {
                 const CompositionTechnique::TextureDefinitions& defs =
                     instance->getTechnique()->getTextureDefinitions();
-                CompositionTechnique::TextureDefinitions::const_iterator defIter;
-                for (defIter = defs.begin(); defIter != defs.end(); ++defIter)
+                for (auto* texDef : defs)
                 {
-                    CompositionTechnique::TextureDefinition* texDef = *defIter;
                     size_t numTextures = texDef->formatList.size();
                     if (numTextures > 1)
                     {
@@ -434,7 +429,7 @@ void Sample_Compositor::setupScene(void)
     plane.normal = Ogre::Vector3::UNIT_Y;
     plane.d = 100;
     Ogre::MeshManager::getSingleton().createPlane("Myplane",
-                                                  Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, plane,
+                                                  Ogre::RGN_DEFAULT, plane,
                                                   1500, 1500, 10, 10, true, 1, 5, 5, Ogre::Vector3::UNIT_Z);
     Ogre::Entity* pPlaneEnt = mSceneMgr->createEntity( "plane", "Myplane" );
     pPlaneEnt->setMaterialName("Examples/Rockwall");
@@ -456,36 +451,9 @@ bool Sample_Compositor::frameRenderingQueued(const FrameEvent& evt)
 /// Create the hard coded postfilter effects
 void Sample_Compositor::createEffects(void)
 {
-    // Glass compositor is loaded from script but here is the hard coded equivalent
-    /// Glass effect
-    //          CompositorPtr comp2 = CompositorManager::getSingleton().create(
-    //                          "Glass", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME
-    //                  );
-    //          {
-    //                  CompositionTechnique *t = comp2->createTechnique();
-    //                  {
-    //                          CompositionTechnique::TextureDefinition *def = t->createTextureDefinition("rt0");
-    //                          def->width = 0;
-    //                          def->height = 0;
-    //                          def->format = PF_R8G8B8;
-    //                  }
-    //                  {
-    //                          CompositionTargetPass *tp = t->createTargetPass();
-    //                          tp->setInputMode(CompositionTargetPass::IM_PREVIOUS);
-    //                          tp->setOutputName("rt0");
-    //                  }
-    //                  {
-    //                          CompositionTargetPass *tp = t->getOutputTargetPass();
-    //                          tp->setInputMode(CompositionTargetPass::IM_NONE);
-    //                          { CompositionPass *pass = tp->createPass(CompositionPass::PT_RENDERQUAD);
-    //                          pass->setMaterialName("Ogre/Compositor/GlassPass");
-    //                          pass->setInput(0, "rt0");
-    //                          }
-    //                  }
-    //          }
     /// Motion blur effect
     Ogre::CompositorPtr comp3 = Ogre::CompositorManager::getSingleton().create(
-        "Motion Blur", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME
+        "Motion Blur", Ogre::RGN_DEFAULT
     );
     {
         Ogre::CompositionTechnique *t = comp3->createTechnique();
@@ -553,7 +521,7 @@ void Sample_Compositor::createEffects(void)
     }
     /// Heat vision effect
     Ogre::CompositorPtr comp4 = Ogre::CompositorManager::getSingleton().create(
-        "Heat Vision", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME
+        "Heat Vision", Ogre::RGN_DEFAULT
     );
     {
         Ogre::CompositionTechnique *t = comp4->createTechnique();

@@ -45,15 +45,6 @@ THE SOFTWARE.
 #include "OgreGLFBORenderTexture.h"
 #include "OgreGLStateCacheManager.h"
 
-#if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
-#  define WIN32_LEAN_AND_MEAN
-#  if !defined(NOMINMAX) && defined(_MSC_VER)
-#   define NOMINMAX // required to stop windows.h messing up std::min
-#  endif
-#  include <windows.h>
-#  include <wingdi.h>
-#endif
-
 namespace Ogre {
 
 
@@ -69,16 +60,7 @@ namespace Ogre {
 
     GLTexture::~GLTexture()
     {
-        // have to call this here rather than in Resource destructor
-        // since calling virtual methods in base destructors causes crash
-        if (isLoaded())
-        {
-            unload(); 
-        }
-        else
-        {
-            freeInternalResources();
-        }
+        unload();
     }
 
     GLenum GLTexture::getGLTextureTarget(void) const
@@ -114,12 +96,6 @@ namespace Ogre {
 
         // Adjust format if required
         mFormat = TextureManager::getSingleton().getNativeFormat(mTextureType, mFormat, mUsage);
-        
-        // Check requested number of mipmaps
-        uint32 maxMips = getMaxMipmaps();
-        mNumMipmaps = mNumRequestedMipmaps;
-        if(mNumMipmaps>maxMips)
-            mNumMipmaps = maxMips;
 
         // Check if we can do HW mipmap generation
         mMipmapsHardwareGenerated = true;
@@ -134,7 +110,7 @@ namespace Ogre {
         mRenderSystem->_getStateCacheManager()->setTexParameteri(getGLTextureTarget(), GL_TEXTURE_MAX_LEVEL,
                                                                  mNumMipmaps);
 
-        if ((mUsage & TU_AUTOMIPMAP) && mNumRequestedMipmaps)
+        if ((mUsage & TU_AUTOMIPMAP) && mNumMipmaps)
         {
             mRenderSystem->_getStateCacheManager()->setTexParameteri( getGLTextureTarget(), GL_GENERATE_MIPMAP, GL_TRUE );
         }
@@ -186,12 +162,10 @@ namespace Ogre {
                                 size, &tmpdata[0]);
                         }
                         break;
+                    case TEX_TYPE_2D_MULTISAMPLE:
                     case TEX_TYPE_EXTERNAL_OES:
-                        OGRE_EXCEPT(
-                            Exception::ERR_RENDERINGAPI_ERROR,
-                            "Attempt to create mipmaps for unsupported TEX_TYPE_EXTERNAL_OES, should never happen",
-                            "GLTexture::createInternalResourcesImpl"
-                        );
+                        OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
+                                    "Attempt to allocate storage for unsupported format");
                         break;
                 };
                 if(width>1)
@@ -234,12 +208,10 @@ namespace Ogre {
                                 format, datatype, 0);
                         }
                         break;
+                    case TEX_TYPE_2D_MULTISAMPLE:
                     case TEX_TYPE_EXTERNAL_OES:
-                        OGRE_EXCEPT(
-                            Exception::ERR_RENDERINGAPI_ERROR,
-                            "Attempt to create mipmaps for unsupported TEX_TYPE_EXTERNAL_OES, should never happen",
-                            "GLTexture::createInternalResourcesImpl"
-                        );
+                        OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
+                                    "Attempt to allocate storage for unsupported format");
                         break;
                 };
                 if(width>1)
@@ -250,7 +222,7 @@ namespace Ogre {
                     depth = depth/2;
             }
         }
-        _createSurfaceList();
+        createSurfaceList();
         // Get final internal format
         mFormat = getBuffer(0,0)->getFormat();
     }
@@ -267,32 +239,9 @@ namespace Ogre {
     }
     
     //---------------------------------------------------------------------------------------------
-    void GLTexture::_createSurfaceList()
+    HardwarePixelBufferPtr GLTexture::createSurface(uint32 face, uint32 mip, uint32 width, uint32 height, uint32 depth)
     {
-        mSurfaceList.clear();
-        
-        uint32 depth = mDepth;
-
-        // For all faces and mipmaps, store surfaces as HardwarePixelBufferSharedPtr
-        for(GLint face=0; face<static_cast<GLint>(getNumFaces()); face++)
-        {
-            uint32 width = mWidth;
-            uint32 height = mHeight;
-
-            for(uint32 mip=0; mip<=getNumMipmaps(); mip++)
-            {
-                GLHardwarePixelBuffer* buf =
-                    new GLTextureBuffer(mRenderSystem, this, face, mip, width, height, depth);
-                mSurfaceList.push_back(HardwarePixelBufferSharedPtr(buf));
-                
-                if (width > 1)
-                    width = width / 2;
-                if (height > 1)
-                    height = height / 2;
-                if (depth > 1 && mTextureType != TEX_TYPE_2D_ARRAY)
-                    depth = depth / 2;
-            }
-        }
+        return std::make_shared<GLTextureBuffer>(mRenderSystem, this, face, mip, width, height, depth);
     }
 }
 

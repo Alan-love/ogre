@@ -44,7 +44,9 @@ enum EventType {
     TEXTINPUT,
     CONTROLLERAXISMOTION,
     CONTROLLERBUTTONDOWN,
-    CONTROLLERBUTTONUP
+    CONTROLLERBUTTONUP,
+    JOYAXISMOTION,
+    JOYHATMOTION
 };
 
 typedef int Keycode;
@@ -96,6 +98,12 @@ struct ButtonEvent {
     int which;
     unsigned char button;
 };
+struct HatEvent {
+    int type;
+    int which;
+    short hat;      // joystick hat index
+    short value; 	// hat position
+};
 
 union Event
 {
@@ -108,6 +116,7 @@ union Event
     TextInputEvent text;
     AxisEvent axis;
     ButtonEvent cbutton;
+    HatEvent hat;
 };
 
 // SDL compat
@@ -184,6 +193,7 @@ struct _OgreBitesExport InputListener {
     virtual bool mouseReleased(const MouseButtonEvent& evt) { return false; }
     virtual bool textInput(const TextInputEvent& evt) { return false; }
     virtual bool axisMoved(const AxisEvent& evt) { return false; }
+    virtual bool hatMoved(const HatEvent& evt) { return false; }
     virtual bool buttonPressed(const ButtonEvent& evt) { return false; }
     virtual bool buttonReleased(const ButtonEvent& evt) { return false; }
 };
@@ -202,13 +212,21 @@ public:
     InputListenerChain() {}
     InputListenerChain(std::vector<InputListener*> chain) : mListenerChain(chain) {}
 
+    bool empty() const { return mListenerChain.empty(); }
+
     InputListenerChain& operator=(const InputListenerChain& o)
     {
         mListenerChain = o.mListenerChain;
         return *this;
     }
 
-    bool keyPressed(const KeyboardEvent& evt)
+    void frameRendered(const Ogre::FrameEvent& evt) override
+    {
+        for (auto listener : mListenerChain)
+            listener->frameRendered(evt);
+    }
+
+    bool keyPressed(const KeyboardEvent& evt) override
     {
         for (auto listner : mListenerChain)
         {
@@ -217,7 +235,7 @@ public:
         }
         return false;
     }
-    bool keyReleased(const KeyboardEvent& evt)
+    bool keyReleased(const KeyboardEvent& evt) override
     {
         for (auto listner : mListenerChain)
         {
@@ -226,7 +244,7 @@ public:
         }
         return false;
     }
-    bool touchMoved(const TouchFingerEvent& evt)
+    bool touchMoved(const TouchFingerEvent& evt) override
     {
         for (auto listner : mListenerChain)
         {
@@ -235,7 +253,7 @@ public:
         }
         return false;
     }
-    bool touchPressed(const TouchFingerEvent& evt)
+    bool touchPressed(const TouchFingerEvent& evt) override
     {
         for (auto listner : mListenerChain)
         {
@@ -244,7 +262,7 @@ public:
         }
         return false;
     }
-    bool touchReleased(const TouchFingerEvent& evt)
+    bool touchReleased(const TouchFingerEvent& evt) override
     {
         for (auto listner : mListenerChain)
         {
@@ -253,7 +271,7 @@ public:
         }
         return false;
     }
-    bool mouseMoved(const MouseMotionEvent& evt)
+    bool mouseMoved(const MouseMotionEvent& evt) override
     {
         for (auto listner : mListenerChain)
         {
@@ -262,7 +280,7 @@ public:
         }
         return false;
     }
-    bool mouseWheelRolled(const MouseWheelEvent& evt)
+    bool mouseWheelRolled(const MouseWheelEvent& evt) override
     {
         for (auto listner : mListenerChain)
         {
@@ -271,7 +289,7 @@ public:
         }
         return false;
     }
-    bool mousePressed(const MouseButtonEvent& evt)
+    bool mousePressed(const MouseButtonEvent& evt) override
     {
         for (auto listner : mListenerChain)
         {
@@ -280,7 +298,7 @@ public:
         }
         return false;
     }
-    bool mouseReleased(const MouseButtonEvent& evt)
+    bool mouseReleased(const MouseButtonEvent& evt) override
     {
         for (auto listner : mListenerChain)
         {
@@ -289,7 +307,7 @@ public:
         }
         return false;
     }
-    bool textInput (const TextInputEvent& evt)
+    bool textInput (const TextInputEvent& evt) override
     {
         for (auto listner : mListenerChain)
         {

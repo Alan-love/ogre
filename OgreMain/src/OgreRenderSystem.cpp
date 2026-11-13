@@ -25,6 +25,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
+#include "OgrePrerequisites.h"
 #include "OgreStableHeaders.h"
 // RenderSystem implementation
 // Note that most of this class is abstract since
@@ -32,8 +33,6 @@ THE SOFTWARE.
 //  being aware of the 3D API. However there are a few
 //  simple functions which can have a base implementation
 
-#include "OgreRenderTarget.h"
-#include "OgreDepthBuffer.h"
 #include "OgreHardwareOcclusionQuery.h"
 #include "OgreComponents.h"
 
@@ -67,14 +66,6 @@ namespace Ogre {
         , mDerivedDepthBiasBase(0.0f)
         , mDerivedDepthBiasMultiplier(0.0f)
         , mDerivedDepthBiasSlopeScale(0.0f)
-        , mGlobalInstanceVertexBufferVertexDeclaration(NULL)
-        , mGlobalNumberOfInstances(1)
-        , mVertexProgramBound(false)
-        , mGeometryProgramBound(false)
-        , mFragmentProgramBound(false)
-        , mTessellationHullProgramBound(false)
-        , mTessellationDomainProgramBound(false)
-        , mComputeProgramBound(false)
         , mClipPlanesDirty(true)
         , mRealCapabilities(0)
         , mCurrentCapabilities(0)
@@ -144,6 +135,18 @@ namespace Ogre {
         mFixedFunctionParams->setAutoConstant(light_offset + 5, GpuProgramParameters::ACT_SPOTLIGHT_PARAMS, index);
     }
 
+    const HardwareBufferPtr& RenderSystem::updateDefaultUniformBuffer(GpuProgramType gptype, const ConstantList& params)
+    {
+        auto& ubo = mUniformBuffer[gptype];
+        if (!ubo || ubo->getSizeInBytes() < params.size())
+        {
+            ubo = HardwareBufferManager::getSingleton().createUniformBuffer(params.size());
+        }
+
+        ubo->writeData(0, params.size(), params.data(), true);
+
+        return ubo;
+    }
     //-----------------------------------------------------------------------
     RenderSystem::~RenderSystem()
     {
@@ -209,6 +212,9 @@ namespace Ogre {
         if((opt = mOptions.find("sRGB Gamma Conversion")) != end)
             miscParams.emplace("gamma", opt->second.currentValue);
 
+        if((opt = mOptions.find("HDR Display")) != end)
+            miscParams.emplace("hdrDisplay", opt->second.currentValue);
+
         if((opt = mOptions.find("Colour Depth")) != end)
             miscParams.emplace("colourDepth", opt->second.currentValue);
 
@@ -231,7 +237,7 @@ namespace Ogre {
         }
 
 #if OGRE_NO_QUAD_BUFFER_STEREO == 0
-        if((opt = mOptions.find("Stereo Mode")) != end)
+        if((opt = mOptions.find("Frame Sequential Stereo")) != end)
             miscParams["stereoMode"] = opt->second.currentValue;
 #endif
         return ret;
@@ -242,26 +248,20 @@ namespace Ogre {
     {
 
         // Init stats
-        for(
-            RenderTargetMap::iterator it = mRenderTargets.begin();
-            it != mRenderTargets.end();
-            ++it )
+        for (auto& rt : mRenderTargets)
         {
-            it->second->resetStatistics();
+            rt.second->resetStatistics();
         }
-
     }
     //-----------------------------------------------------------------------
     void RenderSystem::_updateAllRenderTargets(bool swapBuffers)
     {
         // Update all in order of priority
         // This ensures render-to-texture targets get updated before render windows
-        RenderTargetPriorityMap::iterator itarg, itargend;
-        itargend = mPrioritisedRenderTargets.end();
-        for( itarg = mPrioritisedRenderTargets.begin(); itarg != itargend; ++itarg )
+        for (auto& rt : mPrioritisedRenderTargets)
         {
-            if( itarg->second->isActive() && itarg->second->isAutoUpdated())
-                itarg->second->update(swapBuffers);
+            if (rt.second->isActive() && rt.second->isAutoUpdated())
+                rt.second->update(swapBuffers);
         }
     }
     //-----------------------------------------------------------------------
@@ -270,12 +270,10 @@ namespace Ogre {
         OgreProfile("_swapAllRenderTargetBuffers");
         // Update all in order of priority
         // This ensures render-to-texture targets get updated before render windows
-        RenderTargetPriorityMap::iterator itarg, itargend;
-        itargend = mPrioritisedRenderTargets.end();
-        for( itarg = mPrioritisedRenderTargets.begin(); itarg != itargend; ++itarg )
+        for (auto& rt : mPrioritisedRenderTargets)
         {
-            if( itarg->second->isActive() && itarg->second->isAutoUpdated())
-                itarg->second->swapBuffers();
+            if (rt.second->isActive() && rt.second->isAutoUpdated())
+                rt.second->swapBuffers();
         }
     }
     //-----------------------------------------------------------------------
@@ -294,23 +292,23 @@ namespace Ogre {
         // They should ALL call this superclass method from
         //   their own initialise() implementations.
         
-        mVertexProgramBound = false;
-        mGeometryProgramBound = false;
-        mFragmentProgramBound = false;
-        mTessellationHullProgramBound = false;
-        mTessellationDomainProgramBound = false;
-        mComputeProgramBound = false;
+        mProgramBound.fill(false);
     }
 
     //---------------------------------------------------------------------------------------------
     void RenderSystem::useCustomRenderSystemCapabilities(RenderSystemCapabilities* capabilities)
     {
-    if (mRealCapabilities != 0)
-    {
-      OGRE_EXCEPT(Exception::ERR_INTERNAL_ERROR, 
-          "Custom render capabilities must be set before the RenderSystem is initialised.",
-          "RenderSystem::useCustomRenderSystemCapabilities");
-    }
+        if (mRealCapabilities)
+        {
+            OGRE_EXCEPT(Exception::ERR_INTERNAL_ERROR,
+                        "Custom render capabilities must be set before the RenderSystem is initialised");
+        }
+
+        if (capabilities->getRenderSystemName() != getName())
+        {
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
+                        "Trying to use RenderSystemCapabilities that were created for a different RenderSystem");
+        }
 
         mCurrentCapabilities = capabilities;
         mUseCustomCapabilities = true;
@@ -424,110 +422,49 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void RenderSystem::_setTextureUnitSettings(size_t texUnit, TextureUnitState& tl)
     {
+        if(texUnit >= getCapabilities()->getNumTextureUnits())
+            return;
+
         // This method is only ever called to set a texture unit to valid details
         // The method _disableTextureUnit is called to turn a unit off
         TexturePtr tex = tl._getTexturePtr();
         if(!tex || tl.isTextureLoadFailing())
             tex = mTextureManager->_getWarningTexture();
 
-        // Vertex texture binding (D3D9 only)
-        if (mCurrentCapabilities->hasCapability(RSC_VERTEX_TEXTURE_FETCH) &&
-            !mCurrentCapabilities->getVertexTextureUnitsShared())
+        if(tl.getUnorderedAccessMipLevel() > -1)
         {
-            if (tl.getBindingType() == TextureUnitState::BT_VERTEX)
-            {
-                // Bind vertex texture
-                _setVertexTexture(texUnit, tex);
-                // bind nothing to fragment unit (hardware isn't shared but fragment
-                // unit can't be using the same index
-                _setTexture(texUnit, true, sNullTexPtr);
-            }
-            else
-            {
-                // vice versa
-                _setVertexTexture(texUnit, sNullTexPtr);
-                _setTexture(texUnit, true, tex);
-            }
+            tex->createShaderAccessPoint(texUnit, TA_READ_WRITE, tl.getUnorderedAccessMipLevel());
+            return;
         }
-        else
-        {
-            // Shared vertex / fragment textures or no vertex texture support
-            // Bind texture (may be blank)
-            _setTexture(texUnit, true, tex);
-        }
+
+        // Bind texture (may be blank)
+        _setTexture(texUnit, true, tex);
+
+        _setSampler(texUnit, *tl.getSampler());
+
+        if(!getCapabilities()->hasCapability(RSC_FIXED_FUNCTION))
+            return;
 
         // Set texture coordinate set
         _setTextureCoordSet(texUnit, tl.getTextureCoordSet());
-
-        _setSampler(texUnit, *tl.getSampler());
 
         // Set blend modes
         // Note, colour before alpha is important
         _setTextureBlendMode(texUnit, tl.getColourBlendMode());
         _setTextureBlendMode(texUnit, tl.getAlphaBlendMode());
 
-        // Set texture effects
-        TextureUnitState::EffectMap::iterator effi;
-        // Iterate over new effects
-        bool anyCalcs = false;
-        for (effi = tl.mEffects.begin(); effi != tl.mEffects.end(); ++effi)
+        auto calcMode = tl._deriveTexCoordCalcMethod();
+        if(calcMode == TEXCALC_PROJECTIVE_TEXTURE)
         {
-            switch (effi->second.type)
-            {
-            case TextureUnitState::ET_ENVIRONMENT_MAP:
-                if (effi->second.subtype == TextureUnitState::ENV_CURVED)
-                {
-                    _setTextureCoordCalculation(texUnit, TEXCALC_ENVIRONMENT_MAP);
-                    anyCalcs = true;
-                }
-                else if (effi->second.subtype == TextureUnitState::ENV_PLANAR)
-                {
-                    _setTextureCoordCalculation(texUnit, TEXCALC_ENVIRONMENT_MAP_PLANAR);
-                    anyCalcs = true;
-                }
-                else if (effi->second.subtype == TextureUnitState::ENV_REFLECTION)
-                {
-                    _setTextureCoordCalculation(texUnit, TEXCALC_ENVIRONMENT_MAP_REFLECTION);
-                    anyCalcs = true;
-                }
-                else if (effi->second.subtype == TextureUnitState::ENV_NORMAL)
-                {
-                    _setTextureCoordCalculation(texUnit, TEXCALC_ENVIRONMENT_MAP_NORMAL);
-                    anyCalcs = true;
-                }
-                break;
-            case TextureUnitState::ET_UVSCROLL:
-            case TextureUnitState::ET_USCROLL:
-            case TextureUnitState::ET_VSCROLL:
-            case TextureUnitState::ET_ROTATE:
-            case TextureUnitState::ET_TRANSFORM:
-                break;
-            case TextureUnitState::ET_PROJECTIVE_TEXTURE:
-                _setTextureCoordCalculation(texUnit, TEXCALC_PROJECTIVE_TEXTURE, 
-                    effi->second.frustum);
-                anyCalcs = true;
-                break;
-            }
+            _setTextureCoordCalculation(texUnit, calcMode, tl.getProjectiveTexturingFrustum());
         }
-        // Ensure any previous texcoord calc settings are reset if there are now none
-        if (!anyCalcs)
+        else
         {
-            _setTextureCoordCalculation(texUnit, TEXCALC_NONE);
+            _setTextureCoordCalculation(texUnit, calcMode);
         }
 
         // Change tetxure matrix 
         _setTextureMatrix(texUnit, tl.getTextureTransform());
-
-
-    }
-    //-----------------------------------------------------------------------
-    void RenderSystem::_setVertexTexture(size_t unit, const TexturePtr& tex)
-    {
-        OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED, 
-            "This rendersystem does not support separate vertex texture samplers, "
-            "you should use the regular texture samplers which are shared between "
-            "the vertex and fragment units.", 
-            "RenderSystem::_setVertexTexture");
     }
     //-----------------------------------------------------------------------
     void RenderSystem::_disableTextureUnit(size_t texUnit)
@@ -546,41 +483,21 @@ namespace Ogre {
             _disableTextureUnit(i);
         }
     }
-    //-----------------------------------------------------------------------
-    void RenderSystem::_setTextureUnitFiltering(size_t unit, FilterOptions minFilter,
-            FilterOptions magFilter, FilterOptions mipFilter)
-    {
-        OGRE_IGNORE_DEPRECATED_BEGIN
-        _setTextureUnitFiltering(unit, FT_MIN, minFilter);
-        _setTextureUnitFiltering(unit, FT_MAG, magFilter);
-        _setTextureUnitFiltering(unit, FT_MIP, mipFilter);
-        OGRE_IGNORE_DEPRECATED_END
-    }
     //---------------------------------------------------------------------
     void RenderSystem::_cleanupDepthBuffers( bool bCleanManualBuffers )
     {
-        DepthBufferMap::iterator itMap = mDepthBufferPool.begin();
-        DepthBufferMap::iterator enMap = mDepthBufferPool.end();
-
-        while( itMap != enMap )
+        for (auto& m : mDepthBufferPool)
         {
-            DepthBufferVec::const_iterator itor = itMap->second.begin();
-            DepthBufferVec::const_iterator end  = itMap->second.end();
-
-            while( itor != end )
+            for (auto *b : m.second)
             {
-                if( bCleanManualBuffers || !(*itor)->isManual() )
-                    delete *itor;
-                ++itor;
+                if (bCleanManualBuffers || !b->isManual())
+                    delete b;
             }
-
-            itMap->second.clear();
-
-            ++itMap;
+            m.second.clear();
         }
-
         mDepthBufferPool.clear();
     }
+    //-----------------------------------------------------------------------
     void RenderSystem::_beginFrame(void)
     {
         if (!mActiveViewport)
@@ -594,17 +511,26 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void RenderSystem::setDepthBufferFor( RenderTarget *renderTarget )
     {
-        uint16 poolId = renderTarget->getDepthBufferPool();
-        if( poolId == DepthBuffer::POOL_NO_DEPTH )
+        uint16 poolNum = renderTarget->getDepthBufferPool();
+        if( poolNum == RBP_NONE )
             return; //RenderTarget explicitly requested no depth buffer
 
-        //Find a depth buffer in the pool
-        DepthBufferVec::const_iterator itor = mDepthBufferPool[poolId].begin();
-        DepthBufferVec::const_iterator end  = mDepthBufferPool[poolId].end();
+        uint32 poolId = HashCombine(0, poolNum);
+        poolId = HashCombine(poolId, renderTarget->getFSAA());
 
+        if(!getCapabilities()->hasCapability(RSC_RTT_INDEPENDENT_BUFFER_SIZE))
+        {
+            //Depth buffer must be EXACT same size as RT
+            poolId = HashCombine(poolId, renderTarget->getWidth());
+            poolId = HashCombine(poolId, renderTarget->getHeight());
+        }
+
+        //Find a depth buffer in the pool
         bool bAttached = false;
-        while( itor != end && !bAttached )
-            bAttached = renderTarget->attachDepthBuffer( *itor++ );
+        for (auto& d : mDepthBufferPool[poolId]) {
+            bAttached = renderTarget->attachDepthBuffer(d);
+            if (bAttached) break;
+        }
 
         //Not found yet? Create a new one!
         if( !bAttached )
@@ -613,7 +539,6 @@ namespace Ogre {
 
             if( newDepthBuffer )
             {
-                newDepthBuffer->_setPoolId( poolId );
                 mDepthBufferPool[poolId].push_back( newDepthBuffer );
 
                 bAttached = renderTarget->attachDepthBuffer( newDepthBuffer );
@@ -640,11 +565,9 @@ namespace Ogre {
 
     void RenderSystem::shutdown(void)
     {
-        // Remove occlusion queries
-        for (HardwareOcclusionQueryList::iterator i = mHwOcclusionQueries.begin();
-            i != mHwOcclusionQueries.end(); ++i)
+        for (auto& q : mHwOcclusionQueries)
         {
-            OGRE_DELETE *i;
+            OGRE_DELETE q;
         }
         mHwOcclusionQueries.clear();
 
@@ -694,22 +617,6 @@ namespace Ogre {
     void RenderSystem::_beginGeometryCount(void)
     {
         mBatchCount = mFaceCount = mVertexCount = 0;
-
-    }
-    //-----------------------------------------------------------------------
-    unsigned int RenderSystem::_getFaceCount(void) const
-    {
-        return static_cast< unsigned int >( mFaceCount );
-    }
-    //-----------------------------------------------------------------------
-    unsigned int RenderSystem::_getBatchCount(void) const
-    {
-        return static_cast< unsigned int >( mBatchCount );
-    }
-    //-----------------------------------------------------------------------
-    unsigned int RenderSystem::_getVertexCount(void) const
-    {
-        return static_cast< unsigned int >( mVertexCount );
     }
     //-----------------------------------------------------------------------
     void RenderSystem::_render(const RenderOperation& op)
@@ -782,11 +689,9 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void RenderSystem::_notifyCameraRemoved(const Camera* cam)
     {
-        RenderTargetMap::iterator i, iend;
-        iend = mRenderTargets.end();
-        for (i = mRenderTargets.begin(); i != iend; ++i)
+        for (auto& rt : mRenderTargets)
         {
-            RenderTarget* target = i->second;
+            auto target = rt.second;
             target->_notifyCameraRemoved(cam);
         }
     }
@@ -797,48 +702,26 @@ namespace Ogre {
         if (mCurrentPassIterationCount <= 1)
             return false;
 
-        // Update derived depth bias
+        --mCurrentPassIterationCount;
+        ++mCurrentPassIterationNum;
+
+        // Update derived depth bias for the next iteration
         if (mDerivedDepthBias)
         {
             _setDepthBias(mDerivedDepthBiasBase + mDerivedDepthBiasMultiplier * mCurrentPassIterationNum,
                           mDerivedDepthBiasSlopeScale);
         }
 
-        --mCurrentPassIterationCount;
-        ++mCurrentPassIterationNum;
-
         const uint16 mask = GPV_PASS_ITERATION_NUMBER;
 
-        if (mActiveVertexGpuProgramParameters)
+        for (int i = 0; i < GPT_COUNT; i++)
         {
-            mActiveVertexGpuProgramParameters->incPassIterationNumber();
-            bindGpuProgramParameters(GPT_VERTEX_PROGRAM, mActiveVertexGpuProgramParameters, mask);
+            if (!mActiveParameters[i])
+                continue;
+            mActiveParameters[i]->incPassIterationNumber();
+            bindGpuProgramParameters(GpuProgramType(i), mActiveParameters[i], mask);
         }
-        if (mActiveGeometryGpuProgramParameters)
-        {
-            mActiveGeometryGpuProgramParameters->incPassIterationNumber();
-            bindGpuProgramParameters(GPT_GEOMETRY_PROGRAM, mActiveGeometryGpuProgramParameters, mask);
-        }
-        if (mActiveFragmentGpuProgramParameters)
-        {
-            mActiveFragmentGpuProgramParameters->incPassIterationNumber();
-            bindGpuProgramParameters(GPT_FRAGMENT_PROGRAM, mActiveFragmentGpuProgramParameters, mask);
-        }
-        if (mActiveTessellationHullGpuProgramParameters)
-        {
-            mActiveTessellationHullGpuProgramParameters->incPassIterationNumber();
-            bindGpuProgramParameters(GPT_HULL_PROGRAM, mActiveTessellationHullGpuProgramParameters, mask);
-        }
-        if (mActiveTessellationDomainGpuProgramParameters)
-        {
-            mActiveTessellationDomainGpuProgramParameters->incPassIterationNumber();
-            bindGpuProgramParameters(GPT_DOMAIN_PROGRAM, mActiveTessellationDomainGpuProgramParameters, mask);
-        }
-        if (mActiveComputeGpuProgramParameters)
-        {
-            mActiveComputeGpuProgramParameters->incPassIterationNumber();
-            bindGpuProgramParameters(GPT_COMPUTE_PROGRAM, mActiveComputeGpuProgramParameters, mask);
-        }
+
         return true;
     }
 
@@ -866,10 +749,9 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void RenderSystem::fireEvent(const String& name, const NameValuePairList* params)
     {
-        for(ListenerList::iterator i = mEventListeners.begin(); 
-            i != mEventListeners.end(); ++i)
+        for(auto& el : mEventListeners)
         {
-            (*i)->eventOccurred(name, params);
+            el->eventOccurred(name, params);
         }
 
         if(msSharedEventListener)
@@ -878,9 +760,9 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void RenderSystem::destroyHardwareOcclusionQuery( HardwareOcclusionQuery *hq)
     {
-        HardwareOcclusionQueryList::iterator i =
-            std::find(mHwOcclusionQueries.begin(), mHwOcclusionQueries.end(), hq);
-        if (i != mHwOcclusionQueries.end())
+        auto end = mHwOcclusionQueries.end();
+        auto i = std::find(mHwOcclusionQueries.begin(), end, hq);
+        if (i != end)
         {
             mHwOcclusionQueries.erase(i);
             OGRE_DELETE hq;
@@ -889,80 +771,26 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void RenderSystem::bindGpuProgram(GpuProgram* prg)
     {
-        switch(prg->getType())
-        {
-        case GPT_VERTEX_PROGRAM:
-            // mark clip planes dirty if changed (programmable can change space)
-            if (!mVertexProgramBound && !mClipPlanes.empty())
-                mClipPlanesDirty = true;
+        auto gptype = prg->getType();
+        // mark clip planes dirty if changed (programmable can change space)
+        if(gptype == GPT_VERTEX_PROGRAM && !mClipPlanes.empty() && !mProgramBound[gptype])
+            mClipPlanesDirty = true;
 
-            mVertexProgramBound = true;
-            break;
-        case GPT_GEOMETRY_PROGRAM:
-            mGeometryProgramBound = true;
-            break;
-        case GPT_FRAGMENT_PROGRAM:
-            mFragmentProgramBound = true;
-            break;
-        case GPT_HULL_PROGRAM:
-            mTessellationHullProgramBound = true;
-            break;
-        case GPT_DOMAIN_PROGRAM:
-            mTessellationDomainProgramBound = true;
-            break;
-        case GPT_COMPUTE_PROGRAM:
-            mComputeProgramBound = true;
-            break;
-        }
+        mProgramBound[gptype] = true;
     }
     //-----------------------------------------------------------------------
     void RenderSystem::unbindGpuProgram(GpuProgramType gptype)
     {
-        switch(gptype)
-        {
-        case GPT_VERTEX_PROGRAM:
-            // mark clip planes dirty if changed (programmable can change space)
-            if (mVertexProgramBound && !mClipPlanes.empty())
-                mClipPlanesDirty = true;
-            mVertexProgramBound = false;
-            break;
-        case GPT_GEOMETRY_PROGRAM:
-            mGeometryProgramBound = false;
-            break;
-        case GPT_FRAGMENT_PROGRAM:
-            mFragmentProgramBound = false;
-            break;
-        case GPT_HULL_PROGRAM:
-            mTessellationHullProgramBound = false;
-            break;
-        case GPT_DOMAIN_PROGRAM:
-            mTessellationDomainProgramBound = false;
-            break;
-        case GPT_COMPUTE_PROGRAM:
-            mComputeProgramBound = false;
-            break;
-        }
+        // mark clip planes dirty if changed (programmable can change space)
+        if(gptype == GPT_VERTEX_PROGRAM && !mClipPlanes.empty() && mProgramBound[gptype])
+            mClipPlanesDirty = true;
+
+        mProgramBound[gptype] = false;
     }
     //-----------------------------------------------------------------------
     bool RenderSystem::isGpuProgramBound(GpuProgramType gptype)
     {
-        switch(gptype)
-        {
-        case GPT_VERTEX_PROGRAM:
-            return mVertexProgramBound;
-        case GPT_GEOMETRY_PROGRAM:
-            return mGeometryProgramBound;
-        case GPT_FRAGMENT_PROGRAM:
-            return mFragmentProgramBound;
-        case GPT_HULL_PROGRAM:
-            return mTessellationHullProgramBound;
-        case GPT_DOMAIN_PROGRAM:
-            return mTessellationDomainProgramBound;
-        case GPT_COMPUTE_PROGRAM:
-            return mComputeProgramBound;
-        }
-        // Make compiler happy
-        return false;
+        return mProgramBound[gptype];
     }
     //---------------------------------------------------------------------
     void RenderSystem::_setTextureProjectionRelativeTo(bool enabled, const Vector3& pos)
@@ -972,69 +800,31 @@ namespace Ogre {
 
     }
     //---------------------------------------------------------------------
-    RenderSystem::RenderSystemContext* RenderSystem::_pauseFrame(void)
-    {
-        _endFrame();
-        return new RenderSystem::RenderSystemContext;
-    }
-    //---------------------------------------------------------------------
-    void RenderSystem::_resumeFrame(RenderSystemContext* context)
-    {
-        _beginFrame();
-        delete context;
-    }
-    //---------------------------------------------------------------------
     const String& RenderSystem::_getDefaultViewportMaterialScheme( void ) const
     {
-#ifdef RTSHADER_SYSTEM_BUILD_CORE_SHADERS   
-        if ( !(getCapabilities()->hasCapability(Ogre::RSC_FIXED_FUNCTION)) )
+#ifdef RTSHADER_SYSTEM_BUILD_CORE_SHADERS
+        if (!getCapabilities()->hasCapability(RSC_FIXED_FUNCTION))
         {
-            // I am returning the exact value for now - I don't want to add dependency for the RTSS just for one string  
-            static const String ShaderGeneratorDefaultScheme = "ShaderGeneratorDefaultScheme";
-            return ShaderGeneratorDefaultScheme;
+            return MSN_SHADERGEN;
         }
-        else
 #endif
-        {
-            return MaterialManager::DEFAULT_SCHEME_NAME;
-        }
+        return MSN_DEFAULT;
     }
     //---------------------------------------------------------------------
-    Ogre::HardwareVertexBufferSharedPtr RenderSystem::getGlobalInstanceVertexBuffer() const
+    void RenderSystem::setGlobalInstanceVertexBuffer(const HardwareVertexBufferSharedPtr& val)
     {
-        return mGlobalInstanceVertexBuffer;
+        OgreAssert(!val || val->isInstanceData(), "not an instance buffer");
+        mSchemeInstancingData[_getDefaultViewportMaterialScheme()].vertexBuffer = val;
     }
-    //---------------------------------------------------------------------
-    void RenderSystem::setGlobalInstanceVertexBuffer( const HardwareVertexBufferSharedPtr &val )
+    void RenderSystem::enableSchemeInstancing(const String& materialScheme, const HardwareVertexBufferPtr& buffer,
+                                              VertexDeclaration* decl, uint32 instanceCount)
     {
-        if ( val && !val->isInstanceData() )
-        {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, 
-                        "A none instance data vertex buffer was set to be the global instance vertex buffer.",
-                        "RenderSystem::setGlobalInstanceVertexBuffer");
-        }
-        mGlobalInstanceVertexBuffer = val;
-    }
-    //---------------------------------------------------------------------
-    size_t RenderSystem::getGlobalNumberOfInstances() const
-    {
-        return mGlobalNumberOfInstances;
-    }
-    //---------------------------------------------------------------------
-    void RenderSystem::setGlobalNumberOfInstances( const size_t val )
-    {
-        mGlobalNumberOfInstances = val;
+        OgreAssert(!buffer || buffer->isInstanceData(), "not an instance buffer");
+        OgreAssert(decl, "null vertex declaration");
+        OgreAssert(instanceCount > 1, "instance count must be greater than 1");
+        mSchemeInstancingData.emplace(materialScheme, GlobalInstancingData{buffer, decl, instanceCount});
     }
 
-    VertexDeclaration* RenderSystem::getGlobalInstanceVertexBufferVertexDeclaration() const
-    {
-        return mGlobalInstanceVertexBufferVertexDeclaration;
-    }
-    //---------------------------------------------------------------------
-    void RenderSystem::setGlobalInstanceVertexBufferVertexDeclaration( VertexDeclaration* val )
-    {
-        mGlobalInstanceVertexBufferVertexDeclaration = val;
-    }
     //---------------------------------------------------------------------
     void RenderSystem::getCustomAttribute(const String& name, void* pData)
     {
@@ -1051,6 +841,16 @@ namespace Ogre {
         optFullScreen.currentValue = optFullScreen.possibleValues[0];
         optFullScreen.immutable = false;
         mOptions[optFullScreen.name] = optFullScreen;
+
+        // Video mode possibilities, can be overwritten by actual values
+        ConfigOption optVideoMode;
+        optVideoMode.name = "Video Mode";
+        optVideoMode.possibleValues.push_back("1920 x 1080");
+        optVideoMode.possibleValues.push_back("1280 x 720");
+        optVideoMode.possibleValues.push_back("800 x 600");
+        optVideoMode.currentValue = optVideoMode.possibleValues.back();
+        optVideoMode.immutable = false;
+        mOptions[optVideoMode.name] = optVideoMode;
 
         ConfigOption optVSync;
         optVSync.name = "VSync";
@@ -1078,11 +878,19 @@ namespace Ogre {
         optSRGB.currentValue = optSRGB.possibleValues[0];
         mOptions[optSRGB.name] = optSRGB;
 
+        ConfigOption optHDRDisplay;
+        optHDRDisplay.name = "HDR Display";
+        optHDRDisplay.immutable = false;
+        optHDRDisplay.possibleValues.push_back("No");
+        optHDRDisplay.possibleValues.push_back("Yes");
+        optHDRDisplay.currentValue = optHDRDisplay.possibleValues[0];
+        mOptions[optHDRDisplay.name] = optHDRDisplay;
+
 #if OGRE_NO_QUAD_BUFFER_STEREO == 0
         ConfigOption optStereoMode;
-        optStereoMode.name = "Stereo Mode";
-        optStereoMode.possibleValues.push_back(StringConverter::toString(SMT_NONE));
-        optStereoMode.possibleValues.push_back(StringConverter::toString(SMT_FRAME_SEQUENTIAL));
+        optStereoMode.name = "Frame Sequential Stereo";
+        optStereoMode.possibleValues.push_back("Off");
+        optStereoMode.possibleValues.push_back("On");
         optStereoMode.currentValue = optStereoMode.possibleValues[0];
         optStereoMode.immutable = false;
 

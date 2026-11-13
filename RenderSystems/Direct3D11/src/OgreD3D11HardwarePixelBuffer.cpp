@@ -63,21 +63,26 @@ namespace Ogre {
 
     D3D11HardwarePixelBuffer::D3D11HardwarePixelBuffer(D3D11Texture * parentTexture, D3D11Device & device, UINT mipLevel,
         size_t width, size_t height, size_t depth, UINT face, PixelFormat format, HardwareBuffer::Usage usage):
-    HardwarePixelBuffer(width, height, depth, format, usage, false, false),
+    HardwarePixelBuffer(width, height, depth, format, usage, false),
         mParentTexture(parentTexture),
         mDevice(device),
         mFace(face),
         mMipLevel(mipLevel)
     {
-        if(mUsage & TU_RENDERTARGET)
+        if(parentTexture->getUsage() & TU_RENDERTARGET)
         {
-            // Create render target for each slice
-            mSliceTRT.reserve(mDepth);
-            for(size_t zoffset=0; zoffset<mDepth; ++zoffset)
+            if (parentTexture->getUsage() & TU_TARGET_ALL_LAYERS)
             {
-                String name;
-                name = "rtt/"+StringConverter::toString((size_t)this) + "/" + parentTexture->getName();
+                depth = 1;
+                if(face > 0) // only one rendertarget for all layers
+                    return;
+            }
 
+            // Create render target for each slice
+            mSliceTRT.reserve(depth);
+            for(size_t zoffset=0; zoffset<depth; ++zoffset)
+            {
+                String name = getNameForRenderTexture(parentTexture->getName(), zoffset + face);
                 RenderTexture *trt = new D3D11RenderTexture(name, this, zoffset, mDevice);
                 mSliceTRT.push_back(trt);
                 Root::getSingleton().getRenderSystem()->attachRenderTarget(*trt);
@@ -317,8 +322,20 @@ namespace Ogre {
         {
             D3D11_BOX dstBox = getSubresourceBox(dst);
             UINT dstSubresource = getSubresourceIndex(dst.front);
-            UINT srcRowPitch = PixelUtil::getMemorySize(src.getWidth(), 1, 1, src.format);
-            UINT srcDepthPitch = PixelUtil::getMemorySize(src.getWidth(), src.getHeight(), 1, src.format); // H * rowPitch is invalid for compressed formats
+
+            UINT srcRowPitch, srcDepthPitch;
+            if (PixelUtil::isCompressed(src.format))
+            {
+                // pitches in blocks - consecutive layout assumed
+                srcRowPitch   = PixelUtil::getMemorySize(src.getWidth(), 1, 1, src.format);
+                srcDepthPitch = PixelUtil::getMemorySize(src.getWidth(), src.getHeight(), 1, src.format);
+            }
+            else
+            {
+                size_t elemBytes = PixelUtil::getNumElemBytes(src.format);
+                srcRowPitch   = UINT(src.rowPitch * elemBytes);
+                srcDepthPitch = UINT(src.slicePitch * elemBytes);
+            }
 
             mDevice.GetImmediateContext()->UpdateSubresource(
                 mParentTexture->getTextureResource(), dstSubresource, &dstBox,
@@ -461,6 +478,11 @@ namespace Ogre {
         return mFace;
     }
     //-----------------------------------------------------------------------------    
+    UINT D3D11HardwarePixelBuffer::getMipLevel() const
+    {
+        return mMipLevel;
+    }
+    //-----------------------------------------------------------------------------
     void D3D11HardwarePixelBuffer::createStagingBuffer()
     {
         D3D11Texture *tex = static_cast<D3D11Texture*>(mParentTexture);

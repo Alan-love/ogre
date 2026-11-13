@@ -49,9 +49,10 @@ namespace Ogre {
     GL3PlusTextureBuffer::GL3PlusTextureBuffer(GL3PlusTexture* parent,
                                                GLint face, GLint level, uint32 width, uint32 height,
                                                uint32 depth)
-        : GL3PlusHardwarePixelBuffer(width, height, depth, parent->getFormat(), (Usage)parent->getUsage()),
+        : GLHardwarePixelBufferCommon(width, height, depth, parent->getFormat(), (Usage)parent->getUsage()),
           mTarget(parent->getGL3PlusTextureTarget()), mTextureID(parent->getGLID()), mLevel(level)
     {
+        mRenderSystem = static_cast<GL3PlusRenderSystem*>(Root::getSingleton().getRenderSystem());
         // Get face identifier
         mFaceTarget = mTarget;
         if (mTarget == GL_TEXTURE_CUBE_MAP)
@@ -70,27 +71,32 @@ namespace Ogre {
         //            << "(internal 0x" << std::hex << value << ")";
         //        LogManager::getSingleton().logMessage(LML_NORMAL, str.str());
 
-        // Set up a pixel box
-        mBuffer = PixelBox(mWidth, mHeight, mDepth, mFormat);
-
         if (mWidth==0 || mHeight==0 || mDepth==0)
             // We are invalid, do not allocate a buffer
             return;
 
         // Is this a render target?
-        if (mUsage & TU_RENDERTARGET)
+        if (parent->getUsage() & TU_RENDERTARGET)
         {
-            // Create render target for each slice
-            mSliceTRT.reserve(mDepth);
-            for(uint32 zoffset=0; zoffset<mDepth; ++zoffset)
+            if (parent->getUsage() & TU_TARGET_ALL_LAYERS)
             {
-                String name;
-                name = "rtt/" + StringConverter::toString((size_t)this) + "/" + parent->getName();
+                mTarget = GL_TEXTURE_2D; // will bind the whole texture to FBO
+                depth = 1;
+                if(face > 0) // only one rendertarget for all layers
+                    return;
+            }
+
+            // Create render target for each slice
+            mSliceTRT.reserve(depth);
+            for(uint32 zoffset=0; zoffset<depth; ++zoffset)
+            {
+                String name = getNameForRenderTexture(parent->getName(), zoffset + face);
                 GLSurfaceDesc surface;
                 surface.buffer = this;
                 surface.zoffset = zoffset;
+                surface.numSamples = parent->getTextureType() == TEX_TYPE_2D_MULTISAMPLE ? 0 : parent->getFSAA();
                 RenderTexture* trt = GL3PlusRTTManager::getSingleton().createRenderTexture(
-                    name, surface, parent->isHardwareGammaEnabled(), parent->getFSAA());
+                    name, surface, parent->isHardwareGammaEnabled());
                 mSliceTRT.push_back(trt);
                 Root::getSingleton().getRenderSystem()->attachRenderTarget(*mSliceTRT[zoffset]);
             }
@@ -367,7 +373,7 @@ namespace Ogre {
         }
         else
         {
-            GL3PlusHardwarePixelBuffer::blit(src, srcBox, dstBox);
+            GLHardwarePixelBufferCommon::blit(src, srcBox, dstBox);
         }
     }
 
@@ -464,16 +470,19 @@ namespace Ogre {
         {
         case GL_TEXTURE_1D:
         case GL_TEXTURE_2D:
+        case GL_TEXTURE_2D_MULTISAMPLE:
         case GL_TEXTURE_RECTANGLE:
             OGRE_CHECK_GL_ERROR(glFramebufferTexture(which, attachment,
                                                      mTextureID, mLevel));
             break;
         case GL_TEXTURE_CUBE_MAP:
-            OGRE_CHECK_GL_ERROR(glFramebufferTexture2D(which, GL_COLOR_ATTACHMENT0,
+            OGRE_CHECK_GL_ERROR(glFramebufferTexture2D(which, attachment,
                                                        mFaceTarget, mTextureID, mLevel));
             break;
-        case GL_TEXTURE_3D:
         case GL_TEXTURE_2D_ARRAY:
+            OGRE_CHECK_GL_ERROR(glFramebufferTextureLayer(which, attachment, mTextureID, mLevel, zoffset));
+            break;
+        case GL_TEXTURE_3D:
             OGRE_CHECK_GL_ERROR(glFramebufferTexture3D(which, attachment,
                                                        mFaceTarget, mTextureID, mLevel, zoffset));
             break;
@@ -484,16 +493,16 @@ namespace Ogre {
     // blitFromMemory doing hardware bilinear scaling
     void GL3PlusTextureBuffer::blitFromMemory(const PixelBox &src, const Box &dstBox)
     {
+        if (!mBuffer.contains(dstBox))
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Destination box out of range");
+
         // Fall back to normal GLHardwarePixelBuffer::blitFromMemory in case
         // the source dimensions match the destination ones, in which case no scaling is needed
         if (src.getSize() == dstBox.getSize())
         {
-            GL3PlusHardwarePixelBuffer::blitFromMemory(src, dstBox);
+            _blitFromMemory(src, dstBox);
             return;
         }
-        if (!mBuffer.contains(dstBox))
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Destination box out of range",
-                        "GL3PlusTextureBuffer::blitFromMemory");
 
         TextureType type = (src.getDepth() != 1) ? TEX_TYPE_3D : TEX_TYPE_2D;
 
@@ -511,5 +520,46 @@ namespace Ogre {
 
         // Delete temp texture
         TextureManager::getSingleton().remove(tex);
+    }
+    bool GL3PlusTextureBuffer::needsConversion(PixelFormat format)
+    {
+        return GL3PlusPixelUtil::getGLInternalFormat(format) == 0;
+    }
+    void GL3PlusTextureBuffer::blitToMemory(const Box &srcBox, const PixelBox &dst)
+    {
+        if (!mBuffer.contains(srcBox))
+        {
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
+                        "source box out of range",
+                        "GL3PlusHardwarePixelBuffer::blitToMemory");
+        }
+
+        if (srcBox.getOrigin() == Vector3i(0, 0 ,0) &&
+            srcBox.getSize() == getSize() &&
+            dst.getSize() == getSize() &&
+            !needsConversion(dst.format))
+        {
+            // The direct case: the user wants the entire texture in a format supported by GL
+            // so we don't need an intermediate buffer
+            download(dst);
+        }
+        else
+        {
+            // Use buffer for intermediate copy
+            allocateBuffer();
+            // Download entire buffer
+            download(mBuffer);
+            if(srcBox.getSize() != dst.getSize())
+            {
+                // We need scaling
+                Image::scale(mBuffer.getSubVolume(srcBox), dst, Image::FILTER_BILINEAR);
+            }
+            else
+            {
+                // Just copy the bit that we need
+                PixelUtil::bulkPixelConversion(mBuffer.getSubVolume(srcBox), dst);
+            }
+            freeBuffer();
+        }
     }
 }

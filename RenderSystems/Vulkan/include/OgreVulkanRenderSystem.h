@@ -40,11 +40,19 @@ namespace Ogre
 {
     class VulkanHardwareBufferManager;
 
-    /**
-       Implementation of Vulkan as a rendering system.
+    /** \addtogroup RenderSystems RenderSystems
+    *  @{
     */
+    /** \defgroup Vulkan Vulkan
+    * Implementation of Vulkan as a rendering system.
+    *  @{
+    */
+
+    #define USE_VALIDATION_LAYERS 0
+
     class _OgreVulkanExport VulkanRenderSystem : public RenderSystem
     {
+        friend class VulkanSampler;
         bool mInitialized;
         VulkanHardwareBufferManager *mHardwareBufferManager;
 
@@ -57,13 +65,11 @@ namespace Ogre
 
         std::vector<String> mDevices;
 
-        VulkanHardwareBuffer* mAutoParamsBuffer;
+        HardwareBufferPtr mAutoParamsBuffer;
         uint32 mAutoParamsBufferPos;
+        std::vector<uint32> mAutoParamsBufferUsage;
 
-        // For v1 rendering.
-        IndexData *mCurrentIndexBuffer;
-        VertexData *mCurrentVertexBuffer;
-        VkPrimitiveTopology mCurrentPrimType;
+        void resizeAutoParamsBuffer(size_t size);
 
         VulkanDevice *mActiveDevice;
 
@@ -71,17 +77,9 @@ namespace Ogre
 
         VulkanRenderPassDescriptor    *mCurrentRenderPassDescriptor;
 
-        // clang-format off
         VulkanFrameBufferDescMap    mFrameBufferDescMap;
-        VulkanFlushOnlyDescMap      mFlushOnlyDescMap;
-        uint32                      mEntriesToFlush;
-        bool                        mVpChanged;
-        // clang-format on
 
         bool mHasValidationLayers;
-
-        typedef std::set<VulkanRenderPassDescriptor*> RenderPassDescriptorSet;
-        RenderPassDescriptorSet mRenderPassDescs;
 
         PFN_vkCreateDebugReportCallbackEXT CreateDebugReportCallback;
         PFN_vkDestroyDebugReportCallbackEXT DestroyDebugReportCallback;
@@ -103,6 +101,7 @@ namespace Ogre
         VkPipelineRasterizationStateCreateInfo rasterState;
         VkPipelineColorBlendStateCreateInfo blendStateCi;
         std::array<VkPipelineShaderStageCreateInfo, GPT_COUNT> shaderStages;
+        std::array<uint32, GPT_COUNT> mBoundGpuPrograms;
 
         // descriptor set layout
         std::vector<VkDescriptorSetLayoutBinding> mDescriptorSetBindings;
@@ -126,7 +125,33 @@ namespace Ogre
         std::unordered_map<uint32, VkRenderPass> mRenderPassCache;
         std::unordered_map<uint32, VkPipeline> mPipelineCache;
 
-        std::unique_ptr<VulkanDescriptorPool> mDescriptorPool;
+        std::shared_ptr<VulkanDescriptorPool> mDescriptorPool;
+
+        /// Reused for every draw to avoid allocations
+        std::vector<VkVertexInputAttributeDescription> mVertexInputs;
+        std::vector<VkVertexInputBindingDescription> mBufferBindings;
+        std::vector<VkBuffer> mVertexBuffers;
+
+        /// State bound in the current render pass, to skip redundant binds
+        std::vector<VkBuffer> mBoundVertexBuffers;
+        VkBuffer mBoundIndexBuffer;
+        VkIndexType mBoundIndexType;
+        VkPipeline mBoundPipeline;
+        VkDescriptorSet mBoundDescriptorSet;
+        std::array<uint32, 2> mBoundUBODynOffsets;
+        VkViewport mBoundViewport;
+        std::array<float, 2> mBoundDepthBias;
+        std::array<uint32, 3> mBoundStencilParams;
+
+        /// Dynamic state, i.e. not part of the pipeline objects
+        std::array<float, 2> mDepthBias; ///< constant and slope scale factor
+        std::array<uint32, 3> mStencilParams; ///< compare mask, write mask and reference
+        /// Forget the bound state, so the next draw binds everything
+        void resetBoundState();
+        /// Bind the descriptor set and auto param offsets, if they changed since the last draw
+        void bindDescriptorSet(VkCommandBuffer cmdBuffer);
+        /// Record the dynamic pipeline state that changed since the last draw
+        void setDynamicState(VkCommandBuffer cmdBuffer);
 
         // clears the pipeline cache
         void clearPipelineCache();
@@ -141,69 +166,60 @@ namespace Ogre
         VulkanRenderSystem();
         ~VulkanRenderSystem();
 
-        virtual void shutdown( void );
+        void shutdown( void ) override;
 
-        virtual const String &getName( void ) const;
+        const String &getName( void ) const override;
         void refreshConfig();
-        void initConfigOptions();
-        virtual void setConfigOption( const String &name, const String &value );
+        void initConfigOptions() override;
+        void setConfigOption( const String &name, const String &value ) override;
 
-        virtual HardwareOcclusionQuery *createHardwareOcclusionQuery( void );
+        HardwareOcclusionQuery *createHardwareOcclusionQuery( void ) override;
 
-        virtual RenderSystemCapabilities *createRenderSystemCapabilities( void ) const;
+        RenderSystemCapabilities *createRenderSystemCapabilities( void ) const override;
 
         void resetAllBindings( void );
 
         VkInstance getVkInstance( void ) const { return mVkInstance; }
 
-        virtual RenderWindow *_createRenderWindow( const String &name, uint32 width, uint32 height,
-                                             bool fullScreen, const NameValuePairList *miscParams = 0 );
+        RenderWindow *_createRenderWindow( const String &name, uint32 width, uint32 height,
+                                             bool fullScreen, const NameValuePairList *miscParams = 0 ) override;
 
         void flushUAVs( void );
 
         void _setTexture( size_t unit, bool enabled, const TexturePtr& texPtr ) override;
 
         virtual VulkanFrameBufferDescMap &_getFrameBufferDescMap( void ) { return mFrameBufferDescMap; }
-        virtual VulkanFlushOnlyDescMap &_getFlushOnlyDescMap( void ) { return mFlushOnlyDescMap; }
-        virtual RenderPassDescriptor *createRenderPassDescriptor( void );
 
-        virtual void _beginFrame( void );
-        virtual void _endFrame( void );
+        void _beginFrame( void ) override;
+        void _endFrame( void ) override;
 
-        virtual void _render( const RenderOperation &op );
+        void _render( const RenderOperation &op ) override;
 
-        void bindGpuProgram(GpuProgram* prg);
-        virtual void bindGpuProgramParameters( GpuProgramType gptype,
+        void bindGpuProgram(GpuProgram* prg) override;
+        void bindGpuProgramParameters( GpuProgramType gptype,
                                                const GpuProgramParametersPtr& params,
-                                               uint16 variabilityMask );
+                                               uint16 variabilityMask ) override;
 
-        virtual Real getHorizontalTexelOffset( void );
-        virtual Real getVerticalTexelOffset( void );
-        virtual Real getMinimumDepthInputValue( void );
-        virtual Real getMaximumDepthInputValue( void );
+        Real getHorizontalTexelOffset( void ) override;
+        Real getVerticalTexelOffset( void ) override;
+        Real getMinimumDepthInputValue( void ) override;
+        Real getMaximumDepthInputValue( void ) override;
 
-        virtual void beginProfileEvent( const String &eventName );
-        virtual void endProfileEvent( void );
-        virtual void markProfileEvent( const String &event );
+        void beginProfileEvent( const String &eventName ) override;
+        void endProfileEvent( void ) override;
+        void markProfileEvent( const String &event ) override;
 
         virtual void initGPUProfiling( void );
         virtual void deinitGPUProfiling( void );
         virtual void beginGPUSampleProfile( const String &name, uint32 *hashCache );
         virtual void endGPUSampleProfile( const String &name );
 
-        virtual void initialiseFromRenderSystemCapabilities( RenderSystemCapabilities *caps,
-                                                             RenderTarget *primary );
-
-        virtual void beginRenderPassDescriptor( RenderPassDescriptor *desc, bool warnIfRtvWasFlushed );
         void executeRenderPassDescriptorDelayedActions( bool officialCall = true );
         void endRenderPassDescriptor();
 
-        DepthBuffer *_createDepthBufferFor( RenderTarget* renderTarget);
+        DepthBuffer *_createDepthBufferFor( RenderTarget* renderTarget) override;
 
-        void notifySwapchainCreated( VulkanWindow *window );
-        void notifySwapchainDestroyed( VulkanWindow *window );
-
-        VkRenderPass getVkRenderPass();
+        void notifySwapchainDestroyed();
 
         VulkanDevice *getVulkanDevice() const { return mDevice; }
         void _notifyDeviceStalled();
@@ -211,22 +227,25 @@ namespace Ogre
         void _notifyActiveEncoderEnded();
         void _notifyActiveComputeEnded( void );
 
-        void _setViewport(Viewport *vp);
-        void _setRenderTarget(RenderTarget *target);
+        void _setViewport(Viewport *vp) override;
+        void _setRenderTarget(RenderTarget *target) override;
         void clearFrameBuffer(unsigned int buffers, const ColourValue& colour = ColourValue::Black,
-                              Real depth = 1.0f, unsigned short stencil = 0);
+                              float depth = 1.0f, unsigned short stencil = 0) override;
         void setScissorTest(bool enabled, const Rect& rect = Rect()) override;
         void setStencilState(const StencilState& state) override;
         void _setPolygonMode(PolygonMode level) override;
         void _convertProjectionMatrix(const Matrix4& matrix, Matrix4& dest, bool) override;
         void _setDepthBias(float constantBias, float slopeScaleBias = 0.0f) override;
         void _setDepthBufferParams(bool depthTest, bool depthWrite, CompareFunction depthFunction) override;
+        void _setDepthClamp(bool enable) override;
         void _setCullingMode(CullingMode mode) override;
         void _setAlphaRejectSettings(CompareFunction func, unsigned char value, bool alphaToCoverage) override;
         void setColourBlendState(const ColourBlendState& state) override;
         void _setSampler(size_t texUnit, Sampler& s) override;
-        MultiRenderTarget * createMultiRenderTarget(const String & name) { return NULL; }
+        MultiRenderTarget * createMultiRenderTarget(const String & name) override { return NULL; }
     };
+    /** @} */
+    /** @} */
 }  // namespace Ogre
 
 #endif

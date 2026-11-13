@@ -65,7 +65,7 @@ namespace Ogre
 * %Codec for loading geometry using the [Open-Asset-Importer](https://github.com/assimp/assimp)
 * @{
 */
-class _OgreAssimpExport AssimpLoader
+class AssimpLoader
 {
 public:
     enum LoaderParams
@@ -82,10 +82,11 @@ public:
     {
         float animationSpeedModifier;
         int params;
+        int postProcessSteps;
         String customAnimationName;
         float maxEdgeAngle;
 
-        Options() : animationSpeedModifier(1), params(0), maxEdgeAngle(30) {}
+        Options() : animationSpeedModifier(1), params(0), postProcessSteps(0), maxEdgeAngle(30) {}
     };
 
     AssimpLoader();
@@ -101,18 +102,21 @@ private:
     bool _load(const char* name, Assimp::Importer& importer, Mesh* mesh, SkeletonPtr& skeletonPtr,
                const Options& options);
     bool createSubMesh(const String& name, int index, const aiNode* pNode, const aiMesh* mesh,
-                       const aiMaterial* mat, Mesh* mMesh, AxisAlignedBox& mAAB);
-    MaterialPtr createMaterial(const aiMaterial* mat, const Ogre::String &group);
+                       const MaterialPtr& matptr, Mesh* mMesh, AxisAlignedBox& mAAB);
     void grabNodeNamesFromNode(const aiScene* mScene, const aiNode* pNode);
     void grabBoneNamesFromNode(const aiScene* mScene, const aiNode* pNode);
     void computeNodesDerivedTransform(const aiScene* mScene, const aiNode* pNode,
                                       const aiMatrix4x4& accTransform);
     void createBonesFromNode(const aiScene* mScene, const aiNode* pNode);
     void createBoneHiearchy(const aiScene* mScene, const aiNode* pNode);
-    void loadDataFromNode(const aiScene* mScene, const aiNode* pNode, Mesh* mesh);
+    AxisAlignedBox loadDataFromNode(const aiScene* mScene, const aiNode* pNode, Mesh* mesh);
     void markAllChildNodesAsNeeded(const aiNode* pNode);
     void flagNodeAsNeeded(const char* name);
     bool isNodeNeeded(const char* name);
+    /// nearest ancestor of pNode that belongs to the skeleton, if any
+    const aiNode* findSkeletonParent(const aiNode* pNode) const;
+    /// bind-pose world transform of a bone (offset matrix if available, else node rest pose)
+    Affine3 getBoneBindWorld(const String& name) const;
     void parseAnimation(const aiScene* mScene, int index, aiAnimation* anim);
     typedef std::map<String, bool> boneMapType;
     boneMapType boneMap;
@@ -129,10 +133,12 @@ private:
 
     typedef std::map<String, Affine3> NodeTransformMap;
     NodeTransformMap mNodeDerivedTransformByName;
+    /// bind-pose world transforms implied by aiBone::mOffsetMatrix
+    NodeTransformMap mBoneBindWorldByName;
+    /// maps a bone node's local space into the space of its nearest skeleton ancestor
+    NodeTransformMap mBoneParentSpaceByName;
 
     SkeletonPtr mSkeleton;
-
-    static int msBoneCount;
 
     bool mQuietMode;
     Real mTicksPerSecond;
@@ -142,11 +148,11 @@ private:
 class _OgreAssimpExport AssimpPlugin : public Plugin
 {
 public:
-    const String& getName() const;
-    void install();
-    void uninstall();
-    void initialise() {}
-    void shutdown() {}
+    const String& getName() const override;
+    void install() override;
+    void uninstall() override;
+    void initialise() override {}
+    void shutdown() override {}
 };
 /** @} */
 /** @} */

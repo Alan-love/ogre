@@ -41,7 +41,7 @@ namespace Ogre
 {
     /** Specialisation of HighLevelGpuProgram to provide support for Metal
         Shader Language.
-    @remarks
+
         Metal has no target assembler or entry point specification like DirectX 9 HLSL.
         Vertex and Fragment shaders only have one entry point called "main".
         When a shader is compiled, microcode is generated but can not be accessed by
@@ -60,8 +60,8 @@ namespace Ogre
         class CmdShaderReflectionPairHint : public ParamCommand
         {
         public:
-            String doGet(const void* target) const;
-            void doSet(void* target, const String& val);
+            String doGet(const void* target) const override;
+            void doSet(void* target, const String& val) override;
         };
 
         MetalProgram( ResourceManager* creator, const String& name, ResourceHandle handle,
@@ -82,9 +82,9 @@ namespace Ogre
         const String& getShaderReflectionPairHint(void) const       { return mShaderReflectionPairHint; }
 
         /// Overridden from GpuProgram
-        const String& getLanguage(void) const;
+        const String& getLanguage(void) const override;
         /// Overridden from GpuProgram
-        GpuProgramParametersSharedPtr createParameters(void);
+        GpuProgramParametersSharedPtr createParameters(void) override;
 
         /// Retrieve the Metal function object
         id<MTLFunction> getMetalFunction(void) const    { return mFunction; }
@@ -106,13 +106,13 @@ namespace Ogre
 
         /** Internal load implementation, must be implemented by subclasses.
         */
-        void loadFromSource(void);
+        void loadFromSource(void) override;
         /// noop
-        void createLowLevelImpl(void) {}
+        void createLowLevelImpl(void) override {}
         /// shortcut as we there is no low-level separation here
-        GpuProgram* _getBindingDelegate(void) { return this; }
+        GpuProgram* _getBindingDelegate(void) override { return this; }
         /// Internal unload implementation, must be implemented by subclasses
-        void unloadHighLevelImpl(void);
+        void unloadHighLevelImpl(void) override;
 
         /// Populate the passed parameters with name->index map, must be overridden
         void buildConstantDefinitions(void) override;

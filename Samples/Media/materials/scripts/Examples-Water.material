@@ -84,7 +84,6 @@ material Examples/Water4
 		pass
 		{
 			cull_hardware none
-			cull_software none
 
 			texture_unit
 			{
@@ -102,7 +101,6 @@ material Examples/Water5
 		pass
 		{
 			cull_hardware none
-			cull_software none
 
 			texture_unit
 			{
@@ -129,7 +127,7 @@ material Examples/Water6
 
 			texture_unit
 			{
-				texture cubescene.jpg cubic
+				texture studio_garden.jpg cubic
 				tex_address_mode clamp
 				env_map cubic_reflection
 			}
@@ -143,7 +141,6 @@ material Examples/Water7
 		pass
 		{
 			cull_hardware none
-			cull_software none
 
 			texture_unit
 			{
@@ -153,7 +150,7 @@ material Examples/Water7
 
 			texture_unit
 			{
-				texture cubescene.jpg cubic
+				texture studio_garden.jpg cubic
 				tex_address_mode clamp
 				env_map cubic_reflection
 			}
@@ -170,11 +167,10 @@ material Examples/Water8
 			scene_blend add
 			depth_write off
 			cull_hardware none
-			cull_software none
 
 			texture_unit
 			{
-				texture cubescene.jpg cubic
+				texture studio_garden.jpg cubic
 				tex_address_mode clamp
 				env_map cubic_reflection
 			}

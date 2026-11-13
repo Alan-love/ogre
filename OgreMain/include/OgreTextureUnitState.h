@@ -34,8 +34,11 @@ THE SOFTWARE.
 #include "OgreMatrix4.h"
 #include "OgreTexture.h"
 #include "OgreHeaderPrefix.h"
+#include "OgreRenderSystem.h"
 
 namespace Ogre {
+    enum TexCoordCalcMethod : uint8;
+
     /** \addtogroup Core
     *  @{
     */
@@ -45,7 +48,7 @@ namespace Ogre {
 
     /** Class which determines how a TextureUnitState accesses data from a Texture
 
-        There are a number of parameters affecting how texture data is featched.
+        There are a number of parameters affecting how texture data is fetched.
         Most notably @ref FilterOptions and @ref TextureAddressingMode.
      */
     class _OgreExport Sampler {
@@ -136,7 +139,7 @@ namespace Ogre {
         option on this texture to Ogre::FO_ANISOTROPIC.
         @param maxAniso
             The maximal anisotropy level, should be between 2 and the maximum
-            supported by hardware (1 is the default, ie. no anisotrophy).
+            supported by hardware (1 is the default, ie. no anisotropy).
         */
         void setAnisotropy(unsigned int maxAniso)
         {
@@ -262,18 +265,17 @@ namespace Ogre {
 
         };
 
-        /** Enumeration to specify type of envmap.
-        */
-        enum EnvMapType
+        /// rather use @ref TexCoordCalcMethod
+        enum EnvMapType : uint8
         {
-            /// Envmap based on vector from camera to vertex position, good for planar geometry.
-            ENV_PLANAR,
-            /// Envmap based on dot of vector from camera to vertex and vertex normal, good for curves.
-            ENV_CURVED,
-            /// Envmap intended to supply reflection vectors for cube mapping.
-            ENV_REFLECTION,
-            /// Envmap intended to supply normal vectors for cube mapping.
-            ENV_NORMAL
+            /// same as #TEXCALC_ENVIRONMENT_MAP_PLANAR
+            ENV_PLANAR = TEXCALC_ENVIRONMENT_MAP_PLANAR,
+            /// same as #TEXCALC_ENVIRONMENT_MAP
+            ENV_CURVED = TEXCALC_ENVIRONMENT_MAP,
+            /// same as #TEXCALC_ENVIRONMENT_MAP_REFLECTION
+            ENV_REFLECTION = TEXCALC_ENVIRONMENT_MAP_REFLECTION,
+            /// same as #TEXCALC_ENVIRONMENT_MAP_NORMAL
+            ENV_NORMAL = TEXCALC_ENVIRONMENT_MAP_NORMAL
         };
 
         /** Useful enumeration when dealing with procedural transforms.
@@ -292,7 +294,6 @@ namespace Ogre {
         static const Ogre::TextureAddressingMode TAM_MIRROR = Ogre::TAM_MIRROR;
         static const Ogre::TextureAddressingMode TAM_CLAMP = Ogre::TAM_CLAMP;
         static const Ogre::TextureAddressingMode TAM_BORDER = Ogre::TAM_BORDER;
-        static const Ogre::TextureAddressingMode TAM_UNKNOWN = Ogre::TAM_UNKNOWN;
 
         OGRE_DEPRECATED typedef Ogre::TextureAddressingMode TextureAddressingMode;
         OGRE_DEPRECATED typedef Sampler::UVWAddressingMode UVWAddressingMode;
@@ -313,14 +314,14 @@ namespace Ogre {
         */
         struct TextureEffect {
             TextureEffectType type;
+            float arg1, arg2;
             int subtype;
-            Real arg1, arg2;
             WaveformType waveType;
-            Real base;
-            Real frequency;
-            Real phase;
-            Real amplitude;
-            Controller<Real>* controller;
+            float base;
+            float frequency;
+            float phase;
+            float amplitude;
+            ControllerFloat* controller;
             const Frustum* frustum;
         };
 
@@ -347,10 +348,10 @@ namespace Ogre {
         @param texCoordSet
             The index of the texture coordinate set to use.
         */
-        TextureUnitState( Pass* parent, const String& texName, unsigned int texCoordSet = 0);
+        TextureUnitState( Pass* parent, const String& texName, uint8 texCoordSet = 0);
 
         /** Get the name of current texture image for this layer.
-        @remarks
+
             This will either always be a single name for this layer,
             or will be the name of the current frame for an animated
             or otherwise multi-frame texture.
@@ -471,19 +472,6 @@ namespace Ogre {
         */
         unsigned int getNumFrames(void) const;
 
-
-        /** The type of unit to bind the texture settings to.
-            @deprecated only D3D9 has separate sampler bindings. All other RenderSystems use unified pipelines.
-         */
-        enum BindingType : uint8
-        {
-            /** Regular fragment processing unit - the default. */
-            BT_FRAGMENT = 0,
-            /** Vertex processing unit - indicates this unit will be used for 
-                a vertex texture fetch.
-            */
-            BT_VERTEX = 1
-        };
         /** Enum identifying the type of content this texture unit contains.
         */
         enum ContentType : uint8
@@ -498,25 +486,8 @@ namespace Ogre {
             CONTENT_COMPOSITOR = 2
         };
 
-        /** Sets the type of unit these texture settings should be bound to. 
-
-            Some render systems, when implementing vertex texture fetch, separate
-            the binding of textures for use in the vertex program versus those
-            used in fragment programs. This setting allows you to target the
-            vertex processing unit with a texture binding, in those cases. For
-            rendersystems which have a unified binding for the vertex and fragment
-            units, this setting makes no difference.
-        @deprecated see @ref Ogre::TextureUnitState::BindingType comment
-        */
-        void setBindingType(BindingType bt);
-
-        /** Gets the type of unit these texture settings should be bound to.  
-        @deprecated see @ref BindingType
-        */
-        BindingType getBindingType(void) const;
-
         /** Set the type of content this TextureUnitState references.
-        @remarks
+
             The default is to reference a standard named texture, but this unit
             can also reference automated content like a shadow texture.
         */
@@ -564,15 +535,21 @@ namespace Ogre {
         @note
         Only applies to the fixed function pipeline and has no effect if a fragment program is used.
         */
-        unsigned int getTextureCoordSet(void) const;
+        uint8 getTextureCoordSet(void) const;
 
         /** Sets which texture coordinate set is to be used for this texture layer.
 
             A mesh can define multiple sets of texture coordinates, this sets which one this
             material uses.
         */
-        void setTextureCoordSet(unsigned int set);
+        void setTextureCoordSet(uint8 set);
 
+        /// Enables Unordered Access to the provided mipLevel of the texture
+        void setUnorderedAccessMipLevel(int mipLevel) { mUnorderedAccessMipLevel = mipLevel; }
+        int getUnorderedAccessMipLevel() const { return mUnorderedAccessMipLevel; }
+
+        /// @name Texture coordinate transformation
+        /// @{
         /** Sets a matrix used to transform any texture coordinates on this layer.
 
             Texture coordinates can be modified on a texture layer to create effects like scrolling
@@ -611,31 +588,31 @@ namespace Ogre {
         @param v
             The amount the texture should be moved vertically (v direction).
         */
-        void setTextureScroll(Real u, Real v);
+        void setTextureScroll(float u, float v);
 
         /** As setTextureScroll, but sets only U value.
         */
-        void setTextureUScroll(Real value);
+        void setTextureUScroll(float value);
         /// Get texture uscroll value.
-        Real getTextureUScroll(void) const;
+        float getTextureUScroll(void) const;
 
         /** As setTextureScroll, but sets only V value.
         */
-        void setTextureVScroll(Real value);
+        void setTextureVScroll(float value);
         /// Get texture vscroll value.
-        Real getTextureVScroll(void) const;
+        float getTextureVScroll(void) const;
 
         /** As setTextureScale, but sets only U value.
         */
-        void setTextureUScale(Real value);
+        void setTextureUScale(float value);
         /// Get texture uscale value.
-        Real getTextureUScale(void) const;
+        float getTextureUScale(void) const;
 
         /** As setTextureScale, but sets only V value.
         */
-        void setTextureVScale(Real value);
+        void setTextureVScale(float value);
         /// Get texture vscale value.
-        Real getTextureVScale(void) const;
+        float getTextureVScale(void) const;
 
         /** Sets the scaling factor applied to texture coordinates.
 
@@ -648,7 +625,7 @@ namespace Ogre {
         @param vScale
             The value by which the texture is to be scaled vertically.
         */
-        void setTextureScale(Real uScale, Real vScale);
+        void setTextureScale(float uScale, float vScale);
 
         /** Sets the anticlockwise rotation factor applied to texture coordinates.
 
@@ -659,10 +636,15 @@ namespace Ogre {
         void setTextureRotate(const Radian& angle);
         /// Get texture rotation effects angle value.
         const Radian& getTextureRotate(void) const;
+        /// @}
 
         /// get the associated sampler
         const SamplerPtr& getSampler() const { return mSampler; }
-        void setSampler(const SamplerPtr& sampler) { mSampler = sampler; }
+        void setSampler(const SamplerPtr& sampler)
+        {
+            OgreAssert(sampler, "sampler must not be NULL");
+            mSampler = sampler;
+        }
 
         /// @copydoc Sampler::setAddressingMode
         const Sampler::UVWAddressingMode& getTextureAddressingMode(void) const
@@ -812,7 +794,7 @@ namespace Ogre {
             which unfortunately doesn't support as many effects. This method is for you to specify the fallback
             operation which most suits you.
 
-            You'll notice that the interface is the same as the Ogre::TMaterial::setSceneBlending method; this is
+            You'll notice that the interface is the same as the Ogre::Material::setSceneBlending method; this is
             because multipass rendering IS effectively scene blending, since each layer is rendered on top
             of the last using the same mechanism as making an object transparent, it's just being rendered
             in the same place repeatedly to get the multitexture effect.
@@ -869,30 +851,30 @@ namespace Ogre {
             Real arg2 = 1.0,
             Real manualBlend = 0.0);
 
+        /// @name Dynamic texture coordinate generation
+        /// @{
         /** Generic method for setting up texture effects.
-        @remarks
-            Allows you to specify effects directly by using the TextureEffectType enumeration. The
+
+            Allows you to specify effects directly by using the #TextureEffectType enumeration. The
             arguments that go with it depend on the effect type. Only one effect of
             each type can be applied to a texture layer.
         @par
             This method is used internally by Ogre but it is better generally for applications to use the
-            more intuitive specialised methods such as setEnvironmentMap and setScroll.
+            more intuitive specialised methods such as #setEnvironmentMap and #setTextureScroll.
         */
-        void addEffect(TextureEffect& effect);
+        void addEffect(TextureEffect effect);
 
-        /** Turns on/off texture coordinate effect that makes this layer an environment map.
+        /** Turns on/off texture coordinate generation for addressing an environment map.
 
             Environment maps make an object look reflective by using the object's vertex normals relative
             to the camera view to generate texture coordinates.
 
             The vectors generated can either be used to address a single 2D texture which
             is a 'fish-eye' lens view of a scene, or a 3D cubic environment map which requires 6 textures
-            for each side of the inside of a cube. The type depends on what texture you set up - if you use the
-            setTextureName method then a 2D fisheye lens texture is required, whereas if you used setCubicTextureName
-            then a cubic environment map will be used.
+            for each side of the inside of a cube.
 
             This effect works best if the object has lots of gradually changing normals. The texture also
-            has to be designed for this effect - see the example spheremap.png included with the sample
+            has to be designed for this effect - see the example @c spheremap.png included with the sample
             application for a 2D environment map; a cubic map can be generated by rendering 6 views of a
             scene to each of the cube faces with orthogonal views.
 
@@ -901,10 +883,9 @@ namespace Ogre {
             generated coordinates rather than static model texture coordinates.
         @param enable
             True to enable, false to disable
-        @param envMapType
-            The type of environment mapping to perform. Planar, curved, reflection or normal. @see EnvMapType
+        @param texGenType texture coordinate generation type
         */
-        void setEnvironmentMap(bool enable, EnvMapType envMapType = ENV_CURVED);
+        void setEnvironmentMap(bool enable, int texGenType = TEXCALC_ENVIRONMENT_MAP);
 
         /** Sets up an animated scroll for the texture layer.
 
@@ -914,7 +895,7 @@ namespace Ogre {
         @param vSpeed
             The number of vertical loops per second (+ve=moving up, -ve= moving down).
         */
-        void setScrollAnimation(Real uSpeed, Real vSpeed);
+        void setScrollAnimation(float uSpeed, float vSpeed);
 
         /** Sets up an animated texture rotation for this layer.
 
@@ -922,7 +903,7 @@ namespace Ogre {
         @param speed
             The number of complete anticlockwise revolutions per second (use -ve for clockwise)
         */
-        void setRotateAnimation(Real speed);
+        void setRotateAnimation(float speed);
 
         /** Sets up a general time-relative texture modification effect.
 
@@ -942,11 +923,11 @@ namespace Ogre {
             Scales the output so that instead of lying within 0..1 it lies within 0..1*amplitude for exaggerated effects.
         */
         void setTransformAnimation( const TextureTransformType ttype,
-            const WaveformType waveType, Real base = 0, Real frequency = 1, Real phase = 0, Real amplitude = 1 );
+            const WaveformType waveType, float base = 0, float frequency = 1, float phase = 0, float amplitude = 1 );
 
 
         /** Enables or disables projective texturing on this texture unit.
-        @remarks
+
             Projective texturing allows you to generate texture coordinates 
             based on a Frustum, which gives the impression that a texture is
             being projected onto the surface. Note that once you have called
@@ -967,6 +948,10 @@ namespace Ogre {
         */
         void setProjectiveTexturing(bool enabled, const Frustum* projectionSettings = 0);
 
+        /** Gets the Frustum which is being used to derive projective texturing parameters.
+        */
+        const Frustum* getProjectiveTexturingFrustum(void) const;
+
         /** Removes all effects applied to this texture layer.
         */
         void removeAllEffects(void);
@@ -977,6 +962,10 @@ namespace Ogre {
             to a layer, only the effect type is required.
         */
         void removeEffect( const TextureEffectType type );
+
+        /// Get texture effects in a multimap paired array.
+        const EffectMap& getEffects(void) const;
+        /// @}
 
         /** Determines if this texture layer is currently blank.
         @note
@@ -997,8 +986,6 @@ namespace Ogre {
         */
         void retryTextureLoad() { mTextureLoadFailed = false; }
 
-        /// Get texture effects in a multimap paired array.
-        const EffectMap& getEffects(void) const;
         /// Get the animated-texture animation duration.
         Real getAnimationDuration(void) const;
 
@@ -1015,14 +1002,14 @@ namespace Ogre {
         @param mrtIndex
             The index of the wanted texture, if referencing an MRT.
         */
-        void setCompositorReference(const String& compositorName, const String& textureName, size_t mrtIndex = 0);
+        void setCompositorReference(const String& compositorName, const String& textureName, uint32 mrtIndex = 0);
 
-        /** Gets the name of the compositor that this texture referneces. */
+        /** Gets the name of the compositor that this texture references. */
         const String& getReferencedCompositorName() const { return mCompositorRefName; }
         /** Gets the name of the texture in the compositor that this texture references. */
         const String& getReferencedTextureName() const { return mCompositorRefTexName; }
         /** Gets the MRT index of the texture in the compositor that this texture references. */ 
-        size_t getReferencedMRTIndex() const { return mCompositorRefMrtIndex; }
+        uint32 getReferencedMRTIndex() const { return mCompositorRefMrtIndex; }
     
         /// Gets the parent Pass object.
         Pass* getParent(void) const { return mParent; }
@@ -1035,8 +1022,6 @@ namespace Ogre {
         void _load(void);
         /** Internal method for unloading this object as part of Material::unload. */
         void _unload(void);
-        /// Returns whether this unit has texture coordinate generation that depends on the camera.
-        bool hasViewRelativeTextureCoordinateGeneration(void) const;
 
         /// Is this loaded?
         bool isLoaded(void) const;
@@ -1046,7 +1031,7 @@ namespace Ogre {
         /** Set the name of the Texture Unit State.
 
             The name of the Texture Unit State is optional.  Its useful in material scripts where a material could inherit
-            from another material and only want to modify a particalar Texture Unit State.
+            from another material and only want to modify a particular Texture Unit State.
         */
         void setName(const String& name);
         /// Get the name of the Texture Unit State.
@@ -1075,10 +1060,12 @@ namespace Ogre {
         /** Gets the animation controller (as created because of setAnimatedTexture)
             if it exists.
         */
-        Controller<Real>* _getAnimController() const { return mAnimController; }
+        ControllerFloat* _getAnimController() const { return mAnimController; }
 
         /// return a sampler local to this TUS instead of the shared global one
         const SamplerPtr& _getLocalSampler();
+
+        TexCoordCalcMethod _deriveTexCoordCalcMethod() const;
 private:
         // State
         /// The current animation frame.
@@ -1087,7 +1074,7 @@ private:
         /// Duration of animation in seconds.
         Real mAnimDuration;
 
-        unsigned int mTextureCoordSetIndex;
+        int mUnorderedAccessMipLevel;
 
         LayerBlendModeEx mColourBlendMode;
         SceneBlendFactor mColourBlendFallbackSrc;
@@ -1095,21 +1082,21 @@ private:
 
         LayerBlendModeEx mAlphaBlendMode;
         Real mGamma;
-        Real mUMod, mVMod;
-        Real mUScale, mVScale;
+        float mUMod, mVMod;
+        float mUScale, mVScale;
         Radian mRotate;
         mutable Matrix4 mTexModMatrix;
 
-        /// Binding type (fragment, vertex, tesselation hull and domain pipeline).
-        BindingType mBindingType;
         /// Content type of texture (normal loaded texture, auto-texture).
         ContentType mContentType;
 
         mutable bool mTextureLoadFailed;
         mutable bool mRecalcTexMatrix;
 
+        uint8 mTextureCoordSetIndex;
+
         /// The index of the referenced texture if referencing an MRT in a compositor.
-        size_t mCompositorRefMrtIndex;
+        uint32 mCompositorRefMrtIndex;
 
         //-----------------------------------------------------------------------------
         // Complex members (those that can't be copied using memcpy) are at the end to 
@@ -1129,7 +1116,7 @@ private:
         // preserving even if assign from others
         //
         Pass* mParent;
-        Controller<Real>* mAnimController;
+        ControllerFloat* mAnimController;
         //-----------------------------------------------------------------------------
 
 
@@ -1151,6 +1138,8 @@ private:
         void ensureLoaded(size_t frame) const;
 
         TexturePtr retrieveTexture(const String& name);
+
+        bool checkTexCalcSettings(const TexturePtr& tex) const;
     };
 
     /** @} */

@@ -26,6 +26,8 @@ THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
 // Ogre includes
+#include <memory>
+
 #include "OgreStableHeaders.h"
 
 #include "OgreRenderWindow.h"
@@ -39,17 +41,16 @@ THE SOFTWARE.
 #include "OgrePlugin.h"
 #include "OgreShadowVolumeExtrudeProgram.h"
 #include "OgreResourceBackgroundQueue.h"
-#include "OgreEntity.h"
 #include "OgreBillboardSet.h"
 #include "OgreBillboardChain.h"
 #include "OgreRibbonTrail.h"
-#include "OgreLight.h"
 #include "OgreConvexBody.h"
 #include "OgreTimer.h"
 #include "OgreFrameListener.h"
 #include "OgreLodStrategyManager.h"
 #include "OgreFileSystemLayer.h"
 #include "OgreStaticGeometry.h"
+#include "OgreSceneManagerEnumerator.h"
 
 #if OGRE_NO_DDS_CODEC == 0
 #include "OgreDDSCodec.h"
@@ -98,7 +99,7 @@ namespace Ogre {
         const String& logFileName)
       : mQueuedEnd(false)
       , mCurrentSceneManager(NULL)
-      , mNextFrame(0)
+      , mNextFrame(1)
       , mFrameSmoothingTime(0.0f)
       , mRemoveQueueStructuresOnClear(false)
       , mDefaultMinPixelSize(0)
@@ -121,7 +122,7 @@ namespace Ogre {
         // Create log manager and default log file if there is no log manager yet
         if(!LogManager::getSingletonPtr())
         {
-            mLogManager.reset(new LogManager());
+            mLogManager = std::make_unique<LogManager>();
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_EMSCRIPTEN
             // suppress writing log to Emscripten virtual FS, improves performance
@@ -129,21 +130,19 @@ namespace Ogre {
 #else
             mLogManager->createLog(logFileName, true, true);
 #endif
-        }
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
-        mAndroidLogger.reset(new AndroidLogListener());
-        mLogManager->getDefaultLog()->addListener(mAndroidLogger.get());
+            mAndroidLogger.reset(new AndroidLogListener());
+            mLogManager->getDefaultLog()->addListener(mAndroidLogger.get());
 #endif
+        }
 
-        mDynLibManager.reset(new DynLibManager());
-        mArchiveManager.reset(new ArchiveManager());
-        mResourceGroupManager.reset(new ResourceGroupManager());
+        mDynLibManager = std::make_unique<DynLibManager>();
+        mArchiveManager = std::make_unique<ArchiveManager>();
+        mResourceGroupManager = std::make_unique<ResourceGroupManager>();
 
         // WorkQueue (note: users can replace this if they want)
         DefaultWorkQueue* defaultQ = OGRE_NEW DefaultWorkQueue("Root");
-        // never process responses in main thread for longer than 10ms by default
-        defaultQ->setResponseProcessingTimeLimit(10);
         // match threads to hardware
         int threadCount = OGRE_THREAD_HARDWARE_CONCURRENCY;
         // but clamp it at 2 by default - we dont scale much beyond that currently
@@ -156,18 +155,18 @@ namespace Ogre {
         mWorkQueue.reset(defaultQ);
 
         // ResourceBackgroundQueue
-        mResourceBackgroundQueue.reset(new ResourceBackgroundQueue());
+        mResourceBackgroundQueue = std::make_unique<ResourceBackgroundQueue>();
 
         // Create SceneManager enumerator (note - will be managed by singleton)
-        mSceneManagerEnum.reset(new SceneManagerEnumerator());
-        mShadowTextureManager.reset(new ShadowTextureManager());
-        mRenderSystemCapabilitiesManager.reset(new RenderSystemCapabilitiesManager());
-        mMaterialManager.reset(new MaterialManager());
-        mMeshManager.reset(new MeshManager());
-        mSkeletonManager.reset(new SkeletonManager());
-        mParticleManager.reset(new ParticleSystemManager());
-        mTimer.reset(new Timer());
-        mLodStrategyManager.reset(new LodStrategyManager());
+        mSceneManagerEnum = std::make_unique<SceneManagerEnumerator>();
+        mShadowTextureManager = std::make_unique<ShadowTextureManager>();
+        mRenderSystemCapabilitiesManager = std::make_unique<RenderSystemCapabilitiesManager>();
+        mMaterialManager = std::make_unique<MaterialManager>();
+        mMeshManager = std::make_unique<MeshManager>();
+        mSkeletonManager = std::make_unique<SkeletonManager>();
+        mParticleManager = std::make_unique<ParticleSystemManager>();
+        mTimer = std::make_unique<Timer>();
+        mLodStrategyManager = std::make_unique<LodStrategyManager>();
 
 #if OGRE_PROFILING
         // Profiler
@@ -176,12 +175,12 @@ namespace Ogre {
 #endif
 
 
-        mFileSystemArchiveFactory.reset(new FileSystemArchiveFactory());
+        mFileSystemArchiveFactory = std::make_unique<FileSystemArchiveFactory>();
         ArchiveManager::getSingleton().addArchiveFactory( mFileSystemArchiveFactory.get() );
 #   if OGRE_NO_ZIP_ARCHIVE == 0
-        mZipArchiveFactory.reset(new ZipArchiveFactory());
+        mZipArchiveFactory = std::make_unique<ZipArchiveFactory>();
         ArchiveManager::getSingleton().addArchiveFactory( mZipArchiveFactory.get() );
-        mEmbeddedZipArchiveFactory.reset(new EmbeddedZipArchiveFactory());
+        mEmbeddedZipArchiveFactory = std::make_unique<EmbeddedZipArchiveFactory>();
         ArchiveManager::getSingleton().addArchiveFactory( mEmbeddedZipArchiveFactory.get() );
 #   endif
 
@@ -199,30 +198,30 @@ namespace Ogre {
         ASTCCodec::startup();
 #endif
 
-        mGpuProgramManager.reset(new GpuProgramManager());
-        mExternalTextureSourceManager.reset(new ExternalTextureSourceManager());
-        mCompositorManager.reset(new CompositorManager());
-        mCompilerManager.reset(new ScriptCompilerManager());
+        mGpuProgramManager = std::make_unique<GpuProgramManager>();
+        mExternalTextureSourceManager = std::make_unique<ExternalTextureSourceManager>();
+        mCompositorManager = std::make_unique<CompositorManager>();
+        mCompilerManager = std::make_unique<ScriptCompilerManager>();
 
         // Auto window
         mAutoWindow = 0;
 
         // instantiate and register base movable factories
-        mEntityFactory.reset(new EntityFactory());
+        mEntityFactory = std::make_unique<EntityFactory>();
         addMovableObjectFactory(mEntityFactory.get());
-        mLightFactory.reset(new LightFactory());
+        mLightFactory = std::make_unique<LightFactory>();
         addMovableObjectFactory(mLightFactory.get());
-        mBillboardSetFactory.reset(new BillboardSetFactory());
+        mBillboardSetFactory = std::make_unique<BillboardSetFactory>();
         addMovableObjectFactory(mBillboardSetFactory.get());
-        mManualObjectFactory.reset(new ManualObjectFactory());
+        mManualObjectFactory = std::make_unique<ManualObjectFactory>();
         addMovableObjectFactory(mManualObjectFactory.get());
-        mBillboardChainFactory.reset(new BillboardChainFactory());
+        mBillboardChainFactory = std::make_unique<BillboardChainFactory>();
         addMovableObjectFactory(mBillboardChainFactory.get());
-        mRibbonTrailFactory.reset(new RibbonTrailFactory());
+        mRibbonTrailFactory = std::make_unique<RibbonTrailFactory>();
         addMovableObjectFactory(mRibbonTrailFactory.get());
-        mStaticGeometryFactory.reset(new StaticGeometryFactory());
+        mStaticGeometryFactory = std::make_unique<StaticGeometryFactory>();
         addMovableObjectFactory(mStaticGeometryFactory.get());
-        mRectangle2DFactory.reset(new Rectangle2DFactory());
+        mRectangle2DFactory = std::make_unique<Rectangle2DFactory>();
         addMovableObjectFactory(mRectangle2DFactory.get());
 
         // Load plugins
@@ -257,6 +256,7 @@ namespace Ogre {
 #endif
 		mCompositorManager.reset(); // needs rendersystem
         mParticleManager.reset(); // may use plugins
+        mMaterialManager.reset(); // may use GPU program manager
         mGpuProgramManager.reset(); // may use plugins
         unloadPlugins();
 
@@ -265,11 +265,19 @@ namespace Ogre {
         StringInterface::cleanupDictionary();
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
-        mLogManager->getDefaultLog()->removeListener(mAndroidLogger.get());
+	if(mAndroidLogger)
+	{
+            mLogManager->getDefaultLog()->removeListener(mAndroidLogger.get());
+	}
 #endif
     }
 
     //-----------------------------------------------------------------------
+    static void writeLine(DataStreamPtr& stream, const String& line)
+    {
+        stream->write(line.c_str(), line.size());
+        stream->write("\n", 1);
+    }
     void Root::saveConfig(void)
     {
 #if OGRE_PLATFORM == OGRE_PLATFORM_EMSCRIPTEN
@@ -277,48 +285,30 @@ namespace Ogre {
             "Root::saveConfig");
 #endif
 #if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
-        // Check the Documents directory within the application sandbox
-        Ogre::String outBaseName, extension, configFileName;
-        Ogre::StringUtil::splitFilename(mConfigFileName, outBaseName, extension);
-        configFileName = iOSDocumentsDirectory() + "/" + outBaseName;
-		std::ofstream of(configFileName.c_str());
-        if (of.is_open())
-            mConfigFileName = configFileName;
-        else
-            mConfigFileName.clear();
-#else
+        if(!mConfigFileName.empty())
+        {
+            // Check the Documents directory within the application sandbox
+            Ogre::String outBaseName, basePath, configFileName;
+            Ogre::StringUtil::splitFilename(mConfigFileName, outBaseName, basePath);
+            mConfigFileName = iOSDocumentsDirectory() + "/" + outBaseName;
+        }
+#endif
+
         if (mConfigFileName.empty())
             return;
 
-        std::ofstream of(mConfigFileName.c_str());
-#endif
-        if (!of)
-            OGRE_EXCEPT(Exception::ERR_CANNOT_WRITE_TO_FILE, "Cannot create settings file.",
-            "Root::saveConfig");
+        auto stream = _openFileStream(mConfigFileName, std::ios::out | std::ios::binary);
 
-        if (mActiveRenderer)
-        {
-            of << "Render System=" << mActiveRenderer->getName() << std::endl;
-        }
-        else
-        {
-            of << "Render System=" << std::endl;
-        }
+        writeLine(stream, mActiveRenderer ? "Render System=" + mActiveRenderer->getName() : "Render System=");
 
-        for (RenderSystemList::const_iterator pRend = getAvailableRenderers().begin(); pRend != getAvailableRenderers().end(); ++pRend)
+        for (const auto& r : getAvailableRenderers())
         {
-            RenderSystem* rs = *pRend;
-            of << std::endl;
-            of << "[" << rs->getName() << "]" << std::endl;
-            const ConfigOptionMap& opts = rs->getConfigOptions();
-            for (ConfigOptionMap::const_iterator pOpt = opts.begin(); pOpt != opts.end(); ++pOpt)
-            {
-                of << pOpt->first << "=" << pOpt->second.currentValue << std::endl;
+            writeLine(stream, "");
+            writeLine(stream, "[" + r->getName() + "]");
+            for (const auto& o : r->getConfigOptions()) {
+                writeLine(stream, o.first + "=" + o.second.currentValue);
             }
         }
-
-        of.close();
-
     }
     //-----------------------------------------------------------------------
     bool Root::restoreConfig(void)
@@ -331,42 +321,22 @@ namespace Ogre {
         Ogre::StringUtil::splitFilename(mConfigFileName, outBaseName, extension);
         configFileName = iOSDocumentsDirectory() + "/" + outBaseName;
 
-        std::ifstream fp;
-        fp.open(configFileName.c_str(), std::ios::in);
-        if(fp.is_open())
+        if(FileSystemLayer::fileExists(configFileName))
         {
             // A config file exists in the users Documents dir, we'll use it
             mConfigFileName = configFileName;
         }
-        else
+        else if(!FileSystemLayer::fileExists(mConfigFileName))
         {
-            std::ifstream configFp;
-
             // This might be the first run because there is no config file in the
             // Documents directory.  It could also mean that a config file isn't being used at all
-
-            // Try the path passed into initialise
-            configFp.open(mConfigFileName.c_str(), std::ios::in);
-
+            // Check to see if one was included in the app bundle
+            mConfigFileName = macBundlePath() + "/ogre.cfg";
             // If we can't open this file then we have no default config file to work with
-            // Use the documents dir then.
-            if(!configFp.is_open())
-            {
-                // Check to see if one was included in the app bundle
-                mConfigFileName = macBundlePath() + "/ogre.cfg";
-
-                configFp.open(mConfigFileName.c_str(), std::ios::in);
-
-                // If we can't open this file then we have no default config file to work with
-                // Use the Documents dir then.
-                if(!configFp.is_open())
-                    mConfigFileName = configFileName;
-            }
-
-            configFp.close();
+            // Use the Documents dir then.
+            if(!FileSystemLayer::fileExists(mConfigFileName))
+                mConfigFileName = configFileName;
         }
-
-        fp.close();
 #endif
 
         if (mConfigFileName.empty ())
@@ -388,10 +358,9 @@ namespace Ogre {
         }
 
         bool optionError = false;
-        ConfigFile::SettingsBySection_::const_iterator seci;
-        for(seci = cfg.getSettingsBySection().begin(); seci != cfg.getSettingsBySection().end(); ++seci) {
-            const ConfigFile::SettingsMultiMap& settings = seci->second;
-            const String& renderSystem = seci->first;
+        for(auto& seci : cfg.getSettingsBySection()) {
+            const ConfigFile::SettingsMultiMap& settings = seci.second;
+            const String& renderSystem = seci.first;
 
             RenderSystem* rs = getRenderSystemByName(renderSystem);
             if (!rs)
@@ -400,7 +369,7 @@ namespace Ogre {
                 continue;
             }
 
-            for (auto p : settings)
+            for (const auto& p : settings)
             {
                 try
                 {
@@ -474,10 +443,8 @@ namespace Ogre {
             return NULL;
         }
 
-        RenderSystemList::const_iterator pRend;
-        for (pRend = getAvailableRenderers().begin(); pRend != getAvailableRenderers().end(); ++pRend)
+        for (auto *rs : getAvailableRenderers())
         {
-            RenderSystem* rs = *pRend;
             if (rs->getName() == name)
                 return rs;
         }
@@ -522,57 +489,12 @@ namespace Ogre {
     }
 
     //-----------------------------------------------------------------------
-    RenderWindow* Root::initialise(bool autoCreateWindow, const String& windowTitle, const String& customCapabilitiesConfig)
+    RenderWindow* Root::initialise(bool autoCreateWindow, const String& windowTitle)
     {
         OgreAssert(mActiveRenderer, "Cannot initialise");
 
         if (!mControllerManager)
-            mControllerManager.reset(new ControllerManager());
-
-        // .rendercaps manager
-        RenderSystemCapabilitiesManager& rscManager = RenderSystemCapabilitiesManager::getSingleton();
-        // caller wants to load custom RenderSystemCapabilities form a config file
-        if(!customCapabilitiesConfig.empty())
-        {
-            ConfigFile cfg;
-            cfg.load(customCapabilitiesConfig, "\t:=", false);
-
-            // Capabilities Database setting must be in the same format as
-            // resources.cfg in Ogre examples.
-            const ConfigFile::SettingsMultiMap& dbs = cfg.getSettings("Capabilities Database");
-            for(ConfigFile::SettingsMultiMap::const_iterator it = dbs.begin(); it != dbs.end(); ++it)
-            {
-                const String& archType = it->first;
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
-                String filename = it->second;
-
-                // Only adjust relative directories
-                if (!StringUtil::startsWith(filename, "/", false))
-                {
-                    filename = StringUtil::replaceAll(filename, "../", "");
-                    filename = String(macBundlePath() + "/Contents/Resources/" + filename);
-                }
-#else
-                String filename = it->second;
-#endif
-
-                rscManager.parseCapabilitiesFromArchive(filename, archType, true);
-            }
-
-            String capsName = cfg.getSetting("Custom Capabilities");
-            // The custom capabilities have been parsed, let's retrieve them
-            RenderSystemCapabilities* rsc = rscManager.loadParsedCapabilities(capsName);
-            if(rsc == 0)
-            {
-                OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND,
-                    String("Cannot load a RenderSystemCapability named ") + capsName,
-                    "Root::initialise");
-            }
-
-            // Tell RenderSystem to use the comon rsc
-            useCustomRenderSystemCapabilities(rsc);
-        }
-
+            mControllerManager = std::make_unique<ControllerManager>();
 
         PlatformInformation::log(LogManager::getSingleton().getDefaultLog());
         mActiveRenderer->_initialise();
@@ -587,6 +509,8 @@ namespace Ogre {
 
         if (autoCreateWindow)
         {
+            LogManager::getSingleton().logWarning(
+                "Root::initialise: autoCreateWindow is deprecated, use createRenderWindow instead");
             auto desc = mActiveRenderer->getRenderWindowDescription();
             desc.name = windowTitle;
             mAutoWindow = createRenderWindow(desc);
@@ -611,27 +535,9 @@ namespace Ogre {
         mSceneManagerEnum->removeFactory(fact);
     }
     //-----------------------------------------------------------------------
-    const SceneManagerMetaData* Root::getSceneManagerMetaData(const String& typeName) const
-    {
-        return mSceneManagerEnum->getMetaData(typeName);
-    }
+    const StringVector& Root::getSceneManagerTypes(void) const { return mSceneManagerEnum->getMetaData(); }
     //-----------------------------------------------------------------------
-    SceneManagerEnumerator::MetaDataIterator
-    Root::getSceneManagerMetaDataIterator(void) const
-    {
-        OGRE_IGNORE_DEPRECATED_BEGIN
-        return mSceneManagerEnum->getMetaDataIterator();
-        OGRE_IGNORE_DEPRECATED_END
-    }
-    //-----------------------------------------------------------------------
-    const SceneManagerEnumerator::MetaDataList&
-    Root::getSceneManagerMetaData(void) const
-    {
-        return mSceneManagerEnum->getMetaData();
-    }
-    //-----------------------------------------------------------------------
-    SceneManager* Root::createSceneManager(const String& typeName,
-        const String& instanceName)
+    SceneManager* Root::createSceneManager(const String& typeName, const String& instanceName)
     {
         return mSceneManagerEnum->createSceneManager(typeName, instanceName);
     }
@@ -651,17 +557,7 @@ namespace Ogre {
         return mSceneManagerEnum->hasSceneManager(instanceName);
     }
     //-----------------------------------------------------------------------
-    SceneManagerEnumerator::SceneManagerIterator Root::getSceneManagerIterator(void)
-    {
-        OGRE_IGNORE_DEPRECATED_BEGIN
-        return mSceneManagerEnum->getSceneManagerIterator();
-        OGRE_IGNORE_DEPRECATED_END
-    }
-    //-----------------------------------------------------------------------
-    const SceneManagerEnumerator::Instances& Root::getSceneManagers(void) const
-    {
-        return mSceneManagerEnum->getSceneManagers();
-    }
+    const SceneManagerInstanceMap& Root::getSceneManagers(void) const { return mSceneManagerEnum->getSceneManagers(); }
     //-----------------------------------------------------------------------
     TextureManager* Root::getTextureManager(void)
     {
@@ -687,12 +583,12 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void Root::_syncAddedRemovedFrameListeners()
     {
-        for (std::set<FrameListener*>::iterator i = mRemovedFrameListeners.begin(); i != mRemovedFrameListeners.end(); ++i)
-            mFrameListeners.erase(*i);
+        for (auto& l : mRemovedFrameListeners)
+            mFrameListeners.erase(l);
         mRemovedFrameListeners.clear();
 
-        for (std::set<FrameListener*>::iterator i = mAddedFrameListeners.begin(); i != mAddedFrameListeners.end(); ++i)
-            mFrameListeners.insert(*i);
+        for (auto& l : mAddedFrameListeners)
+            mFrameListeners.insert(l);
         mAddedFrameListeners.clear();
     }
     //-----------------------------------------------------------------------
@@ -702,12 +598,12 @@ namespace Ogre {
         _syncAddedRemovedFrameListeners();
 
         // Tell all listeners
-        for (std::set<FrameListener*>::iterator i = mFrameListeners.begin(); i != mFrameListeners.end(); ++i)
+        for (auto *l : mFrameListeners)
         {
-            if(mRemovedFrameListeners.find(*i) != mRemovedFrameListeners.end())
+            if(mRemovedFrameListeners.find(l) != mRemovedFrameListeners.end())
                 continue;
 
-            if (!(*i)->frameStarted(evt))
+            if (!l->frameStarted(evt))
                 return false;
         }
 
@@ -721,12 +617,12 @@ namespace Ogre {
         _syncAddedRemovedFrameListeners();
 
         // Tell all listeners
-        for (std::set<FrameListener*>::iterator i = mFrameListeners.begin(); i != mFrameListeners.end(); ++i)
+        for (auto *l : mFrameListeners)
         {
-            if(mRemovedFrameListeners.find(*i) != mRemovedFrameListeners.end())
+            if(mRemovedFrameListeners.find(l) != mRemovedFrameListeners.end())
                 continue;
 
-            if (!(*i)->frameRenderingQueued(evt))
+            if (!l->frameRenderingQueued(evt))
                 return false;
         }
 
@@ -739,12 +635,12 @@ namespace Ogre {
 
         // Tell all listeners
         bool ret = true;
-        for (std::set<FrameListener*>::iterator i = mFrameListeners.begin(); i != mFrameListeners.end(); ++i)
+        for (auto *l : mFrameListeners)
         {
-            if(mRemovedFrameListeners.find(*i) != mRemovedFrameListeners.end())
+            if(mRemovedFrameListeners.find(l) != mRemovedFrameListeners.end())
                 continue;
 
-            if (!(*i)->frameEnded(evt))
+            if (!l->frameEnded(evt))
             {
                 ret = false;
                 break;
@@ -756,7 +652,7 @@ namespace Ogre {
             HardwareBufferManager::getSingleton()._releaseBufferCopies();
 
         // Tell the queue to process responses
-        mWorkQueue->processResponses();
+        mWorkQueue->processMainThreadTasks();
 
         OgreProfileEndGroup("Frame", OGREPROF_GENERAL);
 
@@ -893,7 +789,6 @@ namespace Ogre {
 
         // Since background thread might be access resources,
         // ensure shutdown before destroying resource manager.
-        mResourceBackgroundQueue->shutdown();
         mWorkQueue->shutdown();
 
         if(mSceneManagerEnum)
@@ -959,16 +854,15 @@ namespace Ogre {
         {
 #if OGRE_PLATFORM == OGRE_PLATFORM_WIN32 || OGRE_PLATFORM == OGRE_PLATFORM_WINRT
             pluginDir += "\\";
-#elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX
+#else
             pluginDir += "/";
 #endif
         }
 
-        for( StringVector::iterator it = pluginList.begin(); it != pluginList.end(); ++it )
+        for(auto& p : pluginList)
         {
-            loadPlugin(pluginDir + (*it));
+            loadPlugin(pluginDir + p);
         }
-
     }
     //-----------------------------------------------------------------------
     void Root::shutdownPlugins(void)
@@ -982,9 +876,9 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void Root::initialisePlugins(void)
     {
-        for (PluginInstanceList::iterator i = mPlugins.begin(); i != mPlugins.end(); ++i)
+        for (auto *p : mPlugins)
         {
-            (*i)->initialise();
+            p->initialise();
         }
     }
     //-----------------------------------------------------------------------
@@ -1031,8 +925,8 @@ namespace Ogre {
         {
             try
             {
-                stream = ResourceGroupManager::getSingleton().createResource(
-                    filename, groupName, overwrite, locationPattern);
+                if (auto rgm = ResourceGroupManager::getSingletonPtr())
+                    stream = rgm->createResource(filename, groupName, overwrite, locationPattern);
             }
             catch (...) {}
 
@@ -1050,7 +944,10 @@ namespace Ogre {
     //---------------------------------------------------------------------
     DataStreamPtr Root::openFileStream(const String& filename, const String& groupName)
     {
-        auto ret = ResourceGroupManager::getSingleton().openResource(filename, groupName, NULL, false);
+        DataStreamPtr ret;
+        if (auto rgm = ResourceGroupManager::getSingletonPtr())
+            ret = rgm->openResource(filename, groupName, NULL, false);
+
         if(ret)
             return ret;
 
@@ -1209,7 +1106,6 @@ namespace Ogre {
         mActiveRenderer->getCapabilities()->log(LogManager::getSingleton().getDefaultLog());
 
         // Background loader
-        mResourceBackgroundQueue->initialise();
         mWorkQueue->startup();
         // Initialise material manager
         mMaterialManager->initialise();
@@ -1234,9 +1130,8 @@ namespace Ogre {
         // This belongs here, as all render targets must be updated before events are
         // triggered, otherwise targets could be mismatched.  This could produce artifacts,
         // for instance, with shadows.
-        SceneManagerEnumerator::Instances::const_iterator it, end = getSceneManagers().end();
-        for (it = getSceneManagers().begin(); it != end; ++it)
-            it->second->_handleLodEvents();
+        for (const auto& m : getSceneManagers())
+            m.second->_handleLodEvents();
 
         return ret;
     }
@@ -1253,9 +1148,8 @@ namespace Ogre {
         // This belongs here, as all render targets must be updated before events are
         // triggered, otherwise targets could be mismatched.  This could produce artifacts,
         // for instance, with shadows.
-        SceneManagerEnumerator::Instances::const_iterator it, end = getSceneManagers().end();
-        for (it = getSceneManagers().begin(); it != end; ++it)
-            it->second->_handleLodEvents();
+        for (const auto& m : getSceneManagers())
+            m.second->_handleLodEvents();
 
         return ret;
     }
@@ -1354,16 +1248,6 @@ namespace Ogre {
 
     }
     //---------------------------------------------------------------------
-    unsigned int Root::getDisplayMonitorCount() const
-    {
-        OgreAssert(mActiveRenderer,
-                   "Cannot get display monitor count - No render system has been selected");
-
-        OGRE_IGNORE_DEPRECATED_BEGIN
-        return mActiveRenderer->getDisplayMonitorCount();
-        OGRE_IGNORE_DEPRECATED_END
-    }
-    //---------------------------------------------------------------------
     void Root::setWorkQueue(WorkQueue* queue)
     {
         if (mWorkQueue.get() != queue)
@@ -1374,7 +1258,4 @@ namespace Ogre {
 
         }
     }
-
-
-
 }

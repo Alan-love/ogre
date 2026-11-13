@@ -63,7 +63,7 @@ namespace Ogre
         // Just call load as if this is the background thread, locking on
         // load status will prevent race conditions
         load(true);
-        _fireLoadingComplete(true);
+        _fireLoadingComplete();
     }
     //-----------------------------------------------------------------------
     void Resource::prepare(bool background)
@@ -144,7 +144,7 @@ namespace Ogre
 
         // Fire events (if not background)
         if (!background)
-            _firePreparingComplete(false);
+            _firePreparingComplete();
 
 
     }
@@ -215,7 +215,16 @@ namespace Ogre
 
             if (mIsManual)
             {
+                if (old==LOADSTATE_UNLOADED && mLoader)
+                {
+                    mLoader->prepareResource(this);
+
+                    if (!background)
+                        _firePreparingComplete();
+                }
+
                 preLoadImpl();
+
                 // Load from manual loader
                 if (mLoader)
                 {
@@ -236,7 +245,12 @@ namespace Ogre
             {
 
                 if (old==LOADSTATE_UNLOADED)
+                {
                     prepareImpl();
+
+                    if (!background)
+                        _firePreparingComplete();
+                }
 
                 preLoadImpl();
 
@@ -281,7 +295,7 @@ namespace Ogre
 
         // Fire events, if not background
         if (!background)
-            _fireLoadingComplete(false);
+            _fireLoadingComplete();
 
 
     }
@@ -381,39 +395,46 @@ namespace Ogre
         mListenerList.erase(lis);
     }
     //-----------------------------------------------------------------------
-    void Resource::_fireLoadingComplete(bool wasBackgroundLoaded)
+    void Resource::_fireLoadingComplete(bool unused)
     {
-        // Lock the listener list
-            OGRE_LOCK_MUTEX(mListenerListMutex);
-        for (ListenerList::iterator i = mListenerList.begin();
-            i != mListenerList.end(); ++i)
+        ListenerList listenerList;
         {
-            (*i)->loadingComplete(this);
+            // Lock the listener list and make a copy of it
+            OGRE_LOCK_MUTEX(mListenerListMutex);
+            listenerList = mListenerList;
+        }
+        for (auto& l : listenerList)
+        {
+            l->loadingComplete(this);
         }
     }
     //-----------------------------------------------------------------------
-    void Resource::_firePreparingComplete(bool wasBackgroundLoaded)
+    void Resource::_firePreparingComplete(bool unused)
     {
-        // Lock the listener list
-            OGRE_LOCK_MUTEX(mListenerListMutex);
-        for (ListenerList::iterator i = mListenerList.begin();
-            i != mListenerList.end(); ++i)
+        ListenerList listenerList;
         {
-            (*i)->preparingComplete(this);
+            // Lock the listener list and make a copy of it
+            OGRE_LOCK_MUTEX(mListenerListMutex);
+            listenerList = mListenerList;
+        }
+        for (auto& l : listenerList)
+        {
+            l->preparingComplete(this);
         }
     }
     //-----------------------------------------------------------------------
     void Resource::_fireUnloadingComplete(void)
     {
-        // Lock the listener list
+        ListenerList listenerList;
+        {
+            // Lock the listener list and make a copy of it
             OGRE_LOCK_MUTEX(mListenerListMutex);
-            for (ListenerList::iterator i = mListenerList.begin();
-                i != mListenerList.end(); ++i)
-            {
-
-                (*i)->unloadingComplete(this);
-
-            }
+            listenerList = mListenerList;
+        }
+        for (auto& l : listenerList)
+        {
+            l->unloadingComplete(this);
+        }
     }
 
 }

@@ -35,7 +35,6 @@ THE SOFTWARE.
 
 #include "OgreAndroidEGLSupport.h"
 #include "OgreAndroidEGLWindow.h"
-#include "OgreViewport.h"
 
 #include <android/native_window.h>
 
@@ -65,13 +64,7 @@ namespace Ogre {
         if (!mActive || (mWidth == width && mHeight == height))
             return;
 
-        mWidth = width;
-        mHeight = height;
-
-        // Notify viewports of resize
-        ViewportList::iterator it = mViewportList.begin();
-        while (it != mViewportList.end())
-            (*it++).second->_updateDimensions();
+        RenderWindow::resize(width, height);
 
         EGLint format;
         eglGetConfigAttrib(mEglDisplay, mEglConfig, EGL_NATIVE_VISUAL_ID, &format);
@@ -126,8 +119,13 @@ namespace Ogre {
                                 "currentGLContext was specified with no current GL context",
                                 "EGLWindow::create");
                 }
-                
-                mEglSurface = eglGetCurrentSurface(EGL_DRAW);
+
+                if((opt = miscParams->find("currentEGLSurface")) != end &&
+                    StringConverter::parseBool(opt->second))
+                {
+                    mEglSurface = eglGetCurrentSurface(EGL_DRAW);
+                }
+
                 mEglDisplay = eglGetCurrentDisplay();
             }
 
@@ -172,6 +170,11 @@ namespace Ogre {
                 mCSAA = Ogre::StringConverter::parseInt(opt->second);
             }
 
+            if ((opt = miscParams->find("gamma")) != end)
+            {
+                mHwGamma = StringConverter::parseBool(opt->second);
+            }
+
             if ((opt = miscParams->find("preserveContext")) != end &&
                 StringConverter::parseBool(opt->second))
             {
@@ -189,11 +192,6 @@ namespace Ogre {
             }
         }
 
-        if (mEglSurface)
-        {
-            mEglConfig = mGLSupport->getGLConfigFromDrawable (mEglSurface, &width, &height);
-        }
-
         if (!mEglConfig && eglContext)
         {
             mEglConfig = mGLSupport->getGLConfigFromContext(eglContext);
@@ -207,12 +205,9 @@ namespace Ogre {
             }
         }
 
-        mIsExternal = (mEglSurface != 0);
-
         if (!mEglConfig)
         {
             _notifySurfaceCreated(mWindow, config);
-            mHwGamma = false;
         }
         
         mContext = createEGLContext(eglContext);
@@ -260,7 +255,7 @@ namespace Ogre {
     {
         mWindow = reinterpret_cast<EGLNativeWindowType>(window);
         
-        if (mPreserveContext)
+        if (mPreserveContext) // always false on first call
         {
             mEglDisplay = mGLSupport->getGLDisplay();
 
@@ -268,11 +263,13 @@ namespace Ogre {
             eglGetConfigAttrib(mEglDisplay, mEglConfig, EGL_NATIVE_VISUAL_ID, &format);
             EGL_CHECK_ERROR
 
+            mWidth = ANativeWindow_getWidth(mWindow);
+            mHeight = ANativeWindow_getHeight(mWindow);
             if (mScale != 1.0f)
             {
-                int nwidth = (int)((float)ANativeWindow_getWidth(mWindow) * mScale);
-                int nheight = (int)((float)ANativeWindow_getHeight(mWindow) * mScale);
-                ANativeWindow_setBuffersGeometry(mWindow, nwidth, nheight, format);
+                mWidth = (int)(mWidth * mScale);
+                mHeight = (int)(mHeight * mScale);
+                ANativeWindow_setBuffersGeometry(mWindow, mWidth, mHeight, format);
             }
             else
             {
@@ -298,77 +295,70 @@ namespace Ogre {
                 EGL_NONE
             };
 
-            bool bAASuccess = false;
             if (mCSAA)
             {
-                try
-                {
-                    int CSAAminAttribs[] = {
-                        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                        EGL_BUFFER_SIZE, mMinBufferSize,
-                        EGL_DEPTH_SIZE, 16,
-                        EGL_COVERAGE_BUFFERS_NV, 1,
-                        EGL_COVERAGE_SAMPLES_NV, mCSAA,
-                        EGL_NONE
-                    };
-                    int CSAAmaxAttribs[] = {
-                        EGL_BUFFER_SIZE, mMaxBufferSize,
-                        EGL_DEPTH_SIZE, mMaxDepthSize,
-                        EGL_STENCIL_SIZE, mMaxStencilSize,
-                        EGL_COVERAGE_BUFFERS_NV, 1,
-                        EGL_COVERAGE_SAMPLES_NV, mCSAA,
-                        EGL_NONE
-                    };
-                    mEglConfig = mGLSupport->selectGLConfig(CSAAminAttribs, CSAAmaxAttribs);
-                    bAASuccess = true;
-                }
-                catch (Exception& e)
+                int CSAAminAttribs[] = {
+                    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                    EGL_BUFFER_SIZE, mMinBufferSize,
+                    EGL_DEPTH_SIZE, 16,
+                    EGL_COVERAGE_BUFFERS_NV, 1,
+                    EGL_COVERAGE_SAMPLES_NV, mCSAA,
+                    EGL_NONE
+                };
+                int CSAAmaxAttribs[] = {
+                    EGL_BUFFER_SIZE, mMaxBufferSize,
+                    EGL_DEPTH_SIZE, mMaxDepthSize,
+                    EGL_STENCIL_SIZE, mMaxStencilSize,
+                    EGL_COVERAGE_BUFFERS_NV, 1,
+                    EGL_COVERAGE_SAMPLES_NV, mCSAA,
+                    EGL_NONE
+                };
+                mEglConfig = mGLSupport->selectGLConfig(CSAAminAttribs, CSAAmaxAttribs);
+                if (!mEglConfig)
                 {
                     LogManager::getSingleton().logMessage("AndroidEGLWindow::_createInternalResources: setting CSAA failed");
                 }
             }
 
-            if (mMSAA && !bAASuccess)
+            if (mMSAA && !mEglConfig)
             {
-                try
-                {
-                    int MSAAminAttribs[] = {
-                        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                        EGL_BUFFER_SIZE, mMinBufferSize,
-                        EGL_DEPTH_SIZE, 16,
-                        EGL_SAMPLE_BUFFERS, 1,
-                        EGL_SAMPLES, mMSAA,
-                        EGL_NONE
-                    };
-                    int MSAAmaxAttribs[] = {
-                        EGL_BUFFER_SIZE, mMaxBufferSize,
-                        EGL_DEPTH_SIZE, mMaxDepthSize,
-                        EGL_STENCIL_SIZE, mMaxStencilSize,
-                        EGL_SAMPLE_BUFFERS, 1,
-                        EGL_SAMPLES, mMSAA,
-                        EGL_NONE
-                    };
-                    mEglConfig = mGLSupport->selectGLConfig(MSAAminAttribs, MSAAmaxAttribs);
-                    bAASuccess = true;
-                }
-                catch (Exception& e)
+                int MSAAminAttribs[] = {
+                    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                    EGL_BUFFER_SIZE, mMinBufferSize,
+                    EGL_DEPTH_SIZE, 16,
+                    EGL_SAMPLE_BUFFERS, 1,
+                    EGL_SAMPLES, mMSAA,
+                    EGL_NONE
+                };
+                int MSAAmaxAttribs[] = {
+                    EGL_BUFFER_SIZE, mMaxBufferSize,
+                    EGL_DEPTH_SIZE, mMaxDepthSize,
+                    EGL_STENCIL_SIZE, mMaxStencilSize,
+                    EGL_SAMPLE_BUFFERS, 1,
+                    EGL_SAMPLES, mMSAA,
+                    EGL_NONE
+                };
+                mEglConfig = mGLSupport->selectGLConfig(MSAAminAttribs, MSAAmaxAttribs);
+                if (!mEglConfig)
                 {
                     LogManager::getSingleton().logMessage("AndroidEGLWindow::_createInternalResources: setting MSAA failed");
                 }
             }
 
             mEglDisplay = mGLSupport->getGLDisplay();
-            if (!bAASuccess) mEglConfig = mGLSupport->selectGLConfig(minAttribs, maxAttribs);
+            if (!mEglConfig) mEglConfig = mGLSupport->selectGLConfig(minAttribs, maxAttribs);
 
             EGLint format;
             eglGetConfigAttrib(mEglDisplay, mEglConfig, EGL_NATIVE_VISUAL_ID, &format);
             EGL_CHECK_ERROR
 
+            mWidth = ANativeWindow_getWidth(mWindow);
+            mHeight = ANativeWindow_getHeight(mWindow);
             if (mScale != 1.0f)
             {
-                int nwidth = (int)((float)ANativeWindow_getWidth(mWindow) * mScale);
-                int nheight = (int)((float)ANativeWindow_getHeight(mWindow) * mScale);
-                ANativeWindow_setBuffersGeometry(mWindow, nwidth, nheight, format);
+                mWidth = (int)(mWidth * mScale);
+                mHeight = (int)(mHeight * mScale);
+                ANativeWindow_setBuffersGeometry(mWindow, mWidth, mHeight, format);
             }
             else
             {
@@ -377,10 +367,16 @@ namespace Ogre {
 
             mEglSurface = createSurfaceFromWindow(mEglDisplay, mWindow);
 
+            // sync with config dialog
+            auto rs = Root::getSingletonPtr()->getRenderSystem();
+            rs->setConfigOption("FSAA", std::to_string(mMSAA));
+            rs->setConfigOption("Content Scaling Factor", StringUtil::format("%.1f", 1.0f / mScale));
+            rs->setConfigOption("sRGB Gamma Conversion", mHwGamma ? "Yes" : "No");
+            rs->setConfigOption("Video Mode", StringUtil::format("%dx%d", mWidth, mHeight));
             if (config)
             {
                 bool isLandscape = (int)AConfiguration_getOrientation((AConfiguration*)config) == 2;
-                Root::getSingletonPtr()->getRenderSystem()->setConfigOption("Orientation", isLandscape ? "Landscape" : "Portrait");
+                rs->setConfigOption("Orientation", isLandscape ? "Landscape" : "Portrait");
             }
         }
         

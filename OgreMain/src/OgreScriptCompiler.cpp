@@ -75,15 +75,15 @@ namespace Ogre
         node->cls = cls;
         node->id = id;
         node->abstract = abstract;
-        for(AbstractNodeList::const_iterator i = children.begin(); i != children.end(); ++i)
+        for(const auto & i : children)
         {
-            AbstractNodePtr newNode = AbstractNodePtr((*i)->clone());
+            AbstractNodePtr newNode = AbstractNodePtr(i->clone());
             newNode->parent = node;
             node->children.push_back(newNode);
         }
-        for(AbstractNodeList::const_iterator i = values.begin(); i != values.end(); ++i)
+        for(const auto & value : values)
         {
-            AbstractNodePtr newNode = AbstractNodePtr((*i)->clone());
+            AbstractNodePtr newNode = AbstractNodePtr(value->clone());
             newNode->parent = node;
             node->values.push_back(newNode);
         }
@@ -107,13 +107,14 @@ namespace Ogre
         if(i != mEnv.end())
             return std::make_pair(true, i->second);
 
-        ObjectAbstractNode *parentNode = (ObjectAbstractNode*)this->parent;
-        while(parentNode)
+        auto parentNode = this->parent;
+        while(parentNode && parentNode->type == ANT_OBJECT)
         {
-            i = parentNode->mEnv.find(inName);
-            if(i != parentNode->mEnv.end())
+            ObjectAbstractNode *parentObj = (ObjectAbstractNode*)parentNode;
+            i = parentObj->mEnv.find(inName);
+            if(i != parentObj->mEnv.end())
                 return std::make_pair(true, i->second);
-            parentNode = (ObjectAbstractNode*)parentNode->parent;
+            parentNode = parentNode->parent;
         }
         return std::make_pair(false, "");
     }
@@ -138,9 +139,9 @@ namespace Ogre
         node->type = type;
         node->name = name;
         node->id = id;
-        for(AbstractNodeList::const_iterator i = values.begin(); i != values.end(); ++i)
+        for(const auto & value : values)
         {
-            AbstractNodePtr newNode = AbstractNodePtr((*i)->clone());
+            AbstractNodePtr newNode = AbstractNodePtr(value->clone());
             newNode->parent = node;
             node->values.push_back(newNode);
         }
@@ -194,7 +195,7 @@ namespace Ogre
 
     void ScriptCompilerListener::preConversion(ScriptCompiler *compiler, ConcreteNodeListPtr nodes)
     {
-        
+
     }
 
     bool ScriptCompilerListener::postConversion(ScriptCompiler *compiler, const AbstractNodeListPtr &nodes)
@@ -208,7 +209,7 @@ namespace Ogre
         ss << "ScriptCompiler - " << ScriptCompiler::formatErrorCode(code) << " in " << file << "(" << line << ")";
         if(!msg.empty())
             ss << ": " << msg;
-        
+
         if(code == ScriptCompiler::CE_DEPRECATEDSYMBOL)
             LogManager::getSingleton().logWarning(ss.str());
         else
@@ -238,7 +239,7 @@ namespace Ogre
         case CE_OBJECTNAMEEXPECTED:
             return "object name expected";
         case CE_OBJECTALLOCATIONERROR:
-            return "object allocation error";
+            return "no object created";
         case CE_OBJECTBASENOTFOUND:
             return "base object not found";
         case CE_INVALIDPARAMETERS:
@@ -287,10 +288,10 @@ namespace Ogre
             {
                 PropertyAbstractNode *prop = static_cast<PropertyAbstractNode*>(node.get());
                 msg = msg + prop->name + " =";
-                for(AbstractNodeList::iterator i = prop->values.begin(); i != prop->values.end(); ++i)
+                for(const auto& v : prop->values)
                 {
-                    if((*i)->type == ANT_ATOM)
-                        msg = msg + " " + static_cast<AtomAbstractNode*>((*i).get())->value;
+                    if(v->type == ANT_ATOM)
+                        msg = msg + " " + static_cast<AtomAbstractNode*>(v.get())->value;
                 }
             }
             break;
@@ -298,10 +299,10 @@ namespace Ogre
             {
                 ObjectAbstractNode *obj = static_cast<ObjectAbstractNode*>(node.get());
                 msg = msg + node->file + " - " + StringConverter::toString(node->line) + " - " + obj->cls + " \"" + obj->name + "\" =";
-                for(AbstractNodeList::iterator i = obj->values.begin(); i != obj->values.end(); ++i)
+                for(const auto& v : obj->values)
                 {
-                    if((*i)->type == ANT_ATOM)
-                        msg = msg + " " + static_cast<AtomAbstractNode*>((*i).get())->value;
+                    if(v->type == ANT_ATOM)
+                        msg = msg + " " + static_cast<AtomAbstractNode*>(v.get())->value;
                 }
             }
             break;
@@ -314,9 +315,9 @@ namespace Ogre
         if(node->type == ANT_OBJECT)
         {
             ObjectAbstractNode *obj = static_cast<ObjectAbstractNode*>(node.get());
-            for(AbstractNodeList::iterator i = obj->children.begin(); i != obj->children.end(); ++i)
+            for(const auto& c : obj->children)
             {
-                logAST(tabs + 1, *i);
+                logAST(tabs + 1, c);
             }
         }
     }
@@ -324,6 +325,11 @@ namespace Ogre
 
     bool ScriptCompiler::compile(const ConcreteNodeListPtr &nodes, const String &group)
     {
+        if(nodes && !nodes->empty())
+        {
+            mSourceFile = nodes->front()->file;
+        }
+
         // Set up the compilation context
         mGroup = group;
 
@@ -343,29 +349,31 @@ namespace Ogre
         // Process object inheritance
         processObjects(*ast, *ast);
         // Process variable expansion
-        processVariables(*ast);
+        std::set<String> expadingVars;
+        processVariables(*ast, expadingVars);
 
         // Allows early bail-out through the listener
         if(mListener && !mListener->postConversion(this, ast))
             return mErrors.empty();
-        
+
         // Translate the nodes
-        for(AbstractNodeList::iterator i = ast->begin(); i != ast->end(); ++i)
+        for(auto & i : *ast)
         {
 #if DEBUG_AST
-            logAST(0, *i);
+            logAST(0, i);
 #endif
-            if((*i)->type == ANT_OBJECT && static_cast<ObjectAbstractNode*>((*i).get())->abstract)
+            if(i->type == ANT_OBJECT && static_cast<ObjectAbstractNode*>(i.get())->abstract)
                 continue;
             //LogManager::getSingleton().logMessage(static_cast<ObjectAbstractNode*>((*i).get())->name);
-            ScriptTranslator *translator = ScriptCompilerManager::getSingleton().getTranslator(*i);
+            ScriptTranslator *translator = ScriptCompilerManager::getSingleton().getTranslator(i);
             if(translator)
-                translator->translate(this, *i);
+                translator->translate(this, i);
         }
 
         mImports.clear();
         mImportRequests.clear();
         mImportTable.clear();
+        mSourceFile.clear();
 
         return mErrors.empty();
     }
@@ -383,6 +391,11 @@ namespace Ogre
         }
 
         mErrors.push_back({file, msg, line, code});
+    }
+
+    void ScriptCompiler::addError(const AbstractNode& node, const String& msg, uint32 code)
+    {
+        addError(code, mSourceFile, node.line, msg);
     }
 
     void ScriptCompiler::setListener(ScriptCompilerListener *listener)
@@ -472,16 +485,16 @@ namespace Ogre
         // All import nodes are removed
         // We have cached the code blocks from all the imported scripts
         // We can process all import requests now
-        for(ImportCacheMap::iterator it = mImports.begin(); it != mImports.end(); ++it)
+        for(auto & import : mImports)
         {
-            ImportRequestMap::iterator j = mImportRequests.lower_bound(it->first),
-                end = mImportRequests.upper_bound(it->first);
+            ImportRequestMap::iterator j = mImportRequests.lower_bound(import.first),
+                end = mImportRequests.upper_bound(import.first);
             if(j != end)
             {
                 if(j->second == "*")
                 {
                     // Insert the entire AST into the import table
-                    mImportTable.insert(mImportTable.begin(), it->second->begin(), it->second->end());
+                    mImportTable.insert(mImportTable.begin(), import.second->begin(), import.second->end());
                     continue; // Skip ahead to the next file
                 }
                 else
@@ -489,9 +502,9 @@ namespace Ogre
                     for(; j != end; ++j)
                     {
                         // Locate this target and insert it into the import table
-                        AbstractNodeList newNodes = locateTarget(*it->second, j->second);
-                        if(!newNodes.empty())
-                            mImportTable.insert(mImportTable.begin(), newNodes.begin(), newNodes.end());
+                        auto target = locateTarget(*import.second, j->second);
+                        if(target)
+                            mImportTable.insert(mImportTable.begin(), target);
                         else
                             // -1 for line as we lost that info here
                             addError(CE_REFERENCETOANONEXISTINGOBJECT, nodes.front()->file, -1, j->second);
@@ -525,36 +538,29 @@ namespace Ogre
         return retval;
     }
 
-    AbstractNodeList ScriptCompiler::locateTarget(const AbstractNodeList& nodes, const Ogre::String &target)
+    AbstractNodePtr ScriptCompiler::locateTarget(const AbstractNodeList& nodes, const Ogre::String &target)
     {
-        auto iter = nodes.end();
-    
         // Search for a top-level object node
-        for(auto i = nodes.begin(); i != nodes.end(); ++i)
+        for(const auto& n : nodes)
         {
-            if((*i)->type == ANT_OBJECT)
+            if(n->type == ANT_OBJECT && static_cast<ObjectAbstractNode*>(n.get())->name == target)
             {
-                ObjectAbstractNode *impl = (ObjectAbstractNode*)(*i).get();
-                if(impl->name == target)
-                    iter = i;
+                return n;
             }
         }
 
-        AbstractNodeList newNodes;
-        if(iter != nodes.end())
-        {
-            newNodes.push_back(*iter);
-        }
-        return newNodes;
+        return nullptr;
     }
 
-    void ScriptCompiler::processObjects(AbstractNodeList& nodes, const AbstractNodeList &top)
+    void ScriptCompiler::processObjects(AbstractNodeList& nodes, const AbstractNodeList &top, const ObjectAbstractNode* exclude)
     {
-        for(AbstractNodeList::iterator i = nodes.begin(); i != nodes.end(); ++i)
+        for(auto& node : nodes)
         {
-            if((*i)->type == ANT_OBJECT)
+            if(node->type == ANT_OBJECT)
             {
-                ObjectAbstractNode *obj = (ObjectAbstractNode*)(*i).get();
+                ObjectAbstractNode *obj = (ObjectAbstractNode*)node.get();
+
+                auto skipNode = exclude ? exclude : obj; // set to us at the top level
 
 #ifdef OGRE_BUILD_COMPONENT_OVERLAY
                 bool isOverlayElement = obj->cls == "overlay_element";
@@ -563,35 +569,45 @@ namespace Ogre
                 for (String& base : obj->bases)
                 {
                     // Check the top level first, then check the import table
-                    AbstractNodeList newNodes = locateTarget(top, base);
-                    if(newNodes.empty())
-                        newNodes = locateTarget(mImportTable, base);
+                    auto target = locateTarget(top, base);
+                    if(!target)
+                        target = locateTarget(mImportTable, base);
 
-                    if (newNodes.empty())
-                        addError(CE_OBJECTBASENOTFOUND, obj->file, obj->line, base);
-
-                    for(const auto& n : newNodes)
+                    if (!target)
                     {
-                        if(n->type != ANT_OBJECT) continue;
+                        addError(CE_OBJECTBASENOTFOUND, obj->file, obj->line, base);
+                        continue;
+                    }
 
-                        auto src = static_cast<const ObjectAbstractNode&>(*n);
+                    auto& src = static_cast<const ObjectAbstractNode&>(*target);
+
+                    if (target.get() == skipNode)
+                    {
+                        addError(CE_OBJECTBASENOTFOUND, obj->file, obj->line, "cannot inherit from itself");
+                        continue;
+                    }
+
+                    if (src.cls != obj->cls)
+                    {
+                        addError(CE_OBJECTBASENOTFOUND, obj->file, obj->line, "cannot inherit from a different type");
+                        continue;
+                    }
 
 #ifdef OGRE_BUILD_COMPONENT_OVERLAY
-                        // uses custom inheritance for renaming children
-                        if(isOverlayElement)
-                        {
-                            if(src.abstract)
-                                base = ""; // hide from custom inheritance
-                            else
-                                continue;
-                        }
-#endif
-                        overlayObject(src, *obj);
+                    // uses custom inheritance for renaming children
+                    if (isOverlayElement)
+                    {
+                        if (src.abstract)
+                            base = ""; // hide from custom inheritance
+                        else
+                            continue;
                     }
+#endif
+                    overlayObject(src, *obj);
                 }
 
                 // Recurse into children
-                processObjects(obj->children, top);
+                processObjects(obj->children, top, skipNode);
 
                 // Overrides now exist in obj's overrides list. These are non-object nodes which must now
                 // Be placed in the children section of the object node such that overriding from parents
@@ -604,11 +620,11 @@ namespace Ogre
     void ScriptCompiler::overlayObject(const ObjectAbstractNode &src, ObjectAbstractNode& dest)
     {
         // Overlay the environment of one on top the other first
-        for(std::map<String,String>::const_iterator i = src.getVariables().begin(); i != src.getVariables().end(); ++i)
+        for(const auto & i : src.getVariables())
         {
-            std::pair<bool,String> var = dest.getVariable(i->first);
+            std::pair<bool,String> var = dest.getVariable(i.first);
             if(!var.first)
-                dest.setVariable(i->first, i->second);
+                dest.setVariable(i.first, i.second);
         }
 
         // Create a vector storing each pairing of override between source and destination
@@ -623,15 +639,15 @@ namespace Ogre
         // Fill the vector with objects from the source node (base)
         // And insert non-objects into the overrides list of the destination
         AbstractNodeList::iterator insertPos = dest.children.begin();
-        for(AbstractNodeList::const_iterator i = src.children.begin(); i != src.children.end(); ++i)
+        for(const auto & i : src.children)
         {
-            if((*i)->type == ANT_OBJECT)
+            if(i->type == ANT_OBJECT)
             {
-                overrides.push_back(std::make_pair(static_pointer_cast<ObjectAbstractNode>(*i), dest.children.end()));
+                overrides.push_back(std::make_pair(static_pointer_cast<ObjectAbstractNode>(i), dest.children.end()));
             }
             else
             {
-                AbstractNodePtr newNode((*i)->clone());
+                AbstractNodePtr newNode(i->clone());
                 newNode->parent = &dest;
                 dest.overrides.push_back(newNode);
             }
@@ -743,21 +759,21 @@ namespace Ogre
 
         // Loop through overrides, either inserting source nodes or overriding
         insertPos = dest.children.begin();
-        for(size_t i = 0; i < overrides.size(); ++i)
+        for(auto & override : overrides)
         {
-            if(overrides[i].second != dest.children.end())
+            if(override.second != dest.children.end())
             {
                 // Override the destination with the source (base) object
-                overlayObject(*overrides[i].first,
-                    static_cast<ObjectAbstractNode&>(**overrides[i].second));
-                insertPos = overrides[i].second;
+                overlayObject(*override.first,
+                    static_cast<ObjectAbstractNode&>(**override.second));
+                insertPos = override.second;
                 insertPos++;
             }
             else
             {
                 // No override was possible, so insert this node at the insert position
                 // into the destination (child) object
-                AbstractNodePtr newNode(overrides[i].first->clone());
+                AbstractNodePtr newNode(override.first->clone());
                 newNode->parent = &dest;
                 if(insertPos != dest.children.end())
                 {
@@ -817,7 +833,7 @@ namespace Ogre
         return false;
     }
 
-    void ScriptCompiler::processVariables(AbstractNodeList& nodes)
+    void ScriptCompiler::processVariables(AbstractNodeList& nodes, std::set<String>& expandingVars)
     {
         AbstractNodeList::iterator i = nodes.begin();
         while(i != nodes.end())
@@ -831,14 +847,14 @@ namespace Ogre
                 ObjectAbstractNode *obj = (ObjectAbstractNode*)(*cur).get();
                 if(!obj->abstract)
                 {
-                    processVariables(obj->children);
-                    processVariables(obj->values);
+                    processVariables(obj->children, expandingVars);
+                    processVariables(obj->values, expandingVars);
                 }
             }
             else if((*cur)->type == ANT_PROPERTY)
             {
                 PropertyAbstractNode *prop = (PropertyAbstractNode*)(*cur).get();
-                processVariables(prop->values);
+                processVariables(prop->values, expandingVars);
             }
             else if((*cur)->type == ANT_VARIABLE_ACCESS)
             {
@@ -871,19 +887,29 @@ namespace Ogre
 
                 if(varAccess.first)
                 {
+                    if(!expandingVars.insert(var->name).second)
+                    {
+                        // Error
+                        addError(CE_INVALIDPARAMETERS, var->file, var->line, var->name+ " is defined recursively");
+                        nodes.erase(cur);
+                        continue;
+                    }
+
                     // Found the variable, so process it and insert it into the tree
                     ConcreteNodeListPtr cst = ScriptParser::parseChunk(ScriptLexer::tokenize(varAccess.second, var->file), var->file);
                     AbstractNodeListPtr ast = convertToAST(*cst);
 
                     // Set up ownership for these nodes
-                    for(AbstractNodeList::iterator j = ast->begin(); j != ast->end(); ++j)
-                        (*j)->parent = var->parent;
+                    for(auto & j : *ast)
+                        j->parent = var->parent;
 
                     // Recursively handle variable accesses within the variable expansion
-                    processVariables(*ast);
+                    processVariables(*ast, expandingVars);
 
                     // Insert the nodes in place of the variable
                     nodes.insert(cur, ast->begin(), ast->end());
+
+                    expandingVars.erase(var->name);
                 }
                 else
                 {
@@ -914,6 +940,8 @@ namespace Ogre
         mIds["tessellation_hull_program"] = ID_TESSELLATION_HULL_PROGRAM;
         mIds["tessellation_domain_program"] = ID_TESSELLATION_DOMAIN_PROGRAM;
         mIds["compute_program"] = ID_COMPUTE_PROGRAM;
+        mIds["mesh_program"] = ID_MESH_PROGRAM;
+        mIds["task_program"] = ID_TASK_PROGRAM;
         mIds["technique"] = ID_TECHNIQUE;
         mIds["pass"] = ID_PASS;
         mIds["texture_unit"] = ID_TEXTURE_UNIT;
@@ -923,6 +951,8 @@ namespace Ogre
         mIds["tessellation_hull_program_ref"] = ID_TESSELLATION_HULL_PROGRAM_REF;
         mIds["tessellation_domain_program_ref"] = ID_TESSELLATION_DOMAIN_PROGRAM_REF;
         mIds["compute_program_ref"] = ID_COMPUTE_PROGRAM_REF;
+        mIds["mesh_program_ref"] = ID_MESH_PROGRAM_REF;
+        mIds["task_program_ref"] = ID_TASK_PROGRAM_REF;
         mIds["shadow_caster_vertex_program_ref"] = ID_SHADOW_CASTER_VERTEX_PROGRAM_REF;
         mIds["shadow_caster_fragment_program_ref"] = ID_SHADOW_CASTER_FRAGMENT_PROGRAM_REF;
         mIds["shadow_receiver_vertex_program_ref"] = ID_SHADOW_RECEIVER_VERTEX_PROGRAM_REF;
@@ -1001,7 +1031,6 @@ namespace Ogre
         mIds["cull_software"] = ID_CULL_SOFTWARE;
         mIds["back"] = ID_BACK;
         mIds["front"] = ID_FRONT;
-        mIds["normalise_normals"] = ID_NORMALISE_NORMALS;
         mIds["lighting"] = ID_LIGHTING;
         mIds["shading"] = ID_SHADING;
         mIds["flat"] = ID_FLAT;
@@ -1042,7 +1071,9 @@ namespace Ogre
         mIds["3d"] = ID_3D;
         mIds["cubic"] = ID_CUBIC;
         mIds["unlimited"] = ID_UNLIMITED;
-        mIds["2darray"] = ID_2DARRAY;
+        mIds["2darray"] = ID_2DARRAY; // deprecated and undocumented
+        mIds["2d_array"] = ID_2DARRAY;
+        mIds["2d_ms"] = ID_2DMS;
         mIds["alpha"] = ID_ALPHA;
         mIds["gamma"] = ID_GAMMA;
         mIds["anim_texture"] = ID_ANIM_TEXTURE;
@@ -1113,9 +1144,6 @@ namespace Ogre
         mIds["square"] = ID_SQUARE;
         mIds["inverse_sawtooth"] = ID_INVERSE_SAWTOOTH;
         mIds["transform"] = ID_TRANSFORM;
-        mIds["binding_type"] = ID_BINDING_TYPE;
-        mIds["vertex"] = ID_VERTEX;
-        mIds["fragment"] = ID_FRAGMENT;
         mIds["geometry"] = ID_GEOMETRY;
         mIds["tessellation_hull"] = ID_TESSELLATION_HULL;
         mIds["tessellation_domain"] = ID_TESSELLATION_DOMAIN;
@@ -1127,6 +1155,7 @@ namespace Ogre
         mIds["shared_params"] = ID_SHARED_PARAMS;
         mIds["shared_param_named"] = ID_SHARED_PARAM_NAMED;
         mIds["shared_params_ref"] = ID_SHARED_PARAMS_REF;
+        mIds["use_linear_colours"] = ID_USE_LINEAR_COLOURS;
 
         // Particle system
         mIds["particle_system"] = ID_PARTICLE_SYSTEM;
@@ -1148,6 +1177,7 @@ namespace Ogre
         mIds["pooled"] = ID_POOLED;
         //mIds["gamma"] = ID_GAMMA; - already registered
         mIds["no_fsaa"] = ID_NO_FSAA;
+        mIds["fsaa"] = ID_FSAA;
         mIds["depth_pool"] = ID_DEPTH_POOL;
 
         mIds["texture_ref"] = ID_TEXTURE_REF;
@@ -1155,7 +1185,7 @@ namespace Ogre
         mIds["chain_scope"] = ID_SCOPE_CHAIN;
         mIds["global_scope"] = ID_SCOPE_GLOBAL;
         mIds["compositor_logic"] = ID_COMPOSITOR_LOGIC;
-            
+
         mIds["only_initial"] = ID_ONLY_INITIAL;
         mIds["visibility_mask"] = ID_VISIBILITY_MASK;
         mIds["lod_bias"] = ID_LOD_BIAS;
@@ -1203,6 +1233,7 @@ namespace Ogre
         mIds["auto"] = ID_AUTO;
         mIds["camera"] = ID_CAMERA;
         mIds["align_to_face"] = ID_ALIGN_TO_FACE;
+        mIds["unordered_access_mip"] = ID_UNORDERED_ACCESS_MIP;
 
 		mLargestRegisteredWordId = ID_END_BUILTIN_IDS;
 	}
@@ -1224,7 +1255,7 @@ namespace Ogre
 
     // AbstractTreeeBuilder
     ScriptCompiler::AbstractTreeBuilder::AbstractTreeBuilder(ScriptCompiler *compiler)
-        :mNodes(OGRE_NEW_T(AbstractNodeList, MEMCATEGORY_GENERAL)(), SPFM_DELETE_T), mCurrent(0), mCompiler(compiler)
+        :mNodes(std::make_shared<AbstractNodeList>()), mCurrent(0), mCompiler(compiler)
     {
     }
 
@@ -1254,7 +1285,7 @@ namespace Ogre
             ImportAbstractNode *impl = OGRE_NEW ImportAbstractNode();
             impl->line = node->line;
             impl->file = node->file;
-            
+
             ConcreteNodeList::iterator iter = node->children.begin();
             impl->target = (*iter)->token;
 
@@ -1348,14 +1379,14 @@ namespace Ogre
                 if(node->token == "abstract")
                 {
                     impl->abstract = true;
-                    for(ConcreteNodeList::const_iterator i = node->children.begin(); i != node->children.end(); ++i)
-                        temp.push_back((*i).get());
+                    for(const auto& c : node->children)
+                        temp.push_back(c.get());
                 }
                 else
                 {
                     temp.push_back(node);
-                    for(ConcreteNodeList::const_iterator i = node->children.begin(); i != node->children.end(); ++i)
-                        temp.push_back((*i).get());
+                    for(const auto& c : node->children)
+                        temp.push_back(c.get());
                 }
 
                 // Get the type of object
@@ -1377,7 +1408,7 @@ namespace Ogre
 
                 // Get the name
                 // Unless the type is in the exclusion list
-                if(iter != temp.end() && ((*iter)->type == CNT_WORD || (*iter)->type == CNT_QUOTE) &&
+                if(iter != temp.end() && ((*iter)->type == CNT_WORD || (*iter)->type == CNT_QUOTE || (*iter)->type == CNT_VARIABLE) &&
                     !mCompiler->isNameExcluded(*impl, mCurrent))
                 {
                     impl->name = (*iter)->token;
@@ -1417,8 +1448,8 @@ namespace Ogre
                 if(iter != temp.end() && (*iter)->type == CNT_COLON)
                 {
                     // Children of the ':' are bases
-                    for(ConcreteNodeList::iterator j = (*iter)->children.begin(); j != (*iter)->children.end(); ++j)
-                        impl->bases.push_back((*j)->token);
+                    for(auto & j : (*iter)->children)
+                        impl->bases.push_back(j->token);
                     ++iter;
                 }
 
@@ -1466,6 +1497,12 @@ namespace Ogre
                 impl->id = iter2->second;
 
             asn = AbstractNodePtr(impl);
+
+            if(mCurrent && mCurrent->type != ANT_PROPERTY)
+            {
+                // stray atom outside of a property is likely a property without a value
+                mCompiler->addError(*impl, "missing property value");
+            }
         }
 
         // Here, we must insert the node into the tree
@@ -1493,22 +1530,22 @@ namespace Ogre
 
     void ScriptCompiler::AbstractTreeBuilder::visit(AbstractTreeBuilder *visitor, const ConcreteNodeList &nodes)
     {
-        for(ConcreteNodeList::const_iterator i = nodes.begin(); i != nodes.end(); ++i)
-            visitor->visit((*i).get());
+        for(const auto & node : nodes)
+            visitor->visit(node.get());
     }
-    
+
 
     // ScriptCompilerManager
     template<> ScriptCompilerManager *Singleton<ScriptCompilerManager>::msSingleton = 0;
-    
+
     ScriptCompilerManager* ScriptCompilerManager::getSingletonPtr(void)
     {
         return msSingleton;
     }
     //-----------------------------------------------------------------------
     ScriptCompilerManager& ScriptCompilerManager::getSingleton(void)
-    {  
-        assert( msSingleton );  return ( *msSingleton );  
+    {
+        assert( msSingleton );  return ( *msSingleton );
     }
     //-----------------------------------------------------------------------
     ScriptCompilerManager::ScriptCompilerManager()
@@ -1550,7 +1587,7 @@ namespace Ogre
     void ScriptCompilerManager::removeTranslatorManager(Ogre::ScriptTranslatorManager *man)
     {
             OGRE_LOCK_AUTO_MUTEX;
-        
+
         for(std::vector<ScriptTranslatorManager*>::iterator i = mManagers.begin(); i != mManagers.end(); ++i)
         {
             if(*i == man)
@@ -1571,7 +1608,7 @@ namespace Ogre
         ScriptTranslator *translator = 0;
         {
                     OGRE_LOCK_AUTO_MUTEX;
-            
+
             // Start looking from the back
             for(std::vector<ScriptTranslatorManager*>::reverse_iterator i = mManagers.rbegin(); i != mManagers.rend(); ++i)
             {
@@ -1615,8 +1652,6 @@ namespace Ogre
         }
     }
 
-    //-------------------------------------------------------------------------
-    String PreApplyTextureAliasesScriptCompilerEvent::eventType = "preApplyTextureAliases";
     //-------------------------------------------------------------------------
     String ProcessResourceNameScriptCompilerEvent::eventType = "processResourceName";
     //-------------------------------------------------------------------------

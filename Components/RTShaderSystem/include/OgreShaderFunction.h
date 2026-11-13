@@ -90,6 +90,20 @@ public:
     /// dst = arg0 OP arg1;
     void binaryOp(char op, const std::vector<Operand>& params) const;
 
+    /// shorthand for "dst = BUILTIN(args);"
+    void callBuiltin(const char* name, const std::vector<Operand>& params) const;
+    /// @overload
+    void callBuiltin(const char* name, const In& arg, const Out& ret) const { callBuiltin(name, {arg, ret}); }
+    /// @overload
+    void callBuiltin(const char* name, const In& arg0, const In& arg1, const Out& ret) const
+    {
+        callBuiltin(name, {arg0, arg1, ret});
+    }
+    /// @overload
+    void callBuiltin(const char* name, const In& arg0, const In& arg1, const In& arg2, const Out& ret) const
+    {
+        callBuiltin(name, {arg0, arg1, arg2, ret});
+    }
 private:
     uint32 mStage;
     Function* mParent;
@@ -100,18 +114,18 @@ private:
 */
 class _OgreRTSSExport Function : public RTShaderSystemAlloc
 {
-    friend ProgramManager;
+    friend class ProgramManager;
 // Interface.
 public:
     /// @deprecated
-    ParameterPtr resolveInputParameter(Parameter::Semantic semantic, int index,  const Parameter::Content content, GpuConstantType type);
+    ParameterPtr resolveInputParameter(Parameter::Semantic semantic, int index,  int content, GpuConstantType type);
 
     /** Resolve input parameter of this function
     @param content The content of the parameter.
     @param type The type of the desired parameter.
     @return parameter instance in case of that resolve operation succeeded.
     */
-    ParameterPtr resolveInputParameter(Parameter::Content content, GpuConstantType type = GCT_UNKNOWN)
+    ParameterPtr resolveInputParameter(int content, GpuConstantType type = GCT_UNKNOWN)
     {
         return resolveInputParameter(Parameter::SPS_UNKNOWN, 0, content, type);
     }
@@ -129,20 +143,20 @@ public:
      * @param type The type of the desired parameter.
      * @return parameter or NULL if not found
      */
-    ParameterPtr getInputParameter(Parameter::Content content, GpuConstantType type = GCT_UNKNOWN)
+    ParameterPtr getInputParameter(int content, GpuConstantType type = GCT_UNKNOWN)
     {
         return _getParameterByContent(mInputParameters, content, type);
     }
 
     /// @deprecated
-    ParameterPtr resolveOutputParameter(Parameter::Semantic semantic, int index,  const Parameter::Content content, GpuConstantType type);
+    ParameterPtr resolveOutputParameter(Parameter::Semantic semantic, int index,  int content, GpuConstantType type);
 
     /** Resolve output parameter of this function
     @param content The content of the parameter.
     @param type The type of the desired parameter.
     @return parameter instance in case of that resolve operation succeeded.
     */
-    ParameterPtr resolveOutputParameter(Parameter::Content content, GpuConstantType type = GCT_UNKNOWN)
+    ParameterPtr resolveOutputParameter(int content, GpuConstantType type = GCT_UNKNOWN)
     {
         return resolveOutputParameter(Parameter::SPS_UNKNOWN, 0, content, type);
     }
@@ -153,7 +167,7 @@ public:
      * @param type The type of the desired parameter.
      * @return parameter or NULL if not found
      */
-    ParameterPtr getOutputParameter(Parameter::Content content, GpuConstantType type = GCT_UNKNOWN)
+    ParameterPtr getOutputParameter(int content, GpuConstantType type = GCT_UNKNOWN)
     {
         return _getParameterByContent(mOutputParameters, content, type);
     }
@@ -162,10 +176,11 @@ public:
 
     local parameters do not have index or semantic.
     @param name The name of the parameter.
-    @param type The type of the desired parameter.  
+    @param type The type of the desired parameter.
+    @param arraySize If > 0, the parameter will be an array of the given size.
     @return parameter instance in case of that resolve operation succeeded.
     */
-    ParameterPtr resolveLocalParameter(GpuConstantType type, const String& name);
+    ParameterPtr resolveLocalParameter(GpuConstantType type, const String& name, size_t arraySize = 0);
 
     /** Resolve local parameter of this function
 
@@ -174,14 +189,17 @@ public:
     @param type The type of the desired parameter.
     @return parameter instance in case of that resolve operation succeeded.
     */
-    ParameterPtr resolveLocalParameter(Parameter::Content content, GpuConstantType type = GCT_UNKNOWN);
+    ParameterPtr resolveLocalParameter(int content, GpuConstantType type = GCT_UNKNOWN);
+
+
+    ParameterPtr resolveLocalStructParameter(const String& type, const String& name);
 
     /**
      * get local parameter by content
      * @param content
      * @return parameter or NULL if not found
      */
-    ParameterPtr getLocalParameter(Parameter::Content content)
+    ParameterPtr getLocalParameter(int content)
     {
         return _getParameterByContent(mLocalParameters, content, GCT_UNKNOWN);
     }
@@ -237,11 +255,13 @@ public:
     /** Delete all output parameters from this function. */
     void deleteAllOutputParameters();
 
+    explicit Function(GpuProgramType type = GPT_VERTEX_PROGRAM);
+
 private:
 
     static ParameterPtr _getParameterByName(const ShaderParameterList& parameterList, const String& name);
     static ParameterPtr _getParameterBySemantic(const ShaderParameterList& parameterList, const Parameter::Semantic semantic, int index);
-    static ParameterPtr _getParameterByContent(const ShaderParameterList& parameterList, const Parameter::Content content, GpuConstantType type);
+    static ParameterPtr _getParameterByContent(const ShaderParameterList& parameterList, int content, GpuConstantType type);
 
     /** Class destructor */
     ~Function();
@@ -261,7 +281,9 @@ private:
     // Atom instances composing this function.
     std::map<size_t, FunctionAtomInstanceList> mAtomInstances;
     FunctionAtomInstanceList mSortedAtomInstances;
-private:
+
+    GpuProgramType mType;
+
     friend class Program;
 };
 

@@ -53,7 +53,8 @@ namespace Ogre {
 
 		for (i = mProfiles.begin(); i != iend; ++i)
 		{
-			bool syntaxSupported = gpuMgr.isSyntaxSupported(*i);
+			String profile = *i == "ps_2_x" ? "ps_2_a" : *i;
+			bool syntaxSupported = gpuMgr.isSyntaxSupported(profile);
 			if (!syntaxSupported && find(specialCgProfiles, specialCgProfilesEnd, *i) != specialCgProfilesEnd)
 			{
 				// Cg has some "special" profiles which don't have direct equivalents
@@ -69,8 +70,8 @@ namespace Ogre {
 
 			if (syntaxSupported)
 			{
-				mSelectedProfile = *i;
-				String selectedProfileForFind = mSelectedProfile;
+				mSelectedProfile = profile;
+				String selectedProfileForFind = *i;
 				if(StringUtil::startsWith(mSelectedProfile,"vs_4_0_", true))
 				{
 					selectedProfileForFind = "vs_4_0";
@@ -115,7 +116,13 @@ namespace Ogre {
 		if (!mPreprocessorDefines.empty())
 			args = StringUtil::split(mPreprocessorDefines);
 
-		StringVector::const_iterator i;
+		for(auto& arg : args)
+		{
+			if(!StringUtil::startsWith(arg, "-"))
+				arg = "-D" + arg;
+		}
+
+		StringVector::iterator i;
 		if (mSelectedCgProfile == CG_PROFILE_VS_1_1)
 		{
 			// Need the 'dcls' argument whenever we use this profile
@@ -136,6 +143,9 @@ namespace Ogre {
 			}
 		}
 		args.push_back("-DOGRE_CG");
+		if (getType() == GPT_VERTEX_PROGRAM)
+			args.push_back("-DOGRE_VERTEX_SHADER");
+
 		// Now split args into that god-awful char** that Cg insists on
 		freeCgArgs();
 		mCgArguments = OGRE_ALLOC_T(char*, args.size() + 1, MEMCATEGORY_RESOURCE);
@@ -172,7 +182,9 @@ namespace Ogre {
 	{
 		selectProfile();
 
-        uint32 hash = FastHash("CG", 2); // HLSL and Cg shaders are indentical
+		// need to differentiate between target profiles
+		// also HLSL and Cg shaders sources are identical
+        uint32 hash = HashCombine(0, mSelectedCgProfile);
         hash = _getHash(hash);
 
 		if ( GpuProgramManager::getSingleton().isMicrocodeAvailableInCache(hash) )
@@ -376,8 +388,7 @@ namespace Ogre {
 													 mParametersMapSizeAsBuffer);
 
 		// create microcode
-		GpuProgramManager::Microcode newMicrocode =
-			GpuProgramManager::getSingleton().createMicrocode(sizeOfMicrocode);
+		auto newMicrocode = GpuProgramManager::createMicrocode(sizeOfMicrocode);
 
 		newMicrocode->seek(0);
 
@@ -1009,7 +1020,7 @@ namespace Ogre {
 					}
 
 					// Record logical / physical mapping
-					OGRE_LOCK_MUTEX(mFloatLogicalToPhysical->mutex);
+					OGRE_LOCK_MUTEX(mLogicalToPhysical->mutex);
 					mLogicalToPhysical->map.emplace(def.logicalIndex,
 							GpuLogicalIndexUse(def.physicalIndex, def.arraySize * def.elementSize, GPV_GLOBAL, def.isFloat() ? BCT_FLOAT : BCT_INT));
 					mLogicalToPhysical->bufferSize += def.arraySize * def.elementSize;
@@ -1187,6 +1198,9 @@ namespace Ogre {
 			ParamDictionary* dict = getParamDictionary();
 
 			dict->addParameter(ParameterDef("profiles",
+				"Space-separated list of Cg profiles supported by this profile.",
+				PT_STRING),&msCmdProfiles);
+			dict->addParameter(ParameterDef("target",
 				"Space-separated list of Cg profiles supported by this profile.",
 				PT_STRING),&msCmdProfiles);
 			dict->addParameter(ParameterDef("compile_arguments",

@@ -81,7 +81,7 @@ namespace Ogre {
         OptimisedUtilSSE(void);
 
         /// @copydoc OptimisedUtil::softwareVertexSkinning
-        virtual void __OGRE_SIMD_ALIGN_ATTRIBUTE softwareVertexSkinning(
+        void __OGRE_SIMD_ALIGN_ATTRIBUTE softwareVertexSkinning(
             const float *srcPosPtr, float *destPosPtr,
             const float *srcNormPtr, float *destNormPtr,
             const float *blendWeightPtr, const unsigned char* blendIndexPtr,
@@ -90,186 +90,46 @@ namespace Ogre {
             size_t srcNormStride, size_t destNormStride,
             size_t blendWeightStride, size_t blendIndexStride,
             size_t numWeightsPerVertex,
-            size_t numVertices);
+            size_t numVertices) override;
 
         /// @copydoc OptimisedUtil::softwareVertexMorph
-        virtual void __OGRE_SIMD_ALIGN_ATTRIBUTE softwareVertexMorph(
-            Real t,
+        void __OGRE_SIMD_ALIGN_ATTRIBUTE softwareVertexMorph(
+            float t,
             const float *srcPos1, const float *srcPos2,
             float *dstPos,
             size_t pos1VSize, size_t pos2VSize, size_t dstVSize, 
             size_t numVertices,
-            bool morphNormals);
+            bool morphNormals) override;
 
         /// @copydoc OptimisedUtil::concatenateAffineMatrices
-        virtual void __OGRE_SIMD_ALIGN_ATTRIBUTE concatenateAffineMatrices(
+        void __OGRE_SIMD_ALIGN_ATTRIBUTE concatenateAffineMatrices(
             const Affine3& baseMatrix,
             const Affine3* srcMatrices,
             Affine3* dstMatrices,
-            size_t numMatrices);
+            size_t numMatrices) override;
 
         /// @copydoc OptimisedUtil::calculateFaceNormals
-        virtual void __OGRE_SIMD_ALIGN_ATTRIBUTE calculateFaceNormals(
+        void __OGRE_SIMD_ALIGN_ATTRIBUTE calculateFaceNormals(
             const float *positions,
             const EdgeData::Triangle *triangles,
             Vector4 *faceNormals,
-            size_t numTriangles);
+            size_t numTriangles) override;
 
         /// @copydoc OptimisedUtil::calculateLightFacing
-        virtual void __OGRE_SIMD_ALIGN_ATTRIBUTE calculateLightFacing(
+        void __OGRE_SIMD_ALIGN_ATTRIBUTE calculateLightFacing(
             const Vector4& lightPos,
             const Vector4* faceNormals,
             char* lightFacings,
-            size_t numFaces);
+            size_t numFaces) override;
 
         /// @copydoc OptimisedUtil::extrudeVertices
-        virtual void __OGRE_SIMD_ALIGN_ATTRIBUTE extrudeVertices(
+        void __OGRE_SIMD_ALIGN_ATTRIBUTE extrudeVertices(
             const Vector4& lightPos,
             Real extrudeDist,
             const float* srcPositions,
             float* destPositions,
-            size_t numVertices);
+            size_t numVertices) override;
     };
-
-#if defined(__OGRE_SIMD_ALIGN_STACK)
-    /** Stack-align implementation of OptimisedUtil.
-    @remarks
-        User code compiled by icc and gcc might not align stack
-        properly, we need ensure stack align to a 16-bytes boundary
-        when execute SSE function.
-    @par
-        We implemeted as align stack following a virtual function call,
-        then should guarantee call instruction are used instead of inline
-        underlying function body here (which might causing problem).
-    @note
-        Don't use this class directly, use OptimisedUtil instead.
-    */
-    class _OgrePrivate OptimisedUtilWithStackAlign : public OptimisedUtil
-    {
-    protected:
-        /// The actual implementation
-        OptimisedUtil* mImpl;
-
-    public:
-        /// Constructor
-        OptimisedUtilWithStackAlign(OptimisedUtil* impl)
-            : mImpl(impl)
-        {
-        }
-
-        /// @copydoc OptimisedUtil::softwareVertexSkinning
-        virtual void softwareVertexSkinning(
-            const float *srcPosPtr, float *destPosPtr,
-            const float *srcNormPtr, float *destNormPtr,
-            const float *blendWeightPtr, const unsigned char* blendIndexPtr,
-            const Affine3* const* blendMatrices,
-            size_t srcPosStride, size_t destPosStride,
-            size_t srcNormStride, size_t destNormStride,
-            size_t blendWeightStride, size_t blendIndexStride,
-            size_t numWeightsPerVertex,
-            size_t numVertices)
-        {
-            __OGRE_SIMD_ALIGN_STACK();
-
-            mImpl->softwareVertexSkinning(
-                srcPosPtr, destPosPtr,
-                srcNormPtr, destNormPtr,
-                blendWeightPtr, blendIndexPtr,
-                blendMatrices,
-                srcPosStride, destPosStride,
-                srcNormStride, destNormStride,
-                blendWeightStride, blendIndexStride,
-                numWeightsPerVertex,
-                numVertices);
-        }
-
-        /// @copydoc OptimisedUtil::softwareVertexMorph
-        virtual void softwareVertexMorph(
-            Real t,
-            const float *srcPos1, const float *srcPos2,
-            float *dstPos,
-            size_t pos1VSize, size_t pos2VSize, size_t dstVSize, 
-            size_t numVertices,
-            bool morphNormals)
-        {
-            __OGRE_SIMD_ALIGN_STACK();
-
-            mImpl->softwareVertexMorph(
-                t,
-                srcPos1, srcPos2,
-                dstPos,
-                pos1VSize, pos2VSize, dstVSize, 
-                numVertices,
-                morphNormals);
-        }
-
-        /// @copydoc OptimisedUtil::concatenateAffineMatrices
-        virtual void concatenateAffineMatrices(
-            const Affine3& baseMatrix,
-            const Affine3* srcMatrices,
-            Affine3* dstMatrices,
-            size_t numMatrices)
-        {
-            __OGRE_SIMD_ALIGN_STACK();
-
-            mImpl->concatenateAffineMatrices(
-                baseMatrix,
-                srcMatrices,
-                dstMatrices,
-                numMatrices);
-        }
-
-        /// @copydoc OptimisedUtil::calculateFaceNormals
-        virtual void calculateFaceNormals(
-            const float *positions,
-            const EdgeData::Triangle *triangles,
-            Vector4 *faceNormals,
-            size_t numTriangles)
-        {
-            __OGRE_SIMD_ALIGN_STACK();
-
-            mImpl->calculateFaceNormals(
-                positions,
-                triangles,
-                faceNormals,
-                numTriangles);
-        }
-
-        /// @copydoc OptimisedUtil::calculateLightFacing
-        virtual void calculateLightFacing(
-            const Vector4& lightPos,
-            const Vector4* faceNormals,
-            char* lightFacings,
-            size_t numFaces)
-        {
-            __OGRE_SIMD_ALIGN_STACK();
-
-            mImpl->calculateLightFacing(
-                lightPos,
-                faceNormals,
-                lightFacings,
-                numFaces);
-        }
-
-        /// @copydoc OptimisedUtil::extrudeVertices
-        virtual void extrudeVertices(
-            const Vector4& lightPos,
-            Real extrudeDist,
-            const float* srcPositions,
-            float* destPositions,
-            size_t numVertices)
-        {
-            __OGRE_SIMD_ALIGN_STACK();
-
-            mImpl->extrudeVertices(
-                lightPos,
-                extrudeDist,
-                srcPositions,
-                destPositions,
-                numVertices);
-        }
-    };
-#endif  // !defined(__OGRE_SIMD_ALIGN_STACK)
 
 //---------------------------------------------------------------------
 // Some useful macro for collapse matrices.
@@ -1282,7 +1142,7 @@ namespace Ogre {
     }
     //---------------------------------------------------------------------
     void OptimisedUtilSSE::softwareVertexMorph(
-        Real t,
+        float t,
         const float *pSrc1, const float *pSrc2,
         float *pDst,
         size_t pos1VSize, size_t pos2VSize, size_t dstVSize, 
@@ -1496,21 +1356,13 @@ namespace Ogre {
                 // This loads into [2,3]. [1] is unused
                 norm = _mm_loadh_pi(norm, (__m64*)(pNorm + 0));
                 
-                // Fill a 4-vec with vector length
-                // square
-                __m128 tmp = _mm_mul_ps(norm, norm);
-                // Add - for this we want this effect:
-                // orig   3 | 2 | 1 | 0
-                // add1   0 | 0 | 0 | 2
-                // add2   2 | 3 | 0 | 3
-                // This way elements 0, 2 and 3 have the sum of all entries (except 1 which is unused)
-                
-                tmp = _mm_add_ps(tmp, _mm_shuffle_ps(tmp, tmp, _MM_SHUFFLE(0,0,0,2)));
-                // Add final combination & sqrt 
-                // bottom 3 elements of l will have length, we don't care about 4
-                tmp = _mm_add_ps(tmp, _mm_shuffle_ps(tmp, tmp, _MM_SHUFFLE(2,3,0,3)));
-                // Then divide to normalise
-                norm = _mm_div_ps(norm, _mm_sqrt_ps(tmp));
+                // Calculate the squared length in lane 0. The normal is
+                // stored as (z, 0, x, y), so add x^2 and y^2 to z^2.
+                __m128 tmp = _mm_mul_ps(norm, norm);                    // z^2 0 x^2 y^2
+                tmp = _mm_add_ss(tmp, _mm_shuffle_ps(tmp, tmp, _MM_SHUFFLE(2,2,2,2)));
+                tmp = _mm_add_ss(tmp, _mm_shuffle_ps(tmp, tmp, _MM_SHUFFLE(3,3,3,3)));
+                tmp = _mm_sqrt_ss(tmp);
+                norm = _mm_div_ps(norm, _mm_shuffle_ps(tmp, tmp, _MM_SHUFFLE(0,0,0,0)));
                 
                 // Store back in the same place
                 _mm_storeh_pi((__m64*)(pNorm + 0), norm);
@@ -2140,12 +1992,7 @@ namespace Ogre {
     extern OptimisedUtil* _getOptimisedUtilSSE(void)
     {
         static OptimisedUtilSSE msOptimisedUtilSSE;
-#if defined(__OGRE_SIMD_ALIGN_STACK)
-        static OptimisedUtilWithStackAlign msOptimisedUtilWithStackAlign(&msOptimisedUtilSSE);
-        return &msOptimisedUtilWithStackAlign;
-#else
         return &msOptimisedUtilSSE;
-#endif
     }
 
 }

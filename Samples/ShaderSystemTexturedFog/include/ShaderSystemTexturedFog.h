@@ -18,7 +18,6 @@ class _OgreSampleClassExport Sample_ShaderSystemTexturedFog : public SdkSample
 public:
 
     Sample_ShaderSystemTexturedFog() :
-        mSRSTextureFogFactory(NULL),
             mEntityNameGen("Head")
     {
         mInfo["Title"] = "Shader System - Textured Fog";
@@ -32,31 +31,30 @@ public:
         
     }
 
-    virtual void _shutdown()
+    void _shutdown() override
     {
         RTShader::RenderState* pMainRenderState = 
-            RTShader::ShaderGenerator::getSingleton().createOrRetrieveRenderState(RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME).first;
-        pMainRenderState->reset();
+            RTShader::ShaderGenerator::getSingleton().createOrRetrieveRenderState(MSN_SHADERGEN).first;
+        pMainRenderState->resetToBuiltinSubRenderStates();
         
         if (mSRSTextureFogFactory)
         {
             RTShader::ShaderGenerator::getSingleton().removeAllShaderBasedTechniques();
-            RTShader::ShaderGenerator::getSingleton().removeSubRenderStateFactory(mSRSTextureFogFactory);
-            delete mSRSTextureFogFactory;
-            mSRSTextureFogFactory = NULL;
+            RTShader::ShaderGenerator::getSingleton().removeSubRenderStateFactory(mSRSTextureFogFactory.get());
+            mSRSTextureFogFactory.reset();
         }
 
         SdkSample::_shutdown();
     }
 
-    bool frameRenderingQueued(const FrameEvent& evt)
+    bool frameRenderingQueued(const FrameEvent& evt) override
     {
         return SdkSample::frameRenderingQueued(evt);   // don't forget the parent class updates!
     }
 
 protected:
 
-   void setupContent()
+   void setupContent() override
     {
         mTrayMgr->createCheckBox(TL_BOTTOM, ACTIVATE_FOG_BUTTON, "Fog Active")->setChecked(true,false);
         mTrayMgr->createCheckBox(TL_BOTTOM, ACTIVATE_SKY_BUTTON, "Sky Box Active")->setChecked(true,false);
@@ -72,7 +70,7 @@ protected:
         mTrayMgr->showCursor();
 
         // create a floor mesh resource
-        MeshManager::getSingleton().createPlane("floor", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+        MeshManager::getSingleton().createPlane("floor", RGN_DEFAULT,
             Plane(Vector3::UNIT_Y, -30), 1000, 1000, 10, 10, true, 1, 8, 8, Vector3::UNIT_Z);
 
         // create a floor entity, give it a material, and place it at the origin
@@ -110,28 +108,28 @@ protected:
         RTShader::ShaderGenerator* mGen = RTShader::ShaderGenerator::getSingletonPtr();
 
         RTShader::RenderState* pMainRenderState = 
-            mGen->createOrRetrieveRenderState(RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME).first;
-        pMainRenderState->reset();
+            mGen->createOrRetrieveRenderState(MSN_SHADERGEN).first;
+        pMainRenderState->resetToBuiltinSubRenderStates();
 
-        mSRSTextureFogFactory = new RTShaderSRSTexturedFogFactory;
-        mGen->addSubRenderStateFactory(mSRSTextureFogFactory);
+        mSRSTextureFogFactory = std::make_unique<RTShaderSRSTexturedFogFactory>();
+        mGen->addSubRenderStateFactory(mSRSTextureFogFactory.get());
         pMainRenderState->addTemplateSubRenderState(mGen->createSubRenderState<RTShaderSRSTexturedFog>());
 
         mSRSTextureFogFactory->setBackgroundTextureName("early_morning.jpg");
 
         
         
-        mGen->invalidateScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+        mGen->invalidateScheme(Ogre::MSN_SHADERGEN);
 
         // Make this viewport work with shader generator scheme.
-        mViewport->setMaterialScheme(RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+        mViewport->setMaterialScheme(MSN_SHADERGEN);
     }
 
 
     
 
     //--------------------------------------------------------------------------
-    void sliderMoved(Slider* slider)
+    void sliderMoved(Slider* slider) override
     {
         if (slider->getName() == FOG_DISTANCE_SLIDER)
         {
@@ -151,11 +149,11 @@ protected:
             }
             mSRSTextureFogFactory->setBackgroundTextureName(textureName);
             RTShader::ShaderGenerator* gen = RTShader::ShaderGenerator::getSingletonPtr();
-            gen->invalidateScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+            gen->invalidateScheme(Ogre::MSN_SHADERGEN);
         }
     }
         
-    void checkBoxToggled(CheckBox* box)
+    void checkBoxToggled(CheckBox* box) override
     {
         const String& cbName = box->getName();
         if (cbName == ACTIVATE_FOG_BUTTON)
@@ -166,12 +164,12 @@ protected:
         }
         if (cbName == ACTIVATE_SKY_BUTTON)
         {
-            mSceneMgr->setSkyBox(!mSceneMgr->isSkyBoxEnabled(),"BaseWhiteNoLighting",2000);
+            mSceneMgr->setSkyRenderingEnabled(!mSceneMgr->isSkyRenderingEnabled());
 
         }
     }
 
-    bool mousePressed(const MouseButtonEvent& evt)
+    bool mousePressed(const MouseButtonEvent& evt) override
     {
         if (mTrayMgr->mousePressed(evt))
             return true;
@@ -184,7 +182,7 @@ protected:
     }
 
     
-    bool mouseReleased(const MouseButtonEvent& evt)
+    bool mouseReleased(const MouseButtonEvent& evt) override
     {
         if (mTrayMgr->mouseReleased(evt))
             return true;
@@ -197,7 +195,7 @@ protected:
     }
 
 
-    bool mouseMoved(const MouseMotionEvent& evt)
+    bool mouseMoved(const MouseMotionEvent& evt) override
     {
         if(mTrayMgr->mouseMoved(evt))
             return true;
@@ -209,13 +207,13 @@ protected:
         return true;
     }
 
-    void cleanupContent()
+    void cleanupContent() override
     {
-        MeshManager::getSingleton().remove("floor", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+        MeshManager::getSingleton().remove("floor", RGN_DEFAULT);
     }
 
 private:
-    RTShaderSRSTexturedFogFactory* mSRSTextureFogFactory;
+    std::unique_ptr<RTShaderSRSTexturedFogFactory> mSRSTextureFogFactory;
 
     NameGenerator mEntityNameGen;
 

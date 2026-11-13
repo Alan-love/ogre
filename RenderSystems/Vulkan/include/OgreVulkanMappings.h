@@ -37,8 +37,6 @@ Copyright (c) 2000-present Torus Knot Software Ltd
 #include "OgreRenderOperation.h"
 #include "OgreRenderSystem.h"
 
-#include "vulkan/vulkan_core.h"
-
 namespace Ogre
 {
     class _OgreVulkanExport VulkanMappings
@@ -59,8 +57,7 @@ namespace Ogre
         static VkSamplerMipmapMode getMipFilter( FilterOptions filter );
         static VkSamplerAddressMode get( TextureAddressingMode mode );
 
-        static VkImageViewType get( TextureType textureType );
-        static VkFormat get( PixelFormatGpu pf );
+        static VkFormat get( PixelFormat pf, bool hwGamma = false);
         static VkImageAspectFlags getImageAspect( PixelFormatGpu pf,
                                                   const bool bPreferDepthOverStencil = false );
 

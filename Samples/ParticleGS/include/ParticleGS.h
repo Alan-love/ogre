@@ -20,14 +20,13 @@ class _OgreSampleClassExport Sample_ParticleGS : public SdkSample
  protected:
 
     void createProceduralParticleSystem();
-    void testCapabilities(const RenderSystemCapabilities* caps);
-    void setupContent(void);
-    void cleanupContent();
+    void testCapabilities(const RenderSystemCapabilities* caps) override;
+    void setupContent(void) override;
+    void cleanupContent() override;
 #ifdef LOG_GENERATED_BUFFER
     bool frameEnded(const FrameEvent& evt);
 #endif
-    ProceduralManualObject* mParticleSystem;
-    ProceduralManualObjectFactory *mProceduralManualObjectFactory;
+    std::unique_ptr<ProceduralManualObject> mParticleSystem;
 };
 }
 #endif

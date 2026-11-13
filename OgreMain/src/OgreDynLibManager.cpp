@@ -57,10 +57,10 @@ namespace Ogre
         }
         else
         {
-            DynLib* pLib = OGRE_NEW DynLib(filename);
-            pLib->load();        
-            mLibList[filename] = pLib;
-            return pLib;
+            std::unique_ptr<DynLib> pLib(OGRE_NEW DynLib(filename));
+            pLib->load();
+            mLibList[filename] = pLib.get();
+            return pLib.release();
         }
     }
     //-----------------------------------------------------------------------
@@ -78,10 +78,10 @@ namespace Ogre
     DynLibManager::~DynLibManager()
     {
         // Unload & delete resources in turn
-        for( DynLibList::iterator it = mLibList.begin(); it != mLibList.end(); ++it )
+        for(auto & it : mLibList)
         {
-            it->second->unload();
-            OGRE_DELETE it->second;
+            it.second->unload();
+            OGRE_DELETE it.second;
         }
 
         // Empty the list

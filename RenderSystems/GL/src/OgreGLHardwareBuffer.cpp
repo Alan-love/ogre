@@ -32,13 +32,14 @@ THE SOFTWARE.
 #include "OgreGLStateCacheManager.h"
 #include "OgreRoot.h"
 #include "OgreGLRenderSystem.h"
+#include "OgreDefaultHardwareBufferManager.h"
 
 namespace Ogre {
 
     //---------------------------------------------------------------------
     GLHardwareVertexBuffer::GLHardwareVertexBuffer(GLenum target, size_t sizeInBytes,
         Usage usage, bool useShadowBuffer)
-        : HardwareBuffer(usage, false, useShadowBuffer), mTarget(target), mLockedToScratch(false),
+        : HardwareBuffer(usage, useShadowBuffer), mTarget(target), mLockedToScratch(false),
         mScratchOffset(0), mScratchSize(0), mScratchPtr(0), mScratchUploadOnUnlock(false)
     {
         mSizeInBytes = sizeInBytes;
@@ -55,6 +56,11 @@ namespace Ogre {
 
         // Initialise mapped buffer and set usage
         glBufferDataARB(mTarget, mSizeInBytes, NULL, GLHardwareBufferManager::getGLUsage(usage));
+
+        if (useShadowBuffer)
+        {
+            mShadowBuffer = std::make_unique<DefaultHardwareBuffer>(mSizeInBytes);
+        }
 
         //std::cerr << "creating vertex buffer = " << mBufferId << std::endl;
     }
@@ -100,7 +106,7 @@ namespace Ogre {
             // Use glMapBuffer
             mRenderSystem->_getStateCacheManager()->bindGLBuffer(mTarget, mBufferId);
             // Use glMapBuffer
-            if(options == HBL_DISCARD || options == HBL_NO_OVERWRITE) // TODO: check possibility to use GL_MAP_UNSYNCHRONIZED_BIT for HBL_NO_OVERWRITE locking promise
+            if(options == HBL_DISCARD) // TODO: check possibility to use GL_MAP_UNSYNCHRONIZED_BIT for HBL_NO_OVERWRITE locking promise
             {
                 // Discard the buffer
                 glBufferDataARB(mTarget, mSizeInBytes, NULL, GLHardwareBufferManager::getGLUsage(mUsage));

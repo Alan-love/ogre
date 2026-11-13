@@ -32,7 +32,7 @@ THE SOFTWARE.
 
 namespace Ogre {
 
-    String Camera::msMovableType = "Camera";
+    const String MOT_CAMERA = "Camera";
     //-----------------------------------------------------------------------
     Camera::Camera( const String& name, SceneManager* sm)
         : Frustum(name),
@@ -73,7 +73,6 @@ namespace Ogre {
 
         // Init matrices
         mViewMatrix = Affine3::ZERO;
-        mProjMatrixRS = Matrix4::ZERO;
 
         mParentNode = 0;
 
@@ -88,9 +87,9 @@ namespace Ogre {
     Camera::~Camera()
     {
         ListenerList listenersCopy = mListeners;
-        for (ListenerList::iterator i = listenersCopy.begin(); i != listenersCopy.end(); ++i)
+        for (auto & i : listenersCopy)
         {
-            (*i)->cameraDestroyed(this);
+            i->cameraDestroyed(this);
         }
     }
     //-----------------------------------------------------------------------
@@ -473,7 +472,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void Camera::_renderScene(Viewport *vp)
     {
-        OgreProfileBeginGPUEvent(getName());
+        OgreGpuEventScope(getName());
 
         //update the pixel display ratio
         if (mProjType == Ogre::PT_PERSPECTIVE)
@@ -487,9 +486,9 @@ namespace Ogre {
 
         //notify prerender scene
         ListenerList listenersCopy = mListeners;
-        for (ListenerList::iterator i = listenersCopy.begin(); i != listenersCopy.end(); ++i)
+        for (auto & i : listenersCopy)
         {
-            (*i)->cameraPreRenderScene(this);
+            i->cameraPreRenderScene(this);
         }
 
         //render scene
@@ -499,11 +498,10 @@ namespace Ogre {
         listenersCopy = mListeners;
 
         //notify postrender scene
-        for (ListenerList::iterator i = listenersCopy.begin(); i != listenersCopy.end(); ++i)
+        for (auto & i : listenersCopy)
         {
-            (*i)->cameraPostRenderScene(this);
+            i->cameraPostRenderScene(this);
         }
-        OgreProfileEndGPUEvent(getName());
     }
     //---------------------------------------------------------------------
     void Camera::addListener(Listener* l)
@@ -541,28 +539,6 @@ namespace Ogre {
         o << ")";
 
         return o;
-    }
-    //-----------------------------------------------------------------------
-    void Camera::_notifyRenderedFaces(unsigned int numfaces)
-    {
-        mVisFacesLastRender = numfaces;
-    }
-
-    //-----------------------------------------------------------------------
-    void Camera::_notifyRenderedBatches(unsigned int numbatches)
-    {
-        mVisBatchesLastRender = numbatches;
-    }
-
-    //-----------------------------------------------------------------------
-    unsigned int Camera::_getNumRenderedFaces(void) const
-    {
-        return mVisFacesLastRender;
-    }
-    //-----------------------------------------------------------------------
-    unsigned int Camera::_getNumRenderedBatches(void) const
-    {
-        return mVisBatchesLastRender;
     }
     //-----------------------------------------------------------------------
     const Quaternion& Camera::getDerivedOrientation(void) const
@@ -649,7 +625,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     const String& Camera::getMovableType(void) const
     {
-        return msMovableType;
+        return MOT_CAMERA;
     }
     //-----------------------------------------------------------------------
     void Camera::setLodBias(Real factor)
@@ -692,14 +668,6 @@ namespace Ogre {
     void Camera::getCameraToViewportRay(Real screenX, Real screenY, Ray* outRay) const
     {
         Matrix4 inverseVP = (getProjectionMatrix() * getViewMatrix(true)).inverse();
-
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
-        // We need to convert screen point to our oriented viewport (temp solution)
-        Real tX = screenX; Real a = getOrientationMode() * Math::HALF_PI;
-        screenX = Math::Cos(a) * (tX-0.5f) + Math::Sin(a) * (screenY-0.5f) + 0.5f;
-        screenY = Math::Sin(a) * (tX-0.5f) + Math::Cos(a) * (screenY-0.5f) + 0.5f;
-        if ((int)getOrientationMode()&1) screenY = 1.f - screenY;
-#endif
 
         Real nx = (2.0f * screenX) - 1.0f;
         Real ny = 1.0f - (2.0f * screenY);
@@ -965,7 +933,7 @@ namespace Ogre {
         }
     }
     //-----------------------------------------------------------------------
-    Real Camera::getNearClipDistance(void) const
+    float Camera::getNearClipDistance(void) const
     {
         if (mCullFrustum)
         {
@@ -977,7 +945,7 @@ namespace Ogre {
         }
     }
     //-----------------------------------------------------------------------
-    Real Camera::getFarClipDistance(void) const
+    float Camera::getFarClipDistance(void) const
     {
         if (mCullFrustum)
         {
@@ -1143,10 +1111,10 @@ namespace Ogre {
         {
             Quaternion planeRot = invPlaneRot.Inverse();
             (*intersect3d).clear();
-            for(unsigned int i=0; i<iPnt.size(); i++)
+            for(auto & i : iPnt)
             {
-                Vector3 intersection = planeRot * Vector3(iPnt[i].x, iPnt[i].y, iPnt[i].z);
-                (*intersect3d).push_back(Vector4(intersection.x, intersection.y, intersection.z, iPnt[i].w));
+                Vector3 intersection = planeRot * Vector3(i.x, i.y, i.z);
+                (*intersect3d).push_back(Vector4(intersection.x, intersection.y, intersection.z, i.w));
             }
         }
     }

@@ -45,12 +45,12 @@ namespace Ogre {
     *  @{
     */
     /** Defines a part of a complete mesh.
-        @remarks
-            Meshes which make up the definition of a discrete 3D object
-            are made up of potentially multiple parts. This is because
-            different parts of the mesh may use different materials or
-            use different vertex formats, such that a rendering state
-            change is required between them.
+
+        Meshes which make up the definition of a discrete 3D object
+        are made up of potentially multiple parts. This is because
+        different parts of the mesh may use different materials or
+        use different vertex formats, such that a rendering state
+        change is required between them.
         @par
             Like the Mesh class, instantiations of 3D objects in the scene
             share the SubMesh instances, and have the option of overriding
@@ -68,20 +68,31 @@ namespace Ogre {
         ~SubMesh();
 
         /** Dedicated vertex data (only valid if useSharedVertices = false).
-            @remarks
-                This data is completely owned by this submesh.
+
+            This data is completely owned by this submesh.
             @par
                 The use of shared or non-shared buffers is determined when
                 model data is converted to the OGRE .mesh format.
         */
         VertexData *vertexData;
 
+        /// replace the vertex data with a new one
+        void resetVertexData(VertexData* data = nullptr)
+        {
+            delete vertexData;
+            vertexData = data;
+            useSharedVertices = data == nullptr;
+        }
+
+        /// Creates a new local vertex data object
+        void createVertexData(HardwareBufferManagerBase* mgr = nullptr) { resetVertexData(new VertexData(mgr)); }
+
         /// Face index data
         IndexData *indexData;
 
         /** Dedicated index map for translate blend index to bone index (only valid if useSharedVertices = false).
-            @remarks
-                This data is completely owned by this submesh.
+
+            This data is completely owned by this submesh.
             @par
                 We collect actually used bones of all bone assignments, and build the
                 blend index in 'packed' form, then the range of the blend index in vertex
@@ -105,20 +116,20 @@ namespace Ogre {
         LODFaceList mLodFaceList;
 
         /** A list of extreme points on the submesh (optional).
-            @remarks
-                These points are some arbitrary points on the mesh that are used
-                by engine to better sort submeshes by depth. This doesn't matter
-                much for non-transparent submeshes, as Z-buffer takes care of invisible
-                surface culling anyway, but is pretty useful for semi-transparent
-                submeshes because the order in which transparent submeshes must be
-                rendered cannot be always correctly deduced from entity position.
+
+            These points are some arbitrary points on the mesh that are used
+            by engine to better sort submeshes by depth. This doesn't matter
+            much for non-transparent submeshes, as Z-buffer takes care of invisible
+            surface culling anyway, but is pretty useful for semi-transparent
+            submeshes because the order in which transparent submeshes must be
+            rendered cannot be always correctly deduced from entity position.
             @par
                 These points are intelligently chosen from the points that make up
                 the submesh, the criteria for choosing them should be that these points
                 somewhat characterize the submesh outline, e.g. they should not be
                 close to each other, and they should be on the outer hull of the submesh.
                 They can be stored in the .mesh file, or generated at runtime
-                (see generateExtremes ()).
+                (see generateExtremes()).
             @par
                 If this array is empty, submesh sorting is done like in older versions -
                 by comparing the positions of the owning entity.
@@ -150,7 +161,7 @@ namespace Ogre {
         void _getRenderOperation(RenderOperation& rend, ushort lodIndex = 0);
 
         /** Assigns a vertex to a bone with a given weight, for skeletal animation. 
-        @remarks    
+
             This method is only valid after calling setSkeletonName.
             Since this is a one-off process there exists only 'addBoneAssignment' and
             'clearBoneAssignments' methods, no 'editBoneAssignment'. You should not need
@@ -185,16 +196,6 @@ namespace Ogre {
         /** Must be called once to compile bone assignments into geometry buffer. */
         void _compileBoneAssignments(void);
 
-        typedef ConstMapIterator<AliasTextureNamePairList> AliasTextureIterator;
-        /// @deprecated do not use
-        AliasTextureIterator getAliasTextureIterator(void) const;
-        /// @deprecated do not use
-        void addTextureAlias(const String& aliasName, const String& textureName);
-        /// @deprecated do not use
-        OGRE_DEPRECATED void removeAllTextureAliases(void);
-        /// @deprecated do not use
-        bool hasTextureAliases(void) const { return !mTextureAliases.empty(); }
-
         /** Get the type of any vertex animation used by dedicated geometry.
         */
         VertexAnimationType getVertexAnimationType(void) const;
@@ -203,7 +204,7 @@ namespace Ogre {
         bool getVertexAnimationIncludesNormals() const { return mVertexAnimationIncludesNormals; }
 
 
-        /** Generate the submesh extremes (@see extremityPoints).
+        /** Generate the submesh extremes (see extremityPoints()).
         @param count
             Number of extreme points to compute for the submesh.
         */
@@ -238,9 +239,6 @@ namespace Ogre {
 
         /// the material this SubMesh uses.
         MaterialPtr mMaterial;
-
-        /// paired list of texture aliases and texture names
-        AliasTextureNamePairList mTextureAliases;
 
         VertexBoneAssignmentList mBoneAssignments;
 

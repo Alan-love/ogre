@@ -43,7 +43,7 @@ namespace Ogre {
     *  @{
     */
     /** Class which represents the renderable aspects of a set of shadow volume faces. 
-    @remarks
+
         Note that for casters comprised of more than one set of vertex buffers (e.g. SubMeshes each
         using their own geometry), it will take more than one ShadowRenderable to render the 
         shadow volume. Therefore for shadow caster geometry, it is best to stick to one set of
@@ -79,7 +79,7 @@ namespace Ogre {
         Real getSquaredViewDepth(const Camera*) const override { return 0; /* not used */}
         const LightList& getLights(void) const override;
         /** Does this renderable require a separate light cap?
-        @remarks
+
             If possible, the light cap (when required) should be contained in the
             usual geometry of the shadow renderable. However, if for some reason
             the normal depth function (less than) could cause artefacts, then a
@@ -131,22 +131,22 @@ namespace Ogre {
         virtual bool getCastShadows(void) const = 0;
 
         /** Returns details of the edges which might be used to determine a silhouette. */
-        virtual EdgeData* getEdgeList(void) = 0;
+        virtual EdgeData* getEdgeList(void) { return NULL; }
         /** Returns whether the object has a valid edge list. */
         bool hasEdgeList() { return getEdgeList() != NULL; }
 
         /** Get the world bounding box of the caster. */
         virtual const AxisAlignedBox& getWorldBoundingBox(bool derive = false) const = 0;
         /** Gets the world space bounding box of the light cap. */
-        virtual const AxisAlignedBox& getLightCapBounds(void) const = 0;
+        const AxisAlignedBox& getLightCapBounds(void) const { return getWorldBoundingBox(); }
         /** Gets the world space bounding box of the dark cap, as extruded using the light provided. */
-        virtual const AxisAlignedBox& getDarkCapBounds(const Light& light, Real dirLightExtrusionDist) const = 0;
+        const AxisAlignedBox& getDarkCapBounds(const Light& light, Real dirLightExtrusionDist) const;
 
         typedef Ogre::ShadowRenderableList ShadowRenderableList;
         typedef VectorIterator<ShadowRenderableList> ShadowRenderableListIterator;
 
         /** Gets an list of the renderables required to render the shadow volume.
-        @remarks
+
             Shadowable geometry should ideally be designed such that there is only one
             ShadowRenderable required to render the the shadow; however this is not a necessary
             limitation and it can be exceeded if required.
@@ -167,13 +167,13 @@ namespace Ogre {
         virtual const ShadowRenderableList&
         getShadowVolumeRenderableList(const Light* light, const HardwareIndexBufferPtr& indexBuffer,
                                       size_t& indexBufferUsedSize, float extrusionDistance,
-                                      int flags = 0) = 0;
+                                      int flags = 0);
 
         /** Common implementation of releasing shadow renderables.*/
         static void clearShadowRenderableList(ShadowRenderableList& shadowRenderables);
 
         /** Utility method for extruding vertices based on a light. 
-        @remarks
+
             Unfortunately, because D3D cannot handle homogeneous (4D) position
             coordinates in the fixed-function pipeline (GL can, but we have to
             be cross-API), when we extrude in software we cannot extrude to 
@@ -208,8 +208,7 @@ namespace Ogre {
         @param lightPos
             4D vector representing the light, a directional light has w=0.0.
        */
-        virtual void updateEdgeListLightFacing(EdgeData* edgeData, 
-            const Vector4& lightPos);
+        void updateEdgeListLightFacing(EdgeData* edgeData, const Vector4& lightPos);
 
         /** Generates the indexes required to render a shadow volume into the 
             index buffer which is passed in, and updates shadow renderables
@@ -233,7 +232,7 @@ namespace Ogre {
         @param flags
             Additional controller flags, see ShadowRenderableFlags.
         */
-        virtual void generateShadowVolume(EdgeData* edgeData, 
+        void generateShadowVolume(EdgeData* edgeData,
             const HardwareIndexBufferSharedPtr& indexBuffer, size_t& indexBufferUsedSize,
             const Light* light, ShadowRenderableList& shadowRenderables, unsigned long flags);
         /** Utility method for extruding a bounding box. 
@@ -245,10 +244,10 @@ namespace Ogre {
         @param extrudeDist
             The distance to extrude.
         */
-        virtual void extrudeBounds(AxisAlignedBox& box, const Vector4& lightPos, 
-            Real extrudeDist) const;
+        void extrudeBounds(AxisAlignedBox& box, const Vector4& lightPos, Real extrudeDist) const;
 
-
+        /// World space AABB of this object's dark cap
+        mutable AxisAlignedBox mWorldDarkCapBounds;
     };
     /** @} */
     /** @} */

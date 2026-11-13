@@ -46,15 +46,15 @@ namespace Ogre
     class Affine3;
     Matrix4 operator*(const Matrix4 &m, const Matrix4 &m2);
     /** Class encapsulating a standard 4x4 homogeneous matrix.
-        @remarks
-            OGRE uses column vectors when applying matrix multiplications,
-            This means a vector is represented as a single column, 4-row
-            matrix. This has the effect that the transformations implemented
-            by the matrices happens right-to-left e.g. if vector V is to be
-            transformed by M1 then M2 then M3, the calculation would be
-            M3 * M2 * M1 * V. The order that matrices are concatenated is
-            vital since matrix multiplication is not commutative, i.e. you
-            can get a different result if you concatenate in the wrong order.
+
+        OGRE uses column vectors when applying matrix multiplications,
+        This means a vector is represented as a single column, 4-row
+        matrix. This has the effect that the transformations implemented
+        by the matrices happens right-to-left e.g. if vector V is to be
+        transformed by M1 then M2 then M3, the calculation would be
+        M3 * M2 * M1 * V. The order that matrices are concatenated is
+        vital since matrix multiplication is not commutative, i.e. you
+        can get a different result if you concatenate in the wrong order.
         @par
             The use of column vectors and right-to-left ordering is the
             standard in most mathematical texts, and is the same as used in
@@ -131,28 +131,30 @@ namespace Ogre
             m[1][1] = v[1];
             m[2][2] = v[2];
         }
-
-        /** Function for writing to a stream.
-         */
-        inline friend std::ostream& operator<<(std::ostream& o, const TransformBase& mat)
-        {
-            o << "Matrix" << rows << "x4(";
-            for (size_t i = 0; i < rows; ++i)
-            {
-                for (size_t j = 0; j < 4; ++j)
-                {
-                    o << mat[i][j];
-                    if(j != 3)
-                        o << ", ";
-                }
-
-                if(i != (rows - 1))
-                    o << "; ";
-            }
-            o << ")";
-            return o;
-        }
     };
+
+    /** Function for writing to a stream.
+    */
+    template <typename CharT, typename TraitsT, int rows, typename T>
+    std::basic_ostream<CharT, TraitsT>& operator<<(std::basic_ostream<CharT, TraitsT>& o,
+                                                   const TransformBase<rows, T>& mat)
+    {
+        o << "Matrix" << rows << "x4(";
+        for (size_t i = 0; i < rows; ++i)
+        {
+            for (size_t j = 0; j < 4; ++j)
+            {
+                o << mat[i][j];
+                if(j != 3)
+                    o << ", ";
+            }
+
+            if(i != (rows - 1))
+                o << "; ";
+        }
+        o << ")";
+        return o;
+    }
 
     struct _OgreExport TransformBaseReal : public TransformBase<4, Real>
     {
@@ -201,7 +203,7 @@ namespace Ogre
         Matrix4 transpose() const;
 
         /** Building a Affine3 from orientation / scale / position.
-        @remarks
+
             Transform is performed in the order scale, rotate, translation, i.e. translation is independent
             of orientation axes, scale does not affect size of translation, rotation and scaling are always
             centered on the origin.
@@ -209,7 +211,7 @@ namespace Ogre
         void makeTransform(const Vector3& position, const Vector3& scale, const Quaternion& orientation);
 
         /** Building an inverse Affine3 from orientation / scale / position.
-        @remarks
+
             As makeTransform except it build the inverse given the same data as makeTransform, so
             performing -translation, -rotate, 1/scale in that order.
         */
@@ -539,9 +541,9 @@ namespace Ogre
     }
 
     /** Vector transformation using '*'.
-        @remarks
-            Transforms the given 3-D vector by the matrix, projecting the
-            result back into <i>w</i> = 1.
+
+        Transforms the given 3-D vector by the matrix, projecting the
+        result back into <i>w</i> = 1.
         @note
             This means that the initial <i>w</i> is considered to be 1.0,
             and then all the tree elements of the resulting 3-D vector are

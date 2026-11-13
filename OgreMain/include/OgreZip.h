@@ -58,11 +58,13 @@ namespace Ogre {
     public:
         virtual ~ZipArchiveFactory() {}
         /// @copydoc FactoryObj::getType
-        const String& getType(void) const;
+        const String& getType(void) const override;
 
+        //! @cond Doxygen_Suppress
         using ArchiveFactory::createInstance;
+        //! @endcond
 
-        Archive *createInstance( const String& name, bool readOnly );
+        Archive *createInstance( const String& name, bool readOnly ) override;
     };
 
     /** Specialisation of ZipArchiveFactory for embedded Zip files. */
@@ -74,7 +76,9 @@ namespace Ogre {
 
         const String& getType(void) const override;
 
+        //! @cond Doxygen_Suppress
         using ArchiveFactory::createInstance;
+        //! @endcond
 
         Archive *createInstance( const String& name, bool readOnly ) override;
         void destroyInstance( Archive* ptr) override;

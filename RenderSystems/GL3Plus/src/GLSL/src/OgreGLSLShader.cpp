@@ -47,11 +47,11 @@ namespace Ogre {
     class CmdHasSamplersBinding : public ParamCommand
     {
     public:
-        String doGet(const void* target) const
+        String doGet(const void* target) const override
         {
             return StringConverter::toString(static_cast<const GLSLShader*>(target)->getSamplerBinding());
         }
-        void doSet(void* target, const String& val)
+        void doSet(void* target, const String& val) override
         {
             static_cast<GLSLShader*>(target)->setSamplerBinding(StringConverter::parseBool(val));
         }
@@ -92,6 +92,7 @@ namespace Ogre {
         case GL_IMAGE_2D: //TODO should be its own type?
         case GL_IMAGE_2D_RECT:
         case GL_SAMPLER_2D:
+        case GL_SAMPLER_2D_MULTISAMPLE:
         case GL_SAMPLER_2D_RECT:    // TODO: Move these to a new type??
         case GL_INT_SAMPLER_2D_RECT:
         case GL_UNSIGNED_INT_SAMPLER_2D_RECT:
@@ -109,10 +110,12 @@ namespace Ogre {
             defToUpdate.constType = GCT_SAMPLER3D;
             break;
         case GL_SAMPLER_CUBE:
-        case GL_SAMPLER_CUBE_SHADOW:
         case GL_INT_SAMPLER_CUBE:
         case GL_UNSIGNED_INT_SAMPLER_CUBE:
             defToUpdate.constType = GCT_SAMPLERCUBE;
+            break;
+        case GL_SAMPLER_CUBE_SHADOW:
+            defToUpdate.constType = GCT_SAMPLERCUBESHADOW;
             break;
         case GL_SAMPLER_1D_SHADOW:
         case GL_SAMPLER_1D_ARRAY_SHADOW:
@@ -120,8 +123,10 @@ namespace Ogre {
             break;
         case GL_SAMPLER_2D_SHADOW:
         case GL_SAMPLER_2D_RECT_SHADOW:
-        case GL_SAMPLER_2D_ARRAY_SHADOW:
             defToUpdate.constType = GCT_SAMPLER2DSHADOW;
+            break;
+        case GL_SAMPLER_2D_ARRAY_SHADOW:
+            defToUpdate.constType = GCT_SAMPLER2DARRAYSHADOW;
             break;
         case GL_INT:
             defToUpdate.constType = GCT_INT1;
@@ -235,6 +240,8 @@ namespace Ogre {
     /// Get OpenGL GLSL shader type from OGRE GPU program type.
     static GLenum getGLShaderType(GpuProgramType programType)
     {
+        #define GL_MESH_SHADER_NV 0x9559
+        #define GL_TASK_SHADER_NV 0x955A
         switch (programType)
         {
         case GPT_VERTEX_PROGRAM:
@@ -249,6 +256,10 @@ namespace Ogre {
             return GL_FRAGMENT_SHADER;
         case GPT_COMPUTE_PROGRAM:
             return GL_COMPUTE_SHADER;
+        case GPT_MESH_PROGRAM:
+            return GL_MESH_SHADER_NV;
+        case GPT_TASK_PROGRAM:
+            return GL_TASK_SHADER_NV;
         }
 
         return 0;
@@ -315,6 +326,13 @@ namespace Ogre {
         // Assume blocks are missing if gl_Position is missing.
         if (rsc->hasCapability(RSC_GLSL_SSO_REDECLARE) && (mSource.find("vec4 gl_Position") == String::npos))
         {
+            size_t insertPos = belowVersionPos;
+            size_t extensionPos = mSource.rfind("#extension");
+            if(extensionPos != String::npos)
+            {
+                insertPos = mSource.find('\n', extensionPos) + 1;
+            }
+
             size_t mainPos = mSource.find("void main");
             // Only add blocks if shader is not a child
             // shader, i.e. has a main function.
@@ -329,22 +347,24 @@ namespace Ogre {
                     switch (mType)
                     {
                     case GPT_VERTEX_PROGRAM:
-                        mSource.insert(belowVersionPos, outBlock);
+                        mSource.insert(insertPos, outBlock);
                         break;
                     case GPT_GEOMETRY_PROGRAM:
-                        mSource.insert(belowVersionPos, outBlock);
-                        mSource.insert(belowVersionPos, inBlock);
+                        mSource.insert(insertPos, outBlock);
+                        mSource.insert(insertPos, inBlock);
                         break;
                     case GPT_DOMAIN_PROGRAM:
-                        mSource.insert(belowVersionPos, outBlock);
-                        mSource.insert(belowVersionPos, inBlock);
+                        mSource.insert(insertPos, outBlock);
+                        mSource.insert(insertPos, inBlock);
                         break;
                     case GPT_HULL_PROGRAM:
-                        mSource.insert(belowVersionPos, outBlock.substr(0, outBlock.size() - 3) + " gl_out[];\n\n");
-                        mSource.insert(belowVersionPos, inBlock);
+                        mSource.insert(insertPos, outBlock.substr(0, outBlock.size() - 3) + " gl_out[];\n\n");
+                        mSource.insert(insertPos, inBlock);
                         break;
                     case GPT_FRAGMENT_PROGRAM:
                     case GPT_COMPUTE_PROGRAM:
+                    case GPT_MESH_PROGRAM:
+                    case GPT_TASK_PROGRAM:
                         // Fragment and compute shaders do
                         // not have standard blocks.
                         break;
@@ -353,7 +373,7 @@ namespace Ogre {
                 else if(mType == GPT_VERTEX_PROGRAM && mShaderVersion >= 130) // shaderVersion < 150, means we only have vertex shaders
                 {
                 	// TODO: can we have SSO with GLSL < 130?
-                    mSource.insert(belowVersionPos, "out vec4 gl_Position;\nout float gl_PointSize;\nout "+clipDistDecl+"\n\n");
+                    mSource.insert(insertPos, "out vec4 gl_Position;\nout float gl_PointSize;\nout "+clipDistDecl+"\n\n");
                 }
             }
         }
@@ -366,22 +386,11 @@ namespace Ogre {
             // automatically upgrade to glsl150. thank you apple.
             const char* prefixFp =
                     "#version 150\n"
-                    "#define varying in\n"
-                    "#define texture1D texture\n"
-                    "#define texture2D texture\n"
-                    "#define texture3D texture\n"
-                    "#define textureCube texture\n"
-                    "#define texture2DLod textureLod\n"
-                    "#define texture2DProj textureProj\n"
-                    "#define textureCubeLod textureLod\n"
-                    "#define shadow2DProj textureProj\n"
-                    "#define gl_FragColor FragColor\n"
-                    "out vec4 FragColor;\n";
+                    "#define varying in\n";
             const char* prefixVp =
                     "#version 150\n"
                     "#define attribute in\n"
-                    "#define varying out\n"
-                    "#define texture2D texture\n";
+                    "#define varying out\n";
 
             mSource.insert(0, mType == GPT_FRAGMENT_PROGRAM ? prefixFp : prefixVp);
         }
@@ -520,8 +529,8 @@ namespace Ogre {
             // increment physical buffer location
 
             convertGLUniformtoOgreType(values[1], def);
-            // GL doesn't pad
-            def.elementSize = GpuConstantDefinition::getElementSize(def.constType, false);
+            bool doPadding = block > -1;
+            def.elementSize = GpuConstantDefinition::getElementSize(def.constType, doPadding);
 
             // also allow index based referencing
             GpuLogicalIndexUse use;
@@ -547,8 +556,13 @@ namespace Ogre {
             }
             else if(def.isSampler())
             {
-                if(mHasSamplerBinding)
+                GLint binding = 0;
+                if(values[3] != -1)
+                    OGRE_CHECK_GL_ERROR(glGetUniformiv(mGLProgramHandle, values[3], &binding));
+
+                if(binding > 0 || mHasSamplerBinding)
                     continue;
+
                 def.physicalIndex = mConstantDefs->registerCount;
                 mConstantDefs->registerCount += def.arraySize * def.elementSize;
                 // no index based referencing
@@ -562,19 +576,17 @@ namespace Ogre {
         }
     }
 
-    void GLSLShader::extractBufferBlocks(GLenum type) const
+    void GLSLShader::extractBufferBlocks(GLenum type)
     {
         GLint numBlocks = 0;
         OGRE_CHECK_GL_ERROR(glGetProgramInterfaceiv(mGLProgramHandle, type, GL_ACTIVE_RESOURCES, &numBlocks));
 
-        auto& hbm = static_cast<GL3PlusHardwareBufferManager&>(HardwareBufferManager::getSingleton());
-
-        const GLenum blockProperties[3] = {GL_NUM_ACTIVE_VARIABLES, GL_NAME_LENGTH, GL_BUFFER_DATA_SIZE};
+        const GLenum blockProperties[4] = {GL_NUM_ACTIVE_VARIABLES, GL_NAME_LENGTH, GL_BUFFER_DATA_SIZE, GL_BUFFER_BINDING};
         for(int blockIdx = 0; blockIdx < numBlocks; ++blockIdx)
         {
-            GLint values[3];
-            OGRE_CHECK_GL_ERROR(glGetProgramResourceiv(mGLProgramHandle, type, blockIdx, 3, blockProperties,
-                                                       3, NULL, values));
+            GLint values[4];
+            OGRE_CHECK_GL_ERROR(glGetProgramResourceiv(mGLProgramHandle, type, blockIdx, 4, blockProperties,
+                                                       4, NULL, values));
             if(values[0] == 0) continue;
 
             std::vector<char> nameData(values[1]);
@@ -585,40 +597,24 @@ namespace Ogre {
             if (name == "OgreUniforms") // default buffer
             {
                 extractUniforms(blockIdx);
-                int binding = int(mType);
+                int binding = mType == GPT_COMPUTE_PROGRAM ? 0 : (int(mType) % GPT_PIPELINE_COUNT);
                 if (binding > 1)
                     LogManager::getSingleton().logWarning(
                         getResourceLogName() +
-                        " - using a UBO in this shader type will alias with shared_params");
+                        " - using 'OgreUniforms' in this shader type does alias with shared_params");
 
-                mDefaultBuffer = hbm.createUniformBuffer(values[2]);
-                static_cast<GL3PlusHardwareBuffer*>(mDefaultBuffer.get())->setGLBufferBinding(binding);
                 OGRE_CHECK_GL_ERROR(glUniformBlockBinding(mGLProgramHandle, blockIdx, binding));
+                mLogicalToPhysical.reset();
                 continue;
             }
 
-            auto blockSharedParams = GpuProgramManager::getSingleton().getSharedParameters(name);
-
-            HardwareBufferPtr hwGlBuffer = blockSharedParams->_getHardwareBuffer();
-            if(!hwGlBuffer)
+            // slots 0 & 1 are reserved for defaultbuffer
+            int binding = type == GL_UNIFORM_BLOCK ? blockIdx + 2 : blockIdx;
+            if(values[3] > 0)
             {
-                size_t binding = 0;
-                if(type == GL_UNIFORM_BLOCK)
-                {
-                    binding = hbm.getUniformBufferCount() + 2; // slots 0 & 1 are reserved for defaultbuffer
-                    hwGlBuffer = hbm.createUniformBuffer(values[2]);
-                }
-                else
-                {
-                    binding = hbm.getShaderStorageBufferCount();
-                    hwGlBuffer = hbm.createShaderStorageBuffer(values[2]);
-                }
-
-                static_cast<GL3PlusHardwareBuffer*>(hwGlBuffer.get())->setGLBufferBinding(int(binding));
-                blockSharedParams->_setHardwareBuffer(hwGlBuffer);
+                binding = values[3];
             }
-
-            int binding = static_cast<GL3PlusHardwareBuffer*>(hwGlBuffer.get())->getGLBufferBinding();
+            mBufferInfoMap[name] = {binding, type};
 
             if(type == GL_UNIFORM_BLOCK)
             {
@@ -639,8 +635,17 @@ namespace Ogre {
         if(caps->hasCapability(RSC_SEPARATE_SHADER_OBJECTS))
         {
             extractUniforms();
-            extractBufferBlocks(GL_UNIFORM_BLOCK);
-            extractBufferBlocks(GL_SHADER_STORAGE_BLOCK);
+            try
+            {
+                extractBufferBlocks(GL_UNIFORM_BLOCK);
+                extractBufferBlocks(GL_SHADER_STORAGE_BLOCK);
+            }
+            catch (const InvalidParametersException& e)
+            {
+                LogManager::getSingleton().stream(LML_CRITICAL)
+                    << "Program '" << mName << "' is not supported: " << e.getDescription();
+                mCompileError = true;
+            }
             return;
         }
 
@@ -653,11 +658,8 @@ namespace Ogre {
 
 
         // Also parse any attached sources.
-        for (GLSLProgramContainer::const_iterator i = mAttachedGLSLPrograms.begin();
-             i != mAttachedGLSLPrograms.end(); ++i)
+        for (auto childShader : mAttachedGLSLPrograms)
         {
-            GLSLShaderCommon* childShader = *i;
-
             GLSLProgramManager::getSingleton().extractUniformsFromGLSL(
                 childShader->getSource(), *mConstantDefs, childShader->getName());
         }

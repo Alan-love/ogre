@@ -69,7 +69,6 @@ namespace Ogre {
                 compileAndLink();
             }
 
-            extractLayoutQualifiers();
             buildGLUniformReferences();
         }
 
@@ -128,9 +127,19 @@ namespace Ogre {
             params[i] = &(mShaders[i]->getConstantDefinitions().map);
         }
 
+        BufferInfoMap bufferInfoMap;
+
         // Do we know how many shared params there are yet? Or if there are any blocks defined?
         GLSLProgramManager::getSingleton().extractUniformsFromProgram(mGLProgramHandle, params,
-                                                                      mGLUniformReferences);
+                                                                      mGLUniformReferences, bufferInfoMap);
+        // assign UBOs to all shaders
+        for (auto shader : mShaders)
+        {
+            if(shader)
+            {
+                static_cast<GLSLShader*>(shader)->_setBufferInfoMap(bufferInfoMap);
+            }
+        }
 
         mUniformRefsBuilt = true;
     }
@@ -270,8 +279,10 @@ namespace Ogre {
                     case GCT_SAMPLER2D:
                     case GCT_SAMPLER2DSHADOW:
                     case GCT_SAMPLER2DARRAY:
+                    case GCT_SAMPLER2DARRAYSHADOW:
                     case GCT_SAMPLER3D:
                     case GCT_SAMPLERCUBE:
+                    case GCT_SAMPLERCUBESHADOW:
                         // Samplers handled like 1-element ints, but use register storage
                         OGRE_CHECK_GL_ERROR(glUniform1iv(currentUniform->mLocation, glArraySize,
                                     (GLint*)params->getRegPointer(def->physicalIndex)));

@@ -32,6 +32,8 @@ THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
 #include "OgreAssimpLoader.h"
+#include "OgreString.h"
+#include "OgreStringConverter.h"
 
 #include <assimp/version.h>
 #include <assimp/scene.h>
@@ -41,10 +43,15 @@ THE SOFTWARE.
 #include <assimp/IOStream.hpp>
 #include <assimp/IOSystem.hpp>
 #include <assimp/DefaultIOSystem.h>
+#include <assimp/GltfMaterial.h>
 
 #include <Ogre.h>
 
 #include <OgreCodec.h>
+
+#ifdef OGRE_BUILD_COMPONENT_RTSHADERSYSTEM
+#include <OgreShaderGenerator.h>
+#endif
 
 namespace Ogre
 {
@@ -56,7 +63,7 @@ struct OgreLogStream : public Assimp::LogStream
     LogMessageLevel _lml;
     OgreLogStream(LogMessageLevel lml) : _lml(lml) {}
 
-    void write(const char* message)
+    void write(const char* message) override
     {
         String msg(message);
         StringUtil::trim(msg);
@@ -68,17 +75,18 @@ struct OgreIOStream : public Assimp::IOStream
 {
     DataStreamPtr stream;
 
-    OgreIOStream(DataStreamPtr _stream) : stream(_stream) {}
+    OgreIOStream(const DataStreamPtr& _stream) : stream(_stream) {}
 
-    size_t Read(void* pvBuffer, size_t pSize, size_t pCount)
+    size_t Read(void* pvBuffer, size_t pSize, size_t pCount) override
     {
-        return stream->read(pvBuffer, pSize * pCount);
+        size_t bytes = stream->read(pvBuffer, pSize * pCount);
+        return bytes / pSize;
     }
-    size_t Tell() const { return stream->tell(); }
-    size_t FileSize() const { return stream->size(); }
+    size_t Tell() const override { return stream->tell(); }
+    size_t FileSize() const override { return stream->size(); }
 
-    size_t Write(const void* pvBuffer, size_t pSize, size_t pCount) { return 0; }
-    aiReturn Seek(size_t pOffset, aiOrigin pOrigin)
+    size_t Write(const void* pvBuffer, size_t pSize, size_t pCount) override { return 0; }
+    aiReturn Seek(size_t pOffset, aiOrigin pOrigin) override
     {
         if (pOrigin != aiOrigin_SET)
             return AI_FAILURE;
@@ -86,7 +94,7 @@ struct OgreIOStream : public Assimp::IOStream
         stream->seek(pOffset);
         return AI_SUCCESS;
     }
-    void Flush() {}
+    void Flush() override {}
 };
 
 struct OgreIOSystem : public Assimp::IOSystem
@@ -97,7 +105,7 @@ struct OgreIOSystem : public Assimp::IOSystem
 
     OgreIOSystem(const DataStreamPtr& _source, const String& group) : source(_source), _group(group) {}
 
-    bool Exists(const char* pFile) const
+    bool Exists(const char* pFile) const override
     {
         String file = StringUtil::normalizeFilePath(pFile, false);
         if (file == source->getName())
@@ -111,8 +119,12 @@ struct OgreIOSystem : public Assimp::IOSystem
         String file = StringUtil::normalizeFilePath(pFile, false);
         DataStreamPtr res;
         if (file == source->getName())
+        {
             res = source;
-
+            // glTF2 importer wants to open files multiple times
+            // while this is not fully correct, this makes it happy
+            source->seek(0);
+        }
         if (!res)
             res = ResourceGroupManager::getSingleton().openResource(file, _group, NULL, false);
 
@@ -142,9 +154,12 @@ template <int _i>
 void GetInterpolationIterators(KeyframesMap& keyframes, KeyframesMap::iterator it,
                                KeyframesMap::reverse_iterator& front, KeyframesMap::iterator& back)
 {
+    // reverse_iterator(it) already refers to the element BEFORE it, so the
+    // search starts there: advancing first would skip the immediate
+    // predecessor, and a channel with a single leading key (a constant
+    // glTF track) would then find no key at all - the caller falls back
+    // to zero, which reads as the inverse bind pose leaking into the track
     front = KeyframesMap::reverse_iterator(it);
-
-    front++;
     for (; front != keyframes.rend(); front++)
     {
         if (std::get<_i>(front->second) != NULL)
@@ -194,9 +209,11 @@ aiVector3D getTranslate(aiNodeAnim* node_anim, KeyframesMap& keyframes, Keyframe
         // got 2 keys can interpolate
         if (frontKey && backKey)
         {
-            float prop =
-                (float)(((double)it->first - frontKey->mTime) / (backKey->mTime - frontKey->mTime));
-            prop /= ticksPerSecond;
+            // key times are in TICKS while the merged map's times are in
+            // SECONDS: convert the lookup time to ticks for the lerp factor
+            // (the old form also divided the finished factor by ticksPerSecond
+            // again, shrinking it to ~0 - interpolated keys held the front key)
+            float prop = (float)(Math::inverseLerp<double>(frontKey->mTime, backKey->mTime, it->first * ticksPerSecond));
             vect = Math::lerp(frontKey->mValue, backKey->mValue, prop);
         }
 
@@ -243,9 +260,11 @@ aiQuaternion getRotate(aiNodeAnim* node_anim, KeyframesMap& keyframes, Keyframes
         // got 2 keys can interpolate
         if (frontKey && backKey)
         {
-            float prop =
-                (float)(((double)it->first - frontKey->mTime) / (backKey->mTime - frontKey->mTime));
-            prop /= ticksPerSecond;
+            // key times are in TICKS while the merged map's times are in
+            // SECONDS: convert the lookup time to ticks for the lerp factor
+            // (the old form also divided the finished factor by ticksPerSecond
+            // again, shrinking it to ~0 - interpolated keys held the front key)
+            float prop = (float)(Math::inverseLerp<double>(frontKey->mTime, backKey->mTime, it->first * ticksPerSecond));
             aiQuaternion::Interpolate(rot, frontKey->mValue, backKey->mValue, prop);
         }
 
@@ -292,9 +311,11 @@ aiVector3D getScale(aiNodeAnim* node_anim, KeyframesMap& keyframes, KeyframesMap
         // got 2 keys can interpolate
         if (frontKey && backKey)
         {
-            float prop =
-                (float)(((double)it->first - frontKey->mTime) / (backKey->mTime - frontKey->mTime));
-            prop /= ticksPerSecond;
+            // key times are in TICKS while the merged map's times are in
+            // SECONDS: convert the lookup time to ticks for the lerp factor
+            // (the old form also divided the finished factor by ticksPerSecond
+            // again, shrinking it to ~0 - interpolated keys held the front key)
+            float prop = (float)(Math::inverseLerp<double>(frontKey->mTime, backKey->mTime, it->first * ticksPerSecond));
             vect = Math::lerp(frontKey->mValue, backKey->mValue, prop);
         }
 
@@ -318,9 +339,15 @@ String ReplaceSpaces(const String& s)
 
     return res;
 }
-} // namespace
 
-int AssimpLoader::msBoneCount = 0;
+/// component-wise division, leaving the numerator untouched on a zero denominator
+Vector3 componentwiseDivide(const Vector3& num, const Vector3& den)
+{
+    return Vector3(den.x != 0 ? num.x / den.x : num.x,
+                   den.y != 0 ? num.y / den.y : num.y,
+                   den.z != 0 ? num.z / den.z : num.z);
+}
+} // namespace
 
 AssimpLoader::AssimpLoader()
 {
@@ -351,8 +378,41 @@ bool AssimpLoader::load(const String& source, Mesh* mesh, SkeletonPtr& skeletonP
 bool AssimpLoader::_load(const char* name, Assimp::Importer& importer, Mesh* mesh, SkeletonPtr& skeletonPtr,
                          const Options& options)
 {
-    uint32 flags = aiProcessPreset_TargetRealtime_Quality | aiProcess_TransformUVCoords | aiProcess_FlipUVs;
-    importer.SetPropertyFloat("PP_GSN_MAX_SMOOTHING_ANGLE", options.maxEdgeAngle);
+    mAnimationSpeedModifier = options.animationSpeedModifier;
+    mLoaderParams = options.params;
+    mCustomAnimationName = options.customAnimationName;
+
+    float maxEdgeAngle = options.maxEdgeAngle;
+    int postProcessSteps = options.postProcessSteps;
+    auto optsAny = mesh->getUserObjectBindings().getUserAny("_AssimpLoaderOptions");
+    if(optsAny.has_value())
+    {
+        auto strOpts = any_cast<BinaryOptionList>(optsAny);
+        if(strOpts.find("quiet") != strOpts.end())
+            mLoaderParams |= LP_QUIET_MODE;
+        if(strOpts.find("customAnimationName") != strOpts.end())
+            mCustomAnimationName = strOpts["customAnimationName"];
+        if(strOpts.find("animationSpeedModifier") != strOpts.end())
+            StringConverter::parse(strOpts["animationSpeedModifier"], mAnimationSpeedModifier);
+        if(strOpts.find("maxEdgeAngle") != strOpts.end())
+            StringConverter::parse(strOpts["maxEdgeAngle"], maxEdgeAngle);
+        if(strOpts.find("postProcessSteps") != strOpts.end())
+            StringConverter::parse(strOpts["postProcessSteps"], postProcessSteps);
+        if(strOpts.find("cutAnimation") != strOpts.end())
+            mLoaderParams |= LP_CUT_ANIMATION_WHERE_NO_FURTHER_CHANGE;
+    }
+
+    uint32 flags = aiProcessPreset_TargetRealtime_Fast | aiProcess_TransformUVCoords | aiProcess_FlipUVs;
+    flags &= ~(aiProcess_JoinIdenticalVertices | aiProcess_CalcTangentSpace); // optimize for fast loading
+
+    flags |= postProcessSteps;
+
+    if((flags & (aiProcess_GenSmoothNormals | aiProcess_GenNormals)) != aiProcess_GenNormals)
+        flags &= ~aiProcess_GenNormals; // prefer smooth normals
+
+    importer.SetPropertyFloat("PP_GSN_MAX_SMOOTHING_ANGLE", maxEdgeAngle);
+    importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_EMBEDDED_TEXTURES_LEGACY_NAMING, true);
+
     const aiScene* scene = importer.ReadFile(name, flags);
 
     // If the import failed, report it
@@ -362,28 +422,27 @@ bool AssimpLoader::_load(const char* name, Assimp::Importer& importer, Mesh* mes
         return false;
     }
 
-    mAnimationSpeedModifier = options.animationSpeedModifier;
-    mLoaderParams = options.params;
-    mQuietMode = ((mLoaderParams & LP_QUIET_MODE) == 0) ? false : true;
-    mCustomAnimationName = options.customAnimationName;
+    mQuietMode = mLoaderParams & LP_QUIET_MODE;
     mNodeDerivedTransformByName.clear();
+    mBoneBindWorldByName.clear();
+    mBoneParentSpaceByName.clear();
 
     String basename, extension;
     StringUtil::splitBaseFilename(mesh->getName(), basename, extension);
 
     grabNodeNamesFromNode(scene, scene->mRootNode);
-    grabBoneNamesFromNode(scene, scene->mRootNode);
-
     computeNodesDerivedTransform(scene, scene->mRootNode, scene->mRootNode->mTransformation);
+    grabBoneNamesFromNode(scene, scene->mRootNode);
 
     if (mBonesByName.size())
     {
-        mSkeleton = SkeletonManager::getSingleton().create(basename + ".skeleton", RGN_DEFAULT, true);
+        mSkeleton = SkeletonManager::getSingleton().create(basename + ".skeleton", mesh->getGroup(), true);
 
-        msBoneCount = 0;
         createBonesFromNode(scene, scene->mRootNode);
-        msBoneCount = 0;
         createBoneHiearchy(scene, scene->mRootNode);
+        // Like SkeletonSerializer: without this the initial state of every bone
+        // is identity, so Skeleton::reset() collapses the master skeleton.
+        mSkeleton->setBindingPose();
 
         if (scene->HasAnimations())
         {
@@ -394,7 +453,44 @@ bool AssimpLoader::_load(const char* name, Assimp::Importer& importer, Mesh* mes
         }
     }
 
-    loadDataFromNode(scene, scene->mRootNode, mesh);
+    // Create embedded textures
+    for (unsigned int i = 0; i < scene->mNumTextures; ++i)
+    {
+        const aiTexture* tex = scene->mTextures[i];
+        auto texname =
+            StringUtil::format("%s%s%d.%s", mesh->getName().c_str(), tex->mFilename.C_Str(), i, tex->achFormatHint);
+        if (TextureManager::getSingleton().resourceExists(texname, mesh->getGroup()))
+            continue;
+
+        Image img;
+        if(tex->mHeight == 0)
+        {
+            auto stream = std::make_shared<MemoryDataStream>(tex->pcData, tex->mWidth, false);
+            try
+            {
+                auto format = String(tex->achFormatHint);
+                if (format == "web") // fixup assimp truncation
+                    format = "webp";
+                img.load(stream, format);
+            }
+            catch (Exception& e)
+            {
+                LogManager::getSingleton().logError("Could not load embedded image - " + e.getDescription());
+                continue;
+            }
+        }
+        else
+        {
+            img.loadDynamicImage((uchar*)tex->pcData, tex->mWidth, tex->mHeight, PF_A8R8G8B8);
+        }
+
+        TextureManager::getSingleton().loadImage(texname, mesh->getGroup(), img);
+    }
+
+    auto aabb = loadDataFromNode(scene, scene->mRootNode, mesh);
+    // We must indicate the bounding box
+    mesh->_setBounds(aabb);
+    mesh->_setBoundingSphereRadius((aabb.getMaximum() - aabb.getMinimum()).length() / 2);
 
     Assimp::DefaultLogger::kill();
 
@@ -429,6 +525,8 @@ bool AssimpLoader::_load(const char* name, Assimp::Importer& importer, Mesh* mes
     mBonesByName.clear();
     mBoneNodesByName.clear();
     boneMap.clear();
+    mBoneBindWorldByName.clear();
+    mBoneParentSpaceByName.clear();
     mSkeleton.reset();
 
     mCustomAnimationName = "";
@@ -553,11 +651,25 @@ void AssimpLoader::parseAnimation(const aiScene* mScene, int index, aiAnimation*
         if (mSkeleton->hasBone(boneName))
         {
             Bone* bone = mSkeleton->getBone(boneName);
-            Affine3 defBonePoseInv;
-            defBonePoseInv.makeInverseTransform(bone->getPosition(), bone->getScale(),
-                                                bone->getOrientation());
 
-            NodeAnimationTrack* track = animation->createNodeTrack(i, bone);
+            // Animation channels are relative to the node's direct parent. If
+            // the skeleton skips non-bone nodes, parentSpace maps the node-local
+            // transform into the space of the nearest skeleton ancestor.
+            Affine3 parentSpace = Affine3::IDENTITY;
+            auto parentSpaceIt = mBoneParentSpaceByName.find(boneName);
+            if (parentSpaceIt != mBoneParentSpaceByName.end())
+                parentSpace = parentSpaceIt->second;
+
+            // Components without keys keep the node's rest value. This must not
+            // be the bone's bind value: with offset matrices the two can differ.
+            aiVector3D restPos(0, 0, 0);
+            aiVector3D restScale(1, 1, 1);
+            aiQuaternion restRot;
+            auto boneNodeIt = mBoneNodesByName.find(boneName);
+            if (boneNodeIt != mBoneNodesByName.end() && boneNodeIt->second)
+                boneNodeIt->second->mTransformation.Decompose(restScale, restRot, restPos);
+
+            NodeAnimationTrack* track = animation->createNodeTrack(bone->getHandle(), bone);
 
             // Ogre needs translate rotate and scale for each keyframe in the track
             KeyframesMap keyframes;
@@ -593,7 +705,11 @@ void AssimpLoader::parseAnimation(const aiScene* mScene, int index, aiAnimation*
                 }
                 else
                 {
-                    keyframes[(Real)node_anim->mRotationKeys[j].mTime / mTicksPerSecond] =
+                    // A scale key with no coincident pos/rot keyframe must key
+                    // the merged map by its OWN scaling time; keying it by the
+                    // rotation time inserts garbage times and reads out of
+                    // bounds when the channel has fewer rotation than scale keys.
+                    keyframes[(Real)node_anim->mScalingKeys[j].mTime / mTicksPerSecond] =
                         KeyframeData(NULL, NULL, &(node_anim->mScalingKeys[j]));
                 }
             }
@@ -614,25 +730,47 @@ void AssimpLoader::parseAnimation(const aiScene* mScene, int index, aiAnimation*
                     aiVector3D aiScale = getScale(node_anim, keyframes, it, mTicksPerSecond);
                     Vector3 scale(aiScale.x, aiScale.y, aiScale.z);
 
-                    Vector3 transCopy = trans;
+                    // A component whose channel carries NO keys keeps the node's
+                    // rest value. Using the bone's bind value here would be
+                    // wrong when the offset matrices describe a different bind
+                    // pose than the node hierarchy.
+                    if (node_anim->mNumPositionKeys == 0)
+                        trans = Vector3(restPos.x, restPos.y, restPos.z);
+                    if (node_anim->mNumRotationKeys == 0)
+                        rot = Quaternion(restRot.w, restRot.x, restRot.y, restRot.z);
+                    if (node_anim->mNumScalingKeys == 0)
+                        scale = Vector3(restScale.x, restScale.y, restScale.z);
+
+                    // A zero scale component (glTF hides nodes this way) makes the
+                    // composed transform singular, and decomposing it yields NaN
+                    // rotation and scale. Decompose with those components set to
+                    // one and zero the matching decomposed scale afterwards.
+                    Vector3 safeScale(scale.x != 0 ? scale.x : 1, scale.y != 0 ? scale.y : 1,
+                                      scale.z != 0 ? scale.z : 1);
 
                     Affine3 fullTransform;
-                    fullTransform.makeTransform(trans, scale, rot);
+                    fullTransform.makeTransform(trans, safeScale, rot);
+                    Affine3 targetTransform = parentSpace * fullTransform;
 
-                    Affine3 poseTokey = defBonePoseInv * fullTransform;
-                    poseTokey.decomposition(trans, scale, rot);
+                    Vector3 targetTrans, targetScale;
+                    Quaternion targetRot;
+                    targetTransform.decomposition(targetTrans, targetScale, targetRot);
+                    targetScale *= componentwiseDivide(scale, safeScale);
 
                     keyframe = track->createNodeKeyFrame(Real(it->first));
 
-                    // weirdness with the root bone, But this seems to work
-                    if (mSkeleton->getRootBones()[0]->getName() == boneName)
-                    {
-                        trans = transCopy - bone->getPosition();
-                    }
-
-                    keyframe->setTranslate(trans);
-                    keyframe->setRotation(rot);
-                    keyframe->setScale(scale);
+                    // Ogre applies keyframes as deltas to the bone's binding pose:
+                    // translation is added in parent space, while rotation and
+                    // scale are composed in bone-local space (see
+                    // NodeAnimationTrack::applyToNode).  Do NOT decompose
+                    // defBonePose.Inverse() * fullTransform: that yields a
+                    // translation expressed in bind-bone axes, which makes Ogre
+                    // rotate animated translations by the inverse bind
+                    // orientation.  The old code worked around this for the first
+                    // root bone only.
+                    keyframe->setTranslate(targetTrans - bone->getPosition());
+                    keyframe->setRotation(bone->getOrientation().Inverse() * targetRot);
+                    keyframe->setScale(componentwiseDivide(targetScale, bone->getScale()));
                 }
             }
 
@@ -685,31 +823,89 @@ void AssimpLoader::computeNodesDerivedTransform(const aiScene* mScene, const aiN
     }
 }
 
+const aiNode* AssimpLoader::findSkeletonParent(const aiNode* pNode) const
+{
+    const aiNode* parent = pNode->mParent;
+    while (parent)
+    {
+        auto it = boneMap.find(String(parent->mName.data));
+        if (it != boneMap.end() && it->second)
+            return parent;
+        parent = parent->mParent;
+    }
+    return nullptr;
+}
+
+Affine3 AssimpLoader::getBoneBindWorld(const String& name) const
+{
+    auto bindIt = mBoneBindWorldByName.find(name);
+    if (bindIt != mBoneBindWorldByName.end())
+        return bindIt->second;
+
+    auto nodeIt = mNodeDerivedTransformByName.find(name);
+    if (nodeIt != mNodeDerivedTransformByName.end())
+        return nodeIt->second;
+
+    return Affine3::IDENTITY;
+}
+
 void AssimpLoader::createBonesFromNode(const aiScene* mScene, const aiNode* pNode)
 {
     if (isNodeNeeded(pNode->mName.data))
     {
-        Bone* bone = mSkeleton->createBone(String(pNode->mName.data), msBoneCount);
+        const String boneName(pNode->mName.data);
+        Bone* bone = mSkeleton->createBone(boneName);
 
-        aiQuaternion rot;
-        aiVector3D pos;
-        aiVector3D scale;
-
-        const aiMatrix4x4& aiM = pNode->mTransformation;
-
-        if (!aiM.IsIdentity())
+        // The skeleton may skip nodes that are not bones.  Reconstruct the
+        // bone's transform relative to the nearest skeleton ancestor, and
+        // remember the rest transform of the skipped segment so animation
+        // channels, which are relative to the direct node parent, can be
+        // mapped into the same space.
+        const aiNode* skeletonParent = findSkeletonParent(pNode);
+        Affine3 ancestorRestWorld = Affine3::IDENTITY;
+        if (skeletonParent)
         {
-            aiM.Decompose(scale, rot, pos);
-            bone->setPosition(pos.x, pos.y, pos.z);
-            bone->setOrientation(rot.w, rot.x, rot.y, rot.z);
+            auto it = mNodeDerivedTransformByName.find(skeletonParent->mName.data);
+            if (it != mNodeDerivedTransformByName.end())
+                ancestorRestWorld = it->second;
         }
+
+        Affine3 parentSpace = Affine3::IDENTITY;
+        if (pNode->mParent)
+        {
+            auto it = mNodeDerivedTransformByName.find(pNode->mParent->mName.data);
+            if (it != mNodeDerivedTransformByName.end())
+                parentSpace = ancestorRestWorld.inverse() * it->second;
+        }
+        mBoneParentSpaceByName[boneName] = parentSpace;
+
+        // Prefer the bind pose described by aiBone::mOffsetMatrix.  Nodes that
+        // are only part of the hierarchy (not weighted) fall back to their node
+        // rest transform.
+        Affine3 bindWorld = getBoneBindWorld(boneName);
+
+        // The local bind pose is relative to the ancestor's bind pose, not to
+        // its rest pose: the ancestor may itself be bound using an offset
+        // matrix that differs from its node transform.
+        Affine3 ancestorBindWorld = Affine3::IDENTITY;
+        if (skeletonParent)
+            ancestorBindWorld = getBoneBindWorld(skeletonParent->mName.data);
+
+        Affine3 localBind = ancestorBindWorld.inverse() * bindWorld;
+
+        Vector3 pos = Vector3::ZERO;
+        Vector3 scale = Vector3::UNIT_SCALE;
+        Quaternion rot = Quaternion::IDENTITY;
+        localBind.decomposition(pos, scale, rot);
+        bone->setPosition(pos);
+        bone->setOrientation(rot);
+        bone->setScale(scale);
 
         if (!mQuietMode)
         {
-            LogManager::getSingleton().logMessage(StringConverter::toString(msBoneCount) +
-                                                  ") Creating bone '" + String(pNode->mName.data) + "'");
+            LogManager::getSingleton().logMessage(StringConverter::toString(bone->getHandle()) +
+                                                  ") Creating bone '" + boneName + "'");
         }
-        msBoneCount++;
     }
     // Traverse all child nodes of the current node instance
     for (unsigned int childIdx = 0; childIdx < pNode->mNumChildren; ++childIdx)
@@ -723,14 +919,16 @@ void AssimpLoader::createBoneHiearchy(const aiScene* mScene, const aiNode* pNode
 {
     if (isNodeNeeded(pNode->mName.data))
     {
-        Bone* parent = 0;
         Bone* child = 0;
-        if (pNode->mParent)
+        Bone* parent = 0;
+
+        // Attach to the nearest skeleton ancestor, skipping nodes that are not
+        // represented by a bone (their transforms are folded into the local
+        // bind transform above).
+        const aiNode* skeletonParent = findSkeletonParent(pNode);
+        if (skeletonParent && mSkeleton->hasBone(skeletonParent->mName.data))
         {
-            if (mSkeleton->hasBone(pNode->mParent->mName.data))
-            {
-                parent = mSkeleton->getBone(pNode->mParent->mName.data);
-            }
+            parent = mSkeleton->getBone(skeletonParent->mName.data);
         }
         if (mSkeleton->hasBone(pNode->mName.data))
         {
@@ -770,8 +968,6 @@ bool AssimpLoader::isNodeNeeded(const char* name)
 
 void AssimpLoader::grabBoneNamesFromNode(const aiScene* mScene, const aiNode* pNode)
 {
-    static int meshNum = 0;
-    meshNum++;
     if (pNode->mNumMeshes > 0)
     {
         for (unsigned int idx = 0; idx < pNode->mNumMeshes; ++idx)
@@ -780,12 +976,36 @@ void AssimpLoader::grabBoneNamesFromNode(const aiScene* mScene, const aiNode* pN
 
             if (pAIMesh->HasBones())
             {
+                // Some importers (e.g. ASE) create aiBones but never fill in
+                // mOffsetMatrix, leaving it at identity.  Only trust the offset
+                // matrices if at least one of them was actually set.
+                bool hasBindPose = false;
+                for (uint32 i = 0; i < pAIMesh->mNumBones && !hasBindPose; ++i)
+                    hasBindPose = pAIMesh->mBones[i] && !pAIMesh->mBones[i]->mOffsetMatrix.IsIdentity();
+
                 for (uint32 i = 0; i < pAIMesh->mNumBones; ++i)
                 {
                     aiBone* pAIBone = pAIMesh->mBones[i];
                     if (NULL != pAIBone)
                     {
-                        mBonesByName[pAIBone->mName.data] = pAIBone;
+                        const String boneName(pAIBone->mName.data);
+                        mBonesByName[boneName] = pAIBone;
+
+                        // mOffsetMatrix maps vertices from mesh space into this
+                        // bone's space in bind pose. Vertices are loaded in world
+                        // space (see computeNodesDerivedTransform), so the bind
+                        // pose in that space is meshWorld * offset^-1.  This is
+                        // authoritative: node rest transforms are not guaranteed
+                        // to match the bind pose stored by the file (e.g. glTF
+                        // inverseBindMatrices).
+                        auto meshWorld = mNodeDerivedTransformByName.find(pNode->mName.data);
+                        if (hasBindPose && meshWorld != mNodeDerivedTransformByName.end() &&
+                            mBoneBindWorldByName.find(boneName) == mBoneBindWorldByName.end())
+                        {
+                            Affine3 offset(pAIBone->mOffsetMatrix[0]);
+                            if (Math::Abs(offset.linear().determinant()) > 1e-12f)
+                                mBoneBindWorldByName[boneName] = meshWorld->second * offset.inverse();
+                        }
 
                         if (!mQuietMode)
                         {
@@ -799,12 +1019,12 @@ void AssimpLoader::grabBoneNamesFromNode(const aiScene* mScene, const aiNode* pN
                         aiNode* node = mScene->mRootNode->FindNode(pAIBone->mName.data);
                         while (node)
                         {
-                            if (node->mName.data == pNode->mName.data)
+                            if (node->mName == pNode->mName)
                             {
                                 flagNodeAsNeeded(node->mName.data);
                                 break;
                             }
-                            if (node->mName.data == pNode->mParent->mName.data)
+                            if (node->mName == pNode->mParent->mName)
                             {
                                 flagNodeAsNeeded(node->mName.data);
                                 break;
@@ -833,7 +1053,28 @@ void AssimpLoader::grabBoneNamesFromNode(const aiScene* mScene, const aiNode* pN
     }
 }
 
-MaterialPtr AssimpLoader::createMaterial(const aiMaterial* mat, const Ogre::String &group)
+static bool getTextureName(const aiMaterial* mat, aiTextureType type, const aiScene* scene, const String& meshName,
+                           String& basename)
+{
+    aiString path;
+    String outPath;
+    if (mat->GetTexture(type, 0, &path) == AI_SUCCESS)
+    {
+        const aiTexture* tex = scene->GetEmbeddedTexture(path.C_Str());
+        if(tex)
+        {
+            basename = StringUtil::format("%s%s%s.%.8s", meshName.c_str(), tex->mFilename.C_Str(), path.C_Str() + 1,
+                                          tex->achFormatHint);
+            return true;
+        }
+
+        StringUtil::splitFilename(String(path.data), basename, outPath);
+        return true;
+    }
+    return false;
+}
+
+static MaterialPtr createMaterial(const aiMaterial* mat, const Ogre::String &group, const String& meshName, const aiScene* scene, bool verbose)
 {
     static int dummyMatCount = 0;
 
@@ -845,36 +1086,40 @@ MaterialPtr AssimpLoader::createMaterial(const aiMaterial* mat, const Ogre::Stri
     aiString szPath;
     if (AI_SUCCESS == aiGetMaterialString(mat, AI_MATKEY_NAME, &szPath))
     {
-        if (!mQuietMode)
+        if (verbose)
         {
             LogManager::getSingleton().logMessage("Using aiGetMaterialString : Name " +
                                                   String(szPath.data));
         }
     }
 
-    MaterialPtr omat;
+    String matName = meshName;
     if(szPath.length)
     {
-        auto status = omatMgr->createOrRetrieve(ReplaceSpaces(szPath.data), group);
-        omat = static_pointer_cast<Material>(status.first);
-
-        if (!status.second)
-            return omat;
-
-        if (!mQuietMode)
-        {
-            LogManager::getSingleton().logMessage("Creating " + String(szPath.data));
-        }
+        matName += String(szPath.data);
+        matName = ReplaceSpaces(matName);
     }
     else
     {
-        if (!mQuietMode)
-        {
-            LogManager::getSingleton().logMessage("Unnamed material encountered...");
-        }
+        matName += StringUtil::format("dummyMat%d", dummyMatCount++);
+    }
 
-        omat = omatMgr->getDefaultMaterial(false)->clone("dummyMat" +
-                                                         StringConverter::toString(dummyMatCount++), group);
+    auto status = omatMgr->createOrRetrieve(matName, group);
+    auto omat = static_pointer_cast<Material>(status.first);
+
+    if (!status.second)
+        return omat;
+
+    if (verbose)
+    {
+        LogManager::getSingleton().logMessage("Creating " + matName);
+    }
+
+    aiString tmp;
+    String alphaMode;
+    if (AI_SUCCESS == aiGetMaterialString(mat, "$mat.gltf.alphaMode", 0, 0, &tmp))
+    {
+        alphaMode = String(tmp.data);
     }
 
     // ambient
@@ -889,6 +1134,12 @@ MaterialPtr AssimpLoader::createMaterial(const aiMaterial* mat, const Ogre::Stri
     if (AI_SUCCESS == aiGetMaterialColor(mat, AI_MATKEY_COLOR_DIFFUSE, &clr))
     {
         omat->setDiffuse(clr.r, clr.g, clr.b, clr.a);
+    }
+
+    if (clr.a < 1.0f || alphaMode == "BLEND")
+    {
+        omat->setSceneBlending(SBT_TRANSPARENT_ALPHA);
+        omat->setDepthWriteEnabled(false);
     }
 
     // specular
@@ -931,36 +1182,90 @@ MaterialPtr AssimpLoader::createMaterial(const aiMaterial* mat, const Ogre::Stri
         }
     }
 
-    if (mat->GetTexture(type, 0, &path) == AI_SUCCESS)
+    float alphaCutoff = 1.0f;
+    if (AI_SUCCESS == mat->Get("$mat.gltf.alphaCutoff", 0, 0, alphaCutoff) && alphaMode == "MASK")
     {
-        if (!mQuietMode)
+        omat->getTechnique(0)->getPass(0)->setAlphaRejectSettings(CMPF_GREATER, alphaCutoff * 255.0f);
+    }
+
+    String basename;
+    if (getTextureName(mat, type, scene, meshName, basename))
+    {
+        if (verbose)
         {
-            LogManager::getSingleton().logMessage("Found texture " + String(path.data) + " for channel " +
+            LogManager::getSingleton().logMessage("Found texture " + basename + " for channel " +
                                                   StringConverter::toString(uvindex));
         }
-        if (AI_SUCCESS == aiGetMaterialString(mat, AI_MATKEY_TEXTURE_DIFFUSE(0), &szPath))
+        omat->getTechnique(0)->getPass(0)->createTextureUnitState(basename);
+    }
+
+    if (getTextureName(mat, aiTextureType_EMISSIVE, scene, meshName, basename))
+    {
+        if (verbose)
         {
-            if (!mQuietMode)
-            {
-                LogManager::getSingleton().logMessage("Using aiGetMaterialString : Found texture " +
-                                                      String(szPath.data) + " for channel " +
-                                                      StringConverter::toString(uvindex));
-            }
+            LogManager::getSingleton().logMessage("Found emissive map: " + basename);
+        }
+        auto tus = omat->getTechnique(0)->getPass(0)->createTextureUnitState(basename);
+        tus->setColourOperation(LBO_ADD);
+        omat->setSelfIllumination(0, 0, 0); // assimp assumes emissive is modulated, whereas Ogre adds up
+    }
+
+#ifdef OGRE_BUILD_COMPONENT_RTSHADERSYSTEM
+    auto shaderGen = RTShader::ShaderGenerator::getSingletonPtr();
+
+    if(!shaderGen)
+        return omat;
+
+    if (getTextureName(mat, aiTextureType_NORMALS, scene, meshName, basename))
+    {
+        if (verbose)
+        {
+            LogManager::getSingleton().logMessage("Found normal map: " + basename);
         }
 
-        String basename;
-        String outPath;
-        StringUtil::splitFilename(String(szPath.data), basename, outPath);
-        omat->getTechnique(0)->getPass(0)->createTextureUnitState(basename);
+        auto tus = omat->getTechnique(0)->getPass(0)->createTextureUnitState(basename);
 
-        // TODO: save embedded images to file
+        // mark as normal map
+        shaderGen->_markNonFFP(tus);
+        uint16 texureIdx = tus->getParent()->getNumTextureUnitStates() - 1;
+
+        shaderGen->createShaderBasedTechnique(omat->getTechnique(0), MSN_SHADERGEN);
+        auto rs = shaderGen->getRenderState(MSN_SHADERGEN, *omat, 0);
+        auto srs = shaderGen->createSubRenderState("NormalMap");
+
+        srs->setParameter("texture_index", std::to_string(texureIdx));
+        rs->addTemplateSubRenderState(srs);
     }
+
+    aiTextureType metalRoughnessType = aiTextureType_UNKNOWN;
+    // regards to assimp devs for this nice macro, requiring this statement to unpack
+    if(metalRoughnessType = AI_MATKEY_GLTF_PBRMETALLICROUGHNESS_METALLICROUGHNESS_TEXTURE) {}
+
+    if (getTextureName(mat, metalRoughnessType, scene, meshName, basename))
+    {
+        if (verbose)
+        {
+            LogManager::getSingleton().logMessage("Found metal roughness map: " + basename);
+        }
+
+        shaderGen->createShaderBasedTechnique(omat->getTechnique(0), MSN_SHADERGEN);
+        auto rs = shaderGen->getRenderState(MSN_SHADERGEN, *omat, 0);
+        auto srs = shaderGen->createSubRenderState(RTShader::SRS_COOK_TORRANCE_LIGHTING);
+
+        srs->setParameter("texture", basename);
+        rs->addTemplateSubRenderState(srs);
+
+        srs = shaderGen->createSubRenderState(RTShader::SRS_TEXTURING);
+        srs->setParameter("late_add_blend", "true");
+        rs->addTemplateSubRenderState(srs);
+    }
+#endif
 
     return omat;
 }
 
 bool AssimpLoader::createSubMesh(const String& name, int index, const aiNode* pNode, const aiMesh* mesh,
-                                 const aiMaterial* mat, Mesh* mMesh, AxisAlignedBox& mAAB)
+                                 const MaterialPtr& matptr, Mesh* mMesh, AxisAlignedBox& mAAB)
 {
     // if animated all submeshes must have bone weights
     if (mBonesByName.size() && !mesh->HasBones())
@@ -973,8 +1278,6 @@ bool AssimpLoader::createSubMesh(const String& name, int index, const aiNode* pN
         return false;
     }
 
-    MaterialPtr matptr = createMaterial(mat, mMesh->getGroup());
-
     // now begin the object definition
     // We create a submesh per material
     SubMesh* submesh = mMesh->createSubMesh(name + StringConverter::toString(index));
@@ -982,13 +1285,14 @@ bool AssimpLoader::createSubMesh(const String& name, int index, const aiNode* pN
     // prime pointers to vertex related data
     aiVector3D* vec = mesh->mVertices;
     aiVector3D* norm = mesh->mNormals;
-    aiVector3D* uv = mesh->mTextureCoords[0];
     aiVector3D* tang = mesh->mTangents;
     aiColor4D *col = mesh->mColors[0];
 
+    if(!norm)
+        matptr->setLightingEnabled(false);
+
     // We must create the vertex data, indicating how many vertices there will be
-    submesh->useSharedVertices = false;
-    submesh->vertexData = new VertexData();
+    submesh->createVertexData();
     submesh->vertexData->vertexStart = 0;
     submesh->vertexData->vertexCount = mesh->mNumVertices;
 
@@ -1025,13 +1329,16 @@ bool AssimpLoader::createSubMesh(const String& name, int index, const aiNode* pN
         offset += declaration->addElement(source, offset, VET_FLOAT3, VES_NORMAL).getSize();
     }
 
-    if (uv)
+    for (int uvindex = 0; uvindex < AI_MAX_NUMBER_OF_TEXTURECOORDS; uvindex++)
     {
+        aiVector3D* uv = mesh->mTextureCoords[uvindex];
+        if (!uv)
+            break;
         if (!mQuietMode)
         {
             LogManager::getSingleton().logMessage(StringUtil::format("%d uvs", mesh->mNumVertices));
         }
-        offset += declaration->addElement(source, offset, VET_FLOAT2, VES_TEXTURE_COORDINATES).getSize();
+        offset += declaration->addElement(source, offset, VET_FLOAT2, VES_TEXTURE_COORDINATES, uvindex).getSize();
     }
 
     if (tang)
@@ -1100,11 +1407,13 @@ bool AssimpLoader::createSubMesh(const String& name, int index, const aiNode* pN
         }
 
         // uvs
-        if (uv)
+        for (int uvindex = 0; uvindex < AI_MAX_NUMBER_OF_TEXTURECOORDS; uvindex++)
         {
-            *vdata++ = uv->x;
-            *vdata++ = uv->y;
-            uv++;
+            aiVector3D* uv = mesh->mTextureCoords[uvindex];
+            if (!uv)
+                break;
+            *vdata++ = uv[i].x;
+            *vdata++ = uv[i].y;
         }
 
         if(tang)
@@ -1204,12 +1513,11 @@ bool AssimpLoader::createSubMesh(const String& name, int index, const aiNode* pN
     return true;
 }
 
-void AssimpLoader::loadDataFromNode(const aiScene* mScene, const aiNode* pNode, Mesh* mesh)
+AxisAlignedBox AssimpLoader::loadDataFromNode(const aiScene* mScene, const aiNode* pNode, Mesh* mesh)
 {
+    AxisAlignedBox aabb;
     if (pNode->mNumMeshes > 0)
     {
-        AxisAlignedBox mAAB = mesh->getBounds();
-
         for (unsigned int idx = 0; idx < pNode->mNumMeshes; ++idx)
         {
             aiMesh* pAIMesh = mScene->mMeshes[pNode->mMeshes[idx]];
@@ -1221,20 +1529,19 @@ void AssimpLoader::loadDataFromNode(const aiScene* mScene, const aiNode* pNode, 
 
             // Create a material instance for the mesh.
             const aiMaterial* pAIMaterial = mScene->mMaterials[pAIMesh->mMaterialIndex];
-            createSubMesh(pNode->mName.data, idx, pNode, pAIMesh, pAIMaterial, mesh, mAAB);
+            MaterialPtr matptr = createMaterial(pAIMaterial, mesh->getGroup(), mesh->getName(), mScene, !mQuietMode);
+            createSubMesh(pNode->mName.data, idx, pNode, pAIMesh, matptr, mesh, aabb);
         }
-
-        // We must indicate the bounding box
-        mesh->_setBounds(mAAB);
-        mesh->_setBoundingSphereRadius((mAAB.getMaximum() - mAAB.getMinimum()).length() / 2);
     }
 
     // Traverse all child nodes of the current node instance
     for (unsigned int childIdx = 0; childIdx < pNode->mNumChildren; childIdx++)
     {
         const aiNode* pChildNode = pNode->mChildren[childIdx];
-        loadDataFromNode(mScene, pChildNode, mesh);
+        aabb.merge(loadDataFromNode(mScene, pChildNode, mesh));
     }
+
+    return aabb;
 }
 
 static std::vector<std::unique_ptr<Codec> > registeredCodecs;
@@ -1244,8 +1551,7 @@ struct AssimpCodec : public Codec
 
     AssimpCodec(const String& type) : mType(type) {}
 
-    String magicNumberToFileExt(const char* magicNumberPtr, size_t maxbytes) const { return ""; }
-    String getType() const { return mType; }
+    String getType() const override { return mType; }
     void decode(const DataStreamPtr& input, const Any& output) const override
     {
         Mesh* dst = any_cast<Mesh*>(output);
@@ -1259,7 +1565,7 @@ struct AssimpCodec : public Codec
 
     static void startup()
     {
-        String version = StringUtil::format("Assimp - %d.%d.%d - Open-Asset-Importer", aiGetVersionMajor(),
+        String version = StringUtil::format("Assimp - %d.%d.%x - Open-Asset-Importer", aiGetVersionMajor(),
                                             aiGetVersionMinor(), aiGetVersionRevision());
         LogManager::getSingleton().logMessage(version);
 

@@ -37,7 +37,7 @@ THE SOFTWARE.
 namespace Ogre {
 
     /** Factory class for particle emitter of type "Cylinder".
-    @remarks
+
         Creates instances of CylinderEmitter to be used in particle systems. 
     */
     class CylinderEmitterFactory : public ParticleEmitterFactory
@@ -47,13 +47,7 @@ namespace Ogre {
     public:
         String getName() const override { return "Cylinder"; }
 
-        ParticleEmitter* createEmitter(ParticleSystem* psys) override
-        {
-            ParticleEmitter* emit = OGRE_NEW CylinderEmitter(psys);
-            mEmitters.push_back(emit);
-            return emit;
-        }
-
+        ParticleEmitter* createEmitter(ParticleSystem* psys) override { return new CylinderEmitter(psys); }
     };
 
 }

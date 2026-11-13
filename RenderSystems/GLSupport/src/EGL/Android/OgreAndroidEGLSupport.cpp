@@ -46,12 +46,6 @@ namespace Ogre {
     {        
         mNativeDisplay = EGL_DEFAULT_DISPLAY;
         mGLDisplay = getGLDisplay();
-        
-        mCurrentMode.width = 1280;
-        mCurrentMode.height = 800;
-        mCurrentMode.refreshRate = 0;
-        mOriginalMode = mCurrentMode;
-        mVideoModes.push_back(mCurrentMode);
     }
 
     ConfigOptionMap AndroidEGLSupport::getConfigOptions()
@@ -79,11 +73,7 @@ namespace Ogre {
     {
         
     }
-    
-    void AndroidEGLSupport::switchMode( uint& width, uint& height, short& frequency )
-    {
-    }
-    
+
     RenderWindow* AndroidEGLSupport::newWindow( const String &name, unsigned int width, unsigned int height, bool fullScreen, const NameValuePairList *miscParams)
     {
         AndroidEGLWindow* window = new AndroidEGLWindow(this);

@@ -45,7 +45,7 @@ namespace Ogre {
     *  @{
     */
     /** Class representing a general-purpose node an articulated scene graph.
-    @remarks
+
         A node in the scene graph is a node in a structured tree. A node contains
         information about the transformation which will apply to
         it and all of it's children. Child nodes can have transforms of their own, which
@@ -80,10 +80,10 @@ namespace Ogre {
             Listener() {}
             virtual ~Listener() {}
             /** Called when a node gets updated.
-            @remarks
+
                 Note that this happens when the node's derived update happens,
-                not every time a method altering it's state occurs. There may 
-                be several state-changing calls but only one of these calls, 
+                not every time a method altering it's state occurs. There may
+                be several state-changing calls but only one of these calls,
                 when the node graph is fully updated.
             */
             virtual void nodeUpdated(const Node*) {}
@@ -101,7 +101,7 @@ namespace Ogre {
         /// Collection of pointers to direct children
         ChildNodeMap mChildren;
 
-        typedef std::set<Node*> ChildUpdateSet;
+        typedef std::vector<Node*> ChildUpdateSet;
         /// List of children which need updating, used if self is not out of date but children are
         ChildUpdateSet mChildrenToUpdate;
         /// Friendly name of this node
@@ -170,9 +170,9 @@ namespace Ogre {
         void _updateFromParent(void) const;
 
         /** Class-specific implementation of _updateFromParent.
-        @remarks
+
             Splitting the implementation of the update away from the update call
-            itself allows the detail to be overridden without disrupting the 
+            itself allows the detail to be overridden without disrupting the
             general sequence of updateFromParent (e.g. raising events)
         */
         virtual void updateFromParentImpl(void) const;
@@ -200,14 +200,9 @@ namespace Ogre {
         virtual Node* createChildImpl(const String& name) = 0;
     public:
         /// Constructor, should only be called by parent, not directly.
-        Node();
-        /** Constructor, should only be called by parent, not directly.
-        @remarks
-            Assigned a name.
-        */
-        Node(const String& name);
+        Node(const String& name = "");
 
-        virtual ~Node();  
+        virtual ~Node();
 
         /** Returns the name of the node. */
         const String& getName(void) const { return mName; }
@@ -221,7 +216,7 @@ namespace Ogre {
         const Quaternion & getOrientation() const { return mOrientation; }
 
         /** Sets the orientation of this node via a quaternion.
-        @remarks
+
             Orientations, unlike other transforms, are not always inherited by child nodes.
             Whether or not orientations affect the orientation of the child nodes depends on
             the setInheritOrientation option of the child. In some cases you want a orientating
@@ -239,7 +234,7 @@ namespace Ogre {
         void setOrientation( Real w, Real x, Real y, Real z);
 
         /** Resets the nodes orientation (local axes as world axes, no rotation).
-        @remarks
+
             Orientations, unlike other transforms, are not always inherited by child nodes.
             Whether or not orientations affect the orientation of the child nodes depends on
             the setInheritOrientation option of the child. In some cases you want a orientating
@@ -265,7 +260,7 @@ namespace Ogre {
         const Vector3 & getPosition(void) const { return mPosition; }
 
         /** Sets the scaling factor applied to this node.
-        @remarks
+
             Scaling factors, unlike other transforms, are not always inherited by child nodes.
             Whether or not scalings affect the size of the child nodes depends on the setInheritScale
             option of the child. In some cases you want a scaling factor of a parent node to apply to
@@ -286,7 +281,7 @@ namespace Ogre {
         const Vector3& getScale(void) const { return mScale; }
 
         /** Tells the node whether it should inherit orientation from it's parent node.
-        @remarks
+
             Orientations, unlike other transforms, are not always inherited by child nodes.
             Whether or not orientations affect the orientation of the child nodes depends on
             the setInheritOrientation option of the child. In some cases you want a orientating
@@ -300,8 +295,8 @@ namespace Ogre {
         */
         void setInheritOrientation(bool inherit);
 
-        /** Returns true if this node is affected by orientation applied to the parent node. 
-        @remarks
+        /** Returns true if this node is affected by orientation applied to the parent node.
+
             Orientations, unlike other transforms, are not always inherited by child nodes.
             Whether or not orientations affect the orientation of the child nodes depends on
             the setInheritOrientation option of the child. In some cases you want a orientating
@@ -310,13 +305,13 @@ namespace Ogre {
             parent's orientation), but not in other cases (e.g. where the child node is just
             for positioning another object, you want it to maintain it's own orientation).
             The default is to inherit as with other transforms.
-        @remarks
+
             See setInheritOrientation for more info.
         */
         bool getInheritOrientation(void) const { return mInheritOrientation; }
 
         /** Tells the node whether it should inherit scaling factors from it's parent node.
-        @remarks
+
             Scaling factors, unlike other transforms, are not always inherited by child nodes.
             Whether or not scalings affect the size of the child nodes depends on the setInheritScale
             option of the child. In some cases you want a scaling factor of a parent node to apply to
@@ -329,16 +324,16 @@ namespace Ogre {
         */
         void setInheritScale(bool inherit);
 
-        /** Returns true if this node is affected by scaling factors applied to the parent node. 
-        @remarks
+        /** Returns true if this node is affected by scaling factors applied to the parent node.
+
             See setInheritScale for more info.
         */
         bool getInheritScale(void) const { return mInheritScale; }
 
-        /** Scales the node, combining it's current scale with the passed in scaling factor. 
-        @remarks
+        /** Scales the node, combining it's current scale with the passed in scaling factor.
+
             This method applies an extra scaling factor to the node's existing scale, (unlike setScale
-            which overwrites it) combining it's current scale with the new one. E.g. calling this 
+            which overwrites it) combining it's current scale with the new one. E.g. calling this
             method twice with Vector3(2,2,2) would have the same effect as setScale(Vector3(4,4,4)) if
             the existing scale was 1.
         @par
@@ -365,7 +360,7 @@ namespace Ogre {
             translate(Vector3(x, y, z), relativeTo);
         }
         /** Moves the node along arbitrary axes.
-        @remarks
+
             This method translates the node by a vector which is relative to
             a custom set of axes.
         @param axes
@@ -421,7 +416,7 @@ namespace Ogre {
             rotate(Quaternion(angle, axis), relativeTo);
         }
 
-        /** Rotate the node around an aritrary axis using a Quarternion.
+        /** Rotate the node around an arbitrary axis using a Quarternion.
         */
         void rotate(const Quaternion& q, TransformSpace relativeTo = TS_LOCAL);
 
@@ -436,12 +431,12 @@ namespace Ogre {
             Initial rotation relative to parent
         */
         virtual Node* createChild(
-            const Vector3& translate = Vector3::ZERO, 
+            const Vector3& translate = Vector3::ZERO,
             const Quaternion& rotate = Quaternion::IDENTITY );
 
         /** Creates a new named Node as a child of this node.
-        @remarks
-            This creates a child node with a given name, which allows you to look the node up from 
+
+            This creates a child node with a given name, which allows you to look the node up from
             the parent which holds this collection of nodes.
         @param name Name of the Node to create
         @param translate
@@ -463,7 +458,7 @@ namespace Ogre {
         uint16 numChildren(void) const { return static_cast< uint16 >( mChildren.size() ); }
 
         /** Gets a pointer to a child node.
-        @remarks
+
             There is an alternate getChild method which returns a named child.
         @deprecated use getChildren()
         */
@@ -482,10 +477,10 @@ namespace Ogre {
         /// List of sub-nodes of this Node
         const ChildNodeMap& getChildren() const { return mChildren; }
 
-        /** Drops the specified child from this node. 
-        @remarks
+        /** Drops the specified child from this node.
+
             Does not delete the node, just detaches it from
-            this parent, potentially to be reattached elsewhere. 
+            this parent, potentially to be reattached elsewhere.
             There is also an alternate version which drops a named
             child from this node.
         */
@@ -493,8 +488,8 @@ namespace Ogre {
         /// @overload
         virtual Node* removeChild(Node* child);
 
-        /** Drops the named child from this node. 
-        @remarks
+        /** Drops the named child from this node.
+
             Does not delete the node, just detaches it from
             this parent, potentially to be reattached elsewhere.
         */
@@ -503,15 +498,22 @@ namespace Ogre {
             this parent, potentially to be reattached elsewhere.
         */
         virtual void removeAllChildren(void);
-        
+
+        /** if this node has a parent, then detatch this node from the parent,
+            so this node can be reattached elsewhere.
+
+            No-op on nodes without a parent.
+	*/
+        void removeFromParent(void);
+
         /** Sets the final world position of the node directly.
-        @remarks 
+
             It's advisable to use the local setPosition if possible
         */
         void _setDerivedPosition(const Vector3& pos);
 
         /** Sets the final world orientation of the node directly.
-        @remarks 
+
             It's advisable to use the local setOrientation if possible, this simply does
             the conversion for you.
         */
@@ -530,7 +532,7 @@ namespace Ogre {
         const Vector3 & _getDerivedScale(void) const;
 
         /** Gets the full transformation matrix for this node.
-        @remarks
+
             This method returns the full transformation matrix
             for this node, including the effect of any parent node
             transformations, provided they have been updated using the Node::_update method.
@@ -555,21 +557,21 @@ namespace Ogre {
         virtual void _update(bool updateChildren, bool parentHasChanged);
 
         /** Sets a listener for this Node.
-        @remarks
+
             Note for size and performance reasons only one listener per node is
             allowed.
         */
         void setListener(Listener* listener) { mListener = listener; }
-        
+
         /** Gets the current listener for this Node.
         */
         Listener* getListener(void) const { return mListener; }
-        
+
 
         /** Sets the current transform of this node to be the 'initial state' ie that
             position / orientation / scale to be used as a basis for delta values used
             in keyframe animation.
-        @remarks
+
             You never need to call this method unless you plan to animate this node. If you do
             plan to animate it, call this method once you've loaded the node with it's base state,
             ie the state on which all keyframes are based.
@@ -581,32 +583,43 @@ namespace Ogre {
         /** Resets the position / orientation / scale of this node to it's initial state, see setInitialState for more info. */
         void resetToInitialState(void);
 
-        /** Gets the initial position of this node, see setInitialState for more info. 
-        @remarks
+        /** Gets the initial position of this node, see setInitialState for more info.
+
             Also resets the cumulative animation weight used for blending.
         */
         const Vector3& getInitialPosition(void) const { return mInitialPosition; }
-        
+
         /** Gets the local position, relative to this node, of the given world-space position */
-        Vector3 convertWorldToLocalPosition( const Vector3 &worldPos );
+        Vector3 convertWorldToLocalPosition( const Vector3 &worldPos ) const;
 
         /** Gets the world position of a point in the node local space
             useful for simple transforms that don't require a child node.*/
-        Vector3 convertLocalToWorldPosition( const Vector3 &localPos );
+        Vector3 convertLocalToWorldPosition( const Vector3 &localPos ) const;
 
-        /** Gets the local direction, relative to this node, of the given world-space direction */
-        Vector3 convertWorldToLocalDirection( const Vector3 &worldDir, bool useScale );
+        /** Gets the local direction, relative to this node, of the
+            given world-space direction
+
+	@param worldDir world direction (as a vector) to be returned in local space
+        @param useScale determines if this node or it's parents' scale affects
+            the magnitude of the returned worldDir vector.
+        */
+        Vector3 convertWorldToLocalDirection( const Vector3 &worldDir, bool useScale ) const;
 
         /** Gets the world direction of a point in the node local space
-            useful for simple transforms that don't require a child node.*/
-        Vector3 convertLocalToWorldDirection( const Vector3 &localDir, bool useScale );
+            useful for simple transforms that don't require a child node.
+
+	@param localDir local direction (as a vector) to be returned in world space
+        @param useScale determines if this node or it's parents' scale affects
+            the magnitude of the returned localDir vector.
+        */
+        Vector3 convertLocalToWorldDirection( const Vector3 &localDir, bool useScale ) const;
 
         /** Gets the local orientation, relative to this node, of the given world-space orientation */
-        Quaternion convertWorldToLocalOrientation( const Quaternion &worldOrientation );
+        Quaternion convertWorldToLocalOrientation( const Quaternion &worldOrientation ) const;
 
         /** Gets the world orientation of an orientation in the node local space
             useful for simple transforms that don't require a child node.*/
-        Quaternion convertLocalToWorldOrientation( const Quaternion &localOrientation );
+        Quaternion convertLocalToWorldOrientation( const Quaternion &localOrientation ) const;
 
         /** Gets the initial orientation of this node, see setInitialState for more info. */
         const Quaternion& getInitialOrientation(void) const { return mInitialOrientation; }
@@ -618,8 +631,8 @@ namespace Ogre {
         Real getSquaredViewDepth(const Camera* cam) const;
 
         /** To be called in the event of transform changes to this node that require it's recalculation.
-        @remarks
-            This not only tags the node state as being 'dirty', it also requests it's parent to 
+
+            This not only tags the node state as being 'dirty', it also requests it's parent to
             know about it's dirtiness so it will get an update next time.
         @param forceParentUpdate Even if the node thinks it has already told it's
             parent, tell it anyway
@@ -635,10 +648,10 @@ namespace Ogre {
         void cancelUpdate(Node* child);
 
         /** Queue a 'needUpdate' call to a node safely.
-        @remarks
+
             You can't call needUpdate() during the scene graph update, e.g. in
-            response to a Node::Listener hook, because the graph is already being 
-            updated, and update flag changes cannot be made reliably in that context. 
+            response to a Node::Listener hook, because the graph is already being
+            updated, and update flag changes cannot be made reliably in that context.
             Call this method if you need to queue a needUpdate call in this case.
         */
         static void queueNeedUpdate(Node* n);
@@ -647,29 +660,17 @@ namespace Ogre {
 
 
         /** @deprecated use UserObjectBindings::setUserAny via getUserObjectBindings() instead.
-            Sets any kind of user value on this object.
-        @remarks
-            This method allows you to associate any user value you like with 
-            this Node. This can be a pointer back to one of your own
-            classes for instance.
         */
         OGRE_DEPRECATED void setUserAny(const Any& anything) { getUserObjectBindings().setUserAny(anything); }
 
         /** @deprecated use UserObjectBindings::getUserAny via getUserObjectBindings() instead.
-            Retrieves the custom user value associated with this object.
         */
         OGRE_DEPRECATED const Any& getUserAny(void) const { return getUserObjectBindings().getUserAny(); }
 
-        /** Return an instance of user objects binding associated with this class.
-            You can use it to associate one or more custom objects with this class instance.
-        @see UserObjectBindings::setUserAny.
-        */
+        /// @copydoc UserObjectBindings
         UserObjectBindings& getUserObjectBindings() { return mUserObjectBindings; }
 
-        /** Return an instance of user objects binding associated with this class.
-            You can use it to associate one or more custom objects with this class instance.
-        @see UserObjectBindings::setUserAny.
-        */
+        /// @overload
         const UserObjectBindings& getUserObjectBindings() const { return mUserObjectBindings; }
 
     };

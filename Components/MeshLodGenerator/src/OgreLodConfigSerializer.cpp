@@ -39,15 +39,19 @@ namespace Ogre
 
     void LodConfigSerializer::importLodConfig(Ogre::LodConfig* config, const Ogre::String& filename)
     {
-        std::fstream *f = OGRE_NEW_T(std::fstream, MEMCATEGORY_GENERAL)();
-        f->open(filename.c_str(), std::ios::binary | std::ios::in);
-        if(f->is_open()){
-            Ogre::DataStreamPtr stream(OGRE_NEW Ogre::FileStreamDataStream(f));
-
-            importLodConfig(config, stream);
-
-            stream->close();
+        Ogre::DataStreamPtr stream;
+        try
+        {
+            stream = Ogre::Root::openFileStream(filename, "");
         }
+        catch (const Ogre::Exception&)
+        {
+            return;
+        }
+
+        importLodConfig(config, stream);
+
+        stream->close();
     }
 
     void LodConfigSerializer::importLodConfig(Ogre::LodConfig* config, DataStreamPtr& stream)
@@ -161,9 +165,7 @@ namespace Ogre
 
     void LodConfigSerializer::exportLodConfig(Ogre::LodConfig& config, const Ogre::String& filename, Endian endianMode /*= ENDIAN_NATIVE*/ )
     {
-        std::fstream *f = OGRE_NEW_T(std::fstream, MEMCATEGORY_GENERAL)();
-        f->open(filename.c_str(), std::ios::binary | std::ios::out);
-        Ogre::DataStreamPtr stream(OGRE_NEW Ogre::FileStreamDataStream(f));
+        Ogre::DataStreamPtr stream = Ogre::Root::createFileStream(filename, "", true);
 
         exportLodConfig(config, stream, endianMode);
 
@@ -247,13 +249,11 @@ namespace Ogre
         uint32 size = static_cast<uint32>(mLodConfig->levels.size());
         writeInts(&size, 1);
 
-        LodConfig::LodLevelList::iterator it = mLodConfig->levels.begin();
-        LodConfig::LodLevelList::iterator itEnd = mLodConfig->levels.end();
-        for(;it != itEnd; it++){
-            writeFloats(&it->distance, 1);
-            writeInts((Ogre::uint32*)&it->reductionMethod, 1);
-            writeFloats(&it->reductionValue, 1);
-            writeString(it->manualMeshName);
+        for (auto& l : mLodConfig->levels) {
+            writeFloats(&l.distance, 1);
+            writeInts((Ogre::uint32*)&l.reductionMethod, 1);
+            writeFloats(&l.reductionValue, 1);
+            writeString(l.manualMeshName);
         }
     }
 
@@ -275,8 +275,8 @@ namespace Ogre
 
         size += levelSize * mLodConfig->levels.size();
 
-        for(size_t i = 0; i < mLodConfig->levels.size(); i++) {
-            size += calcStringSize(mLodConfig->levels[i].manualMeshName);
+        for(auto & level : mLodConfig->levels) {
+            size += calcStringSize(level.manualMeshName);
         }
 
         return size;
@@ -318,12 +318,10 @@ namespace Ogre
         writeChunkHeader(LCCID_PROFILE, calcLodProfileSize());
         uint32 size = static_cast<uint32>(mLodConfig->advanced.profile.size());
         writeInts(&size, 1);
-        LodProfile::iterator it = mLodConfig->advanced.profile.begin();
-        LodProfile::iterator itEnd = mLodConfig->advanced.profile.end();
-        for(;it != itEnd; it++){
-            writeObject(it->src);
-            writeObject(it->dst);
-            writeFloats(&it->cost, 1);
+        for (const auto& p : mLodConfig->advanced.profile){
+            writeObject(p.src);
+            writeObject(p.dst);
+            writeFloats(&p.cost, 1);
         }
     }
 
@@ -334,7 +332,7 @@ namespace Ogre
         }
         // Vector3, LodProfile::ProfiledVertex::src
         size_t profiledVertexSize = sizeof(float) * 3;
-        
+
         // Vector3, LodProfile::ProfiledVertex::dst
         profiledVertexSize += sizeof(float) * 3;
 

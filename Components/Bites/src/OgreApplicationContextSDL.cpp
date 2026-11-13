@@ -35,6 +35,9 @@ NativeWindowPair ApplicationContextSDL::createWindow(const Ogre::String& name, O
     NativeWindowPair ret = {NULL, NULL};
 
     if(!SDL_WasInit(SDL_INIT_VIDEO)) {
+        if(SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt") > 0)
+            Ogre::LogManager::getSingleton().logMessage("[SDL] gamecontrollerdb.txt loaded");
+
         SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER);
     }
 
@@ -65,7 +68,21 @@ NativeWindowPair ApplicationContextSDL::createWindow(const Ogre::String& name, O
     p.miscParams["sdlwin"] = Ogre::StringConverter::toString(size_t(ret.native));
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_LINUX
-    p.miscParams["externalWindowHandle"] = Ogre::StringConverter::toString(size_t(wmInfo.info.x11.window));
+    if (wmInfo.subsystem == SDL_SYSWM_WAYLAND)
+    {
+#ifdef SDL_VIDEO_DRIVER_WAYLAND
+        Ogre::LogManager::getSingleton().logMessage("[SDL] Creating Wayland window");
+        p.miscParams["externalWlDisplay"] = Ogre::StringConverter::toString(size_t(wmInfo.info.wl.display));
+        p.miscParams["externalWlSurface"] = Ogre::StringConverter::toString(size_t(wmInfo.info.wl.surface));
+#endif
+    }
+    else if (wmInfo.subsystem == SDL_SYSWM_X11)
+    {
+#ifdef SDL_VIDEO_DRIVER_X11
+        Ogre::LogManager::getSingleton().logMessage("[SDL] Creating X11 window");
+        p.miscParams["externalWindowHandle"] = Ogre::StringConverter::toString(size_t(wmInfo.info.x11.window));
+#endif
+    }
 #elif OGRE_PLATFORM == OGRE_PLATFORM_WIN32
     p.miscParams["externalWindowHandle"] = Ogre::StringConverter::toString(size_t(wmInfo.info.win.window));
 #elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE
@@ -118,6 +135,15 @@ void ApplicationContextSDL::shutdown()
 {
     ApplicationContextBase::shutdown();
 
+    // the render system may still use the native display (e.g. EGL on Wayland),
+    // so it has to be shut down before SDL closes the video subsystem
+    if(mRoot)
+    {
+        mRoot->saveConfig();
+        OGRE_DELETE mRoot;
+        mRoot = NULL;
+    }
+
     if(SDL_WasInit(SDL_INIT_VIDEO)) {
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
     }
@@ -143,14 +169,21 @@ void ApplicationContextSDL::pollEvents()
             if(event.window.event != SDL_WINDOWEVENT_RESIZED)
                 continue;
 
-            for(WindowList::iterator it = mWindows.begin(); it != mWindows.end(); ++it)
+            for(auto & window : mWindows)
             {
-                if(event.window.windowID != SDL_GetWindowID(it->native))
+                if(event.window.windowID != SDL_GetWindowID(window.native))
                     continue;
 
-                Ogre::RenderWindow* win = it->render;
+                Ogre::RenderWindow* win = window.render;
                 win->resize(event.window.data1, event.window.data2);
                 windowResized(win);
+            }
+            break;
+        case SDL_JOYDEVICEADDED:
+            if(!SDL_IsGameController(event.cdevice.which))
+            {
+                SDL_JoystickOpen(event.cdevice.which);
+                Ogre::LogManager::getSingleton().logMessage("Opened Joystick");
             }
             break;
         case SDL_CONTROLLERDEVICEADDED:
@@ -159,6 +192,16 @@ void ApplicationContextSDL::pollEvents()
                 const char* name = SDL_GameControllerName(c);
                 Ogre::LogManager::getSingleton().stream() << "Opened Gamepad: " << (name ? name : "unnamed");
             }
+            break;
+        // touches arrive as finger events, so skip the mouse events SDL emulates from them
+        case SDL_MOUSEMOTION:
+            if(event.motion.which != SDL_TOUCH_MOUSEID)
+                _fireInputEvent(convert(event), event.window.windowID);
+            break;
+        case SDL_MOUSEBUTTONDOWN:
+        case SDL_MOUSEBUTTONUP:
+            if(event.button.which != SDL_TOUCH_MOUSEID)
+                _fireInputEvent(convert(event), event.window.windowID);
             break;
         default:
             _fireInputEvent(convert(event), event.window.windowID);

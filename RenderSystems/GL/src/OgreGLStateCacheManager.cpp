@@ -41,11 +41,11 @@ namespace Ogre {
     {
         glBlendEquation(GL_FUNC_ADD);
 
-        if(GLEW_VERSION_2_0)
+        if(GLAD_GL_VERSION_2_0)
         {
             glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
         }
-        else if(GLEW_EXT_blend_equation_separate)
+        else if(GLAD_GL_EXT_blend_equation_separate)
         {
             glBlendEquationSeparateEXT(GL_FUNC_ADD, GL_FUNC_ADD);
         }
@@ -147,11 +147,11 @@ namespace Ogre {
         mPointAttenuation[2] = 0.0f;
     }
 
-    void GLStateCacheManager::bindGLBuffer(GLenum target, GLuint buffer, bool force)
+    void GLStateCacheManager::bindGLBuffer(GLenum target, GLuint buffer)
     {
 #ifdef OGRE_ENABLE_STATE_CACHE
         auto ret = mActiveBufferMap.emplace(target, buffer);
-        if(ret.first->second != buffer || force) // Update the cached value if needed
+        if(ret.first->second != buffer) // Update the cached value if needed
         {
             ret.first->second = buffer;
             ret.second = true;
@@ -224,7 +224,7 @@ namespace Ogre {
         TexUnitsMap::iterator it = mTexUnitsMap.find(mLastBoundTexID);
         if (it == mTexUnitsMap.end())
         {
-            TextureUnitParams unit;
+            TexParameteriMap unit;
             mTexUnitsMap[mLastBoundTexID] = unit;
             
             // Update the iterator
@@ -232,7 +232,7 @@ namespace Ogre {
         }
         
         // Get a local copy of the parameter map and search for this parameter
-        TexParameteriMap &myMap = (*it).second.mTexParameteriMap;
+        TexParameteriMap &myMap = (*it).second;
 
         auto ret = myMap.emplace(pname, param);
         TexParameteriMap::iterator i = ret.first;
@@ -264,8 +264,6 @@ namespace Ogre {
         if (mActiveTextureUnit == unit)
             return true;
 #endif
-        if (unit >= Root::getSingleton().getRenderSystem()->getCapabilities()->getNumTextureUnits())
-            return false;
 
         glActiveTexture(GL_TEXTURE0 + unit);
         mActiveTextureUnit = unit;
@@ -431,11 +429,11 @@ namespace Ogre {
             mBlendEquationRGB = eqRGB;
             mBlendEquationAlpha = eqAlpha;
 
-            if(GLEW_VERSION_2_0)
+            if(GLAD_GL_VERSION_2_0)
             {
                 glBlendEquationSeparate(eqRGB, eqAlpha);
             }
-            else if(GLEW_EXT_blend_equation_separate)
+            else if(GLAD_GL_EXT_blend_equation_separate)
             {
                 glBlendEquationSeparateEXT(eqRGB, eqAlpha);
             }
@@ -586,9 +584,7 @@ namespace Ogre {
 #endif
         {
             mPointSizeMin = minSize;
-            const Ogre::RenderSystemCapabilities* caps = dynamic_cast<GLRenderSystem*>(Root::getSingleton().getRenderSystem())->getCapabilities();
-            if (caps->hasCapability(RSC_POINT_EXTENDED_PARAMETERS))
-                glPointParameterf(GL_POINT_SIZE_MIN, mPointSizeMin);
+            glPointParameterf(GL_POINT_SIZE_MIN, mPointSizeMin);
         }
 
         if(maxSize > -1)
@@ -597,9 +593,7 @@ namespace Ogre {
 #endif
         {
             mPointSizeMax = maxSize;
-            const Ogre::RenderSystemCapabilities* caps = dynamic_cast<GLRenderSystem*>(Root::getSingleton().getRenderSystem())->getCapabilities();
-            if (caps->hasCapability(RSC_POINT_EXTENDED_PARAMETERS))
-                glPointParameterf(GL_POINT_SIZE_MAX, mPointSizeMax);
+            glPointParameterf(GL_POINT_SIZE_MAX, mPointSizeMax);
         }
 
         if(attenuation)
@@ -610,9 +604,7 @@ namespace Ogre {
             mPointAttenuation[0] = attenuation[0];
             mPointAttenuation[1] = attenuation[1];
             mPointAttenuation[2] = attenuation[2];
-            const Ogre::RenderSystemCapabilities* caps = dynamic_cast<GLRenderSystem*>(Root::getSingleton().getRenderSystem())->getCapabilities();
-            if (caps->hasCapability(RSC_POINT_EXTENDED_PARAMETERS))
-                glPointParameterfv(GL_POINT_DISTANCE_ATTENUATION, &mPointAttenuation[0]);
+            glPointParameterfv(GL_POINT_DISTANCE_ATTENUATION, &mPointAttenuation[0]);
         }
     }
 

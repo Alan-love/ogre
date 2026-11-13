@@ -72,18 +72,20 @@ namespace Ogre {
 
         /** Internal implementation of lock(), do not OVERRIDE or CALL this
             for HardwarePixelBuffer implementations, but override the previous method */
-        virtual void* lockImpl(size_t offset, size_t length, LockOptions options);
+        void* lockImpl(size_t offset, size_t length, LockOptions options) override;
 
         /** Notify TextureBuffer of destruction of render target.
             Called by RenderTexture when destroyed.
         */
         void _clearSliceRTT(size_t zoffset);
         friend class RenderTexture;
+
+        String getNameForRenderTexture(const String& parentName, uint32 layer = 0) const;
     public:
         /// Should be called by HardwareBufferManager
         HardwarePixelBuffer(uint32 mWidth, uint32 mHeight, uint32 mDepth,
                 PixelFormat mFormat,
-                HardwareBuffer::Usage usage, bool useSystemMemory, bool useShadowBuffer);
+                HardwareBuffer::Usage usage, bool useShadowBuffer);
         ~HardwarePixelBuffer();
 
         /** Make every lock method from HardwareBuffer available.
@@ -114,10 +116,10 @@ namespace Ogre {
         const PixelBox& getCurrentLock();
         
         /// @copydoc HardwareBuffer::readData
-        virtual void readData(size_t offset, size_t length, void* pDest);
+        void readData(size_t offset, size_t length, void* pDest) override;
         /// @copydoc HardwareBuffer::writeData
-        virtual void writeData(size_t offset, size_t length, const void* pSource,
-                bool discardWholeBuffer = false);
+        void writeData(size_t offset, size_t length, const void* pSource,
+                bool discardWholeBuffer = false) override;
         
         /** Copies a box from another PixelBuffer to a region of the 
             this PixelBuffer. 
@@ -178,7 +180,7 @@ namespace Ogre {
             @return A pointer to the render target. This pointer has the lifespan of this
             PixelBuffer.
         */
-        RenderTexture *getRenderTarget(size_t slice=0);
+        RenderTexture *getRenderTarget(size_t slice=0) const;
         
         /// Gets the width of this buffer
         uint32 getWidth() const { return mWidth; }

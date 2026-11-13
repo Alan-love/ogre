@@ -136,8 +136,8 @@ namespace Ogre
                 "Warning: stream " << mStream->getName() << " was not fully read / written; " <<
                 mChunkStack.size() << " chunks remain unterminated.";
         }
-        for (ChunkStack::iterator i = mChunkStack.begin(); i != mChunkStack.end(); ++i)
-            delete *i;
+        for (auto & i : mChunkStack)
+            delete i;
         mChunkStack.clear();
 
     }
@@ -259,7 +259,7 @@ namespace Ogre
     //---------------------------------------------------------------------
     void StreamSerialiser::readHeader()
     {
-        uint32 headerid;
+        uint32 headerid = 0;
         size_t actually_read = mStream->read(&headerid, sizeof(uint32));
         // skip back
         mStream->skip(0 - (long)actually_read);
@@ -419,29 +419,29 @@ namespace Ogre
     //---------------------------------------------------------------------
     StreamSerialiser::Chunk* StreamSerialiser::readChunkImpl()
     {
-        Chunk *chunk = OGRE_NEW Chunk();
+        auto chunk = std::make_unique<Chunk>();
         chunk->offset = static_cast<uint32>(mStream->tell());
         read(&chunk->id);
         read(&chunk->version);
         read(&chunk->length);
-        
+
+        if (chunk->length > mStream->size() - mStream->tell())
+            OGRE_EXCEPT(Exception::ERR_INVALID_STATE, "Chunk length field exceeds remaining stream data");
+
         uint32 checksum;
         read(&checksum);
         
-        if (checksum != calculateChecksum(chunk))
+        if (checksum != calculateChecksum(chunk.get()))
         {
             // no good, this is an invalid chunk
             uint32 off = chunk->offset;
-            OGRE_DELETE chunk;
             OGRE_EXCEPT(Exception::ERR_INVALID_STATE, 
                 "Corrupt chunk detected in stream " + mStream->getName() + " at byte "
                 + StringConverter::toString(off), 
                 "StreamSerialiser::readChunkImpl");
         }
-        else
-        {
-            return chunk;
-        }
+
+        return chunk.release();
 
 
     }
@@ -678,6 +678,12 @@ namespace Ogre
         // String is stored as a uint32 character count, then string
         uint32 len;
         read(&len);
+
+        // Guard against OOM from corrupt/malicious input: cap len to remaining chunk bytes
+        OgreAssertDbg(mChunkStack.size(), "Not currently in a chunk, cannot read string length");
+        if (len > mChunkStack.back()->length)
+            OGRE_EXCEPT(Exception::ERR_INVALID_STATE, "String length field exceeds remaining chunk data");
+
         string->resize(len);
         if (len)
             read(&(*string->begin()), len);

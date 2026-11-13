@@ -58,7 +58,7 @@ namespace Ogre {
 
     EGLDisplay EGLSupport::getGLDisplay(void)
     {
-#if defined(EGL_VERSION_1_5) && OGRE_PLATFORM != OGRE_PLATFORM_ANDROID
+#if defined(EGL_VERSION_1_5) && OGRE_PLATFORM != OGRE_PLATFORM_ANDROID && OGRE_PLATFORM != OGRE_PLATFORM_EMSCRIPTEN
         static auto eglQueryDevicesEXT = (PFNEGLQUERYDEVICESEXTPROC)eglGetProcAddress("eglQueryDevicesEXT");
         static auto eglQueryDeviceStringEXT =
             (PFNEGLQUERYDEVICESTRINGEXTPROC)eglGetProcAddress("eglQueryDeviceStringEXT");
@@ -95,9 +95,7 @@ namespace Ogre {
 
         if(mGLDisplay == EGL_NO_DISPLAY)
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
-                        "Couldn`t open EGLDisplay " + getDisplayName(),
-                        "EGLSupport::getGLDisplay");
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Couldn`t get EGLDisplay");
         }
 
         if (eglInitialize(mGLDisplay, &mEGLMajor, &mEGLMinor) == EGL_FALSE)
@@ -111,20 +109,12 @@ namespace Ogre {
         return mGLDisplay;
     }
 
-
-    String EGLSupport::getDisplayName(void)
-    {
-        return "todo";
-    }
-
     EGLConfig* EGLSupport::chooseGLConfig(const EGLint *attribList, EGLint *nElements)
     {
         EGLConfig *configs;
 
         if (eglChooseConfig(mGLDisplay, attribList, NULL, 0, nElements) == EGL_FALSE)
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to choose config");
-
             *nElements = 0;
             return 0;
         }
@@ -132,8 +122,6 @@ namespace Ogre {
         configs = (EGLConfig*) malloc(*nElements * sizeof(EGLConfig));
         if (eglChooseConfig(mGLDisplay, attribList, configs, *nElements, nElements) == EGL_FALSE)
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to choose config");
-
             *nElements = 0;
             free(configs);
             return 0;
@@ -148,8 +136,6 @@ namespace Ogre {
 
         if (eglGetConfigs(mGLDisplay, NULL, 0, nElements) == EGL_FALSE)
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to choose config");
-
             *nElements = 0;
             return 0;
         }
@@ -157,8 +143,6 @@ namespace Ogre {
         configs = (EGLConfig*) malloc(*nElements * sizeof(EGLConfig));
         if (eglGetConfigs(mGLDisplay, configs, *nElements, nElements) == EGL_FALSE)
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to choose config");
-
             *nElements = 0;
             free(configs);
             return 0;
@@ -200,30 +184,6 @@ namespace Ogre {
         return glConfig;
     }
 
-    ::EGLConfig EGLSupport::getGLConfigFromDrawable(::EGLSurface drawable,
-                                                    unsigned int *w, unsigned int *h)
-    {
-        ::EGLConfig glConfig;
-        EGLint id = 0;
-        ::EGLConfig *configs;
-        EGLint numConfigs;
-
-        if (eglQuerySurface(mGLDisplay, drawable, EGL_CONFIG_ID, &id) == EGL_FALSE)
-        {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Fail to get config from drawable");
-            return 0;
-        }
-        EGL_CHECK_ERROR
-        eglQuerySurface(mGLDisplay, drawable, EGL_WIDTH, (EGLint *) w);
-        EGL_CHECK_ERROR
-        eglQuerySurface(mGLDisplay, drawable, EGL_HEIGHT, (EGLint *) h);
-        EGL_CHECK_ERROR
-        configs = getConfigs(&numConfigs);
-        glConfig = configs[id];
-        free(configs);
-        return glConfig;
-    }
-
     //------------------------------------------------------------------------
     // A helper class for the implementation of selectFBConfig
     //------------------------------------------------------------------------
@@ -242,13 +202,10 @@ namespace Ogre {
 
             void load(EGLSupport* const glSupport, EGLConfig glConfig)
             {
-                std::map<int,int>::iterator it;
-
-                for (it = fields.begin(); it != fields.end(); it++)
+                for (auto& f : fields)
                 {
-                    it->second = EGL_NONE;
-
-                    glSupport->getGLConfigAttrib(glConfig, it->first, &it->second);
+                    f.second = EGL_NONE;
+                    glSupport->getGLConfigAttrib(glConfig, f.first, &f.second);
                 }
             }
 
@@ -269,12 +226,10 @@ namespace Ogre {
                     }
                 }
 
-                std::map<int,int>::iterator it;
-
-                for (it = fields.begin(); it != fields.end(); it++)
+                for (auto& f : fields)
                 {
-                    if (it->first != EGL_CONFIG_CAVEAT &&
-                        fields[it->first] > alternative.fields[it->first])
+                    if (f.first != EGL_CONFIG_CAVEAT &&
+                        fields[f.first] > alternative.fields[f.first])
                     {
                         return true;
                     }
@@ -293,11 +248,6 @@ namespace Ogre {
         int config, nConfigs = 0;
 
         glConfigs = chooseGLConfig(minAttribs, &nConfigs);
-
-        if (!nConfigs)
-        {
-            glConfigs = getConfigs(&nConfigs);
-        }
 
         if (!nConfigs)
         {
@@ -344,7 +294,7 @@ namespace Ogre {
 
     ::EGLContext EGLSupport::createNewContext(EGLDisplay eglDisplay,
                           ::EGLConfig glconfig,
-                                              ::EGLContext shareList) const 
+                                              ::EGLContext shareList) const
     {
         EGLint contextAttrs[] = {
             EGL_CONTEXT_MAJOR_VERSION, 3,
@@ -353,12 +303,13 @@ namespace Ogre {
             EGL_NONE
         };
 
+        if (!eglBindAPI(mContextProfile == CONTEXT_ES ? EGL_OPENGL_ES_API : EGL_OPENGL_API))
+        {
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "eglBindAPI failed");
+        }
+        EGL_CHECK_ERROR
+
         if(mContextProfile != CONTEXT_ES) {
-            if (!eglBindAPI(EGL_OPENGL_API))
-            {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Could not bind GL API");
-            }
-            EGL_CHECK_ERROR
             contextAttrs[1] = 4;
             contextAttrs[3] = 6;
 
@@ -386,7 +337,7 @@ namespace Ogre {
         while(!context && (contextAttrs[1] >= 1))
         {
             context = eglCreateContext(eglDisplay, glconfig, shareList, contextAttrs);
-            EGL_CHECK_ERROR
+            eglGetError(); // errors from eglCreateContext are not fatal
             contextAttrs[1] -= contextAttrs[3] == 0; // only decrement if minor == 0
 
             if(hasEGL15)
@@ -413,8 +364,11 @@ namespace Ogre {
 
     void EGLSupport::stop()
     {
-        eglTerminate(mGLDisplay);
-        EGL_CHECK_ERROR
+        if (mGLDisplay)
+        {
+            eglTerminate(mGLDisplay);
+            EGL_CHECK_ERROR
+        }
     }
 
     void EGLSupport::initialiseExtensions() {

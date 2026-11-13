@@ -36,11 +36,11 @@ THE SOFTWARE.
 
 class RootWithoutRenderSystemFixture : public ::testing::Test {
 public:
-    Ogre::Root* mRoot;
-    Ogre::HardwareBufferManager* mHBM;
-    Ogre::FileSystemLayer* mFSLayer;
-    void SetUp();
-    void TearDown();
+    std::unique_ptr<Ogre::HardwareBufferManager> mHBM;
+    std::unique_ptr<Ogre::FileSystemLayer> mFSLayer;
+    std::shared_ptr<Ogre::Root> mRoot;
+    void SetUp() override;
+    void TearDown() override;
 };
 
 #endif /* TESTS_OGREMAIN_INCLUDE_ROOTWITHOUTRENDERSYSTEMFIXTURE_H_ */

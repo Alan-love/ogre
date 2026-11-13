@@ -36,7 +36,7 @@ namespace Ogre {
 #define TEMP_INITIAL_INDEX_SIZE sizeof(uint32) * TEMP_INITIAL_SIZE
     //-----------------------------------------------------------------------------
 ManualObject::ManualObject(const String& name)
-    : MovableObject(name), mBufferUsage(HardwareBuffer::HBU_STATIC_WRITE_ONLY), mCurrentSection(0),
+    : MovableObject(name), mBufferUsage(HBU_GPU_ONLY), mCurrentSection(0),
       mCurrentUpdating(false), mFirstVertex(true), mTempVertexPending(false), mTempVertexBuffer(0),
       mTempVertexSize(TEMP_INITIAL_VERTEX_SIZE), mTempIndexBuffer(0),
       mTempIndexSize(TEMP_INITIAL_INDEX_SIZE), mDeclSize(0), mEstVertexCount(0), mEstIndexCount(0),
@@ -53,9 +53,9 @@ ManualObject::ManualObject(const String& name)
     void ManualObject::clear(void)
     {
         resetTempAreas();
-        for (SectionList::iterator i = mSectionList.begin(); i != mSectionList.end(); ++i)
+        for (auto & i : mSectionList)
         {
-            OGRE_DELETE *i;
+            OGRE_DELETE i;
         }
         mSectionList.clear();
         mRadius = 0;
@@ -124,13 +124,13 @@ ManualObject::ManualObject(const String& name)
         mTempIndexSize = newSize;
     }
     //-----------------------------------------------------------------------------
-    void ManualObject::estimateVertexCount(size_t vcount)
+    void ManualObject::estimateVertexCount(uint32 vcount)
     {
         resizeTempVertexBufferIfNeeded(vcount);
         mEstVertexCount = vcount;
     }
     //-----------------------------------------------------------------------------
-    void ManualObject::estimateIndexCount(size_t icount)
+    void ManualObject::estimateIndexCount(uint32 icount)
     {
         resizeTempIndexBufferIfNeeded(icount);
         mEstIndexCount = icount;
@@ -146,12 +146,7 @@ ManualObject::ManualObject(const String& name)
 
         if(!material)
         {
-            LogManager::getSingleton().logError("Can't assign material " + materialName +
-                                                  " to the ManualObject " + mName + " because this "
-                                                  "Material does not exist in group " + groupName +
-                                                  ". Have you forgotten to define it in a "
-                                                  ".material script?");
-
+            logMaterialNotFound(materialName, groupName, "ManualObject", mName);
             material = MaterialManager::getSingleton().getDefaultMaterial();
         }
 
@@ -260,23 +255,24 @@ ManualObject::ManualObject(const String& name)
         char* pBase = mTempVertexBuffer + (mDeclSize * (rop->vertexData->vertexCount-1));
         const VertexDeclaration::VertexElementList& elemList =
             rop->vertexData->vertexDeclaration->getElements();
-        for (VertexDeclaration::VertexElementList::const_iterator i = elemList.begin();
-            i != elemList.end(); ++i)
+        for (const auto & elem : elemList)
         {
+            if(elem.getSource() != 0)
+                continue; // not our buffer (e.g. auto instancing injection)
+
             float* pFloat = 0;
             RGBA* pRGBA = 0;
-            const VertexElement& elem = *i;
             switch(elem.getType())
             {
             case VET_FLOAT1:
             case VET_FLOAT2:
             case VET_FLOAT3:
             case VET_FLOAT4:
-                OgreAssert(elem.getSemantic() != VES_DIFFUSE, "must use VET_COLOUR");
+                OgreAssert(elem.getSemantic() != VES_COLOUR, "must use VET_UBYTE4_NORM");
                 elem.baseVertexPointerToElement(pBase, &pFloat);
                 break;
             case VET_UBYTE4_NORM:
-                OgreAssert(elem.getSemantic() == VES_DIFFUSE, "must use VES_DIFFUSE");
+                OgreAssert(elem.getSemantic() == VES_COLOUR, "must use VES_COLOUR");
                 elem.baseVertexPointerToElement(pBase, &pRGBA);
                 break;
             default:
@@ -288,27 +284,20 @@ ManualObject::ManualObject(const String& name)
             switch(elem.getSemantic())
             {
             case VES_POSITION:
-                *pFloat++ = mTempVertex.position.x;
-                *pFloat++ = mTempVertex.position.y;
-                *pFloat++ = mTempVertex.position.z;
+                memcpy(pFloat, mTempVertex.position.ptr(), sizeof(Vector3f));
                 break;
             case VES_NORMAL:
-                *pFloat++ = mTempVertex.normal.x;
-                *pFloat++ = mTempVertex.normal.y;
-                *pFloat++ = mTempVertex.normal.z;
+                memcpy(pFloat, mTempVertex.normal.ptr(), sizeof(Vector3f));
                 break;
             case VES_TANGENT:
-                *pFloat++ = mTempVertex.tangent.x;
-                *pFloat++ = mTempVertex.tangent.y;
-                *pFloat++ = mTempVertex.tangent.z;
+                memcpy(pFloat, mTempVertex.tangent.ptr(), sizeof(Vector3f));
                 break;
             case VES_TEXTURE_COORDINATES:
                 dims = VertexElement::getTypeCount(elem.getType());
-                for (ushort t = 0; t < dims; ++t)
-                    *pFloat++ = mTempVertex.texCoord[elem.getIndex()][t];
+                memcpy(pFloat, mTempVertex.texCoord[elem.getIndex()].ptr(), sizeof(float)*dims);
                 break;
-            case VES_DIFFUSE:
-                *pRGBA++ = mTempVertex.colour.getAsABGR();
+            case VES_COLOUR:
+                *pRGBA = mTempVertex.colour.getAsBYTE();
                 break;
             default:
                 OgreAssert(false, "invalid semantic");
@@ -471,9 +460,9 @@ ManualObject::ManualObject(const String& name)
     void ManualObject::setUseIdentityProjection(bool useIdentityProjection)
     {
         // Set existing
-        for (SectionList::iterator i = mSectionList.begin(); i != mSectionList.end(); ++i)
+        for (auto & i : mSectionList)
         {
-            (*i)->setUseIdentityProjection(useIdentityProjection);
+            i->setUseIdentityProjection(useIdentityProjection);
         }
         
         // Save setting for future sections
@@ -483,9 +472,9 @@ ManualObject::ManualObject(const String& name)
     void ManualObject::setUseIdentityView(bool useIdentityView)
     {
         // Set existing
-        for (SectionList::iterator i = mSectionList.begin(); i != mSectionList.end(); ++i)
+        for (auto & i : mSectionList)
         {
-            (*i)->setUseIdentityView(useIdentityView);
+            i->setUseIdentityView(useIdentityView);
         }
 
         // Save setting for future sections
@@ -494,7 +483,7 @@ ManualObject::ManualObject(const String& name)
     //-----------------------------------------------------------------------------
     const String& ManualObject::getMovableType(void) const
     {
-        return ManualObjectFactory::FACTORY_TYPE_NAME;
+        return MOT_MANUAL_OBJECT;
     }
     //-----------------------------------------------------------------------------
     void ManualObject::_updateRenderQueue(RenderQueue* queue)
@@ -502,10 +491,10 @@ ManualObject::ManualObject(const String& name)
         // To be used when order of creation must be kept while rendering
         unsigned short priority = queue->getDefaultRenderablePriority();
 
-        for (SectionList::iterator i = mSectionList.begin(); i != mSectionList.end(); ++i)
+        for (auto & i : mSectionList)
         {
             // Skip empty sections (only happens if non-empty first, then updated)
-            RenderOperation* rop = (*i)->getRenderOperation();
+            RenderOperation* rop = i->getRenderOperation();
             if (rop->vertexData->vertexCount == 0 ||
                 (rop->useIndexes && rop->indexData->indexCount == 0))
                 continue;
@@ -513,21 +502,21 @@ ManualObject::ManualObject(const String& name)
             if (mRenderQueuePrioritySet)
             {
                 assert(mRenderQueueIDSet == true);
-                queue->addRenderable(*i, mRenderQueueID, mRenderQueuePriority);
+                queue->addRenderable(i, mRenderQueueID, mRenderQueuePriority);
             }
             else if (mRenderQueueIDSet)
-                queue->addRenderable(*i, mRenderQueueID, mKeepDeclarationOrder ? priority++ : queue->getDefaultRenderablePriority());
+                queue->addRenderable(i, mRenderQueueID, mKeepDeclarationOrder ? priority++ : queue->getDefaultRenderablePriority());
             else
-                queue->addRenderable(*i, queue->getDefaultQueueGroup(), mKeepDeclarationOrder ? priority++ : queue->getDefaultRenderablePriority());
+                queue->addRenderable(i, queue->getDefaultQueueGroup(), mKeepDeclarationOrder ? priority++ : queue->getDefaultRenderablePriority());
         }
     }
     //-----------------------------------------------------------------------------
     void ManualObject::visitRenderables(Renderable::Visitor* visitor, 
         bool debugRenderables)
     {
-        for (SectionList::iterator i = mSectionList.begin(); i != mSectionList.end(); ++i)
+        for (auto & i : mSectionList)
         {
-            visitor->visit(*i, 0, false);
+            visitor->visit(i, 0, false);
         }
 
     }
@@ -540,9 +529,9 @@ ManualObject::ManualObject(const String& name)
             EdgeListBuilder eb;
             size_t vertexSet = 0;
             bool anyBuilt = false;
-            for (SectionList::iterator i = mSectionList.begin(); i != mSectionList.end(); ++i)
+            for (auto & i : mSectionList)
             {
-                RenderOperation* rop = (*i)->getRenderOperation();
+                RenderOperation* rop = i->getRenderOperation();
                 // Only indexed triangle geometry supported for stencil shadows
                 if (rop->useIndexes && rop->indexData->indexCount != 0 && 
                     (rop->operationType == RenderOperation::OT_TRIANGLE_FAN ||
@@ -642,28 +631,19 @@ ManualObject::ManualObject(const String& name)
     //-----------------------------------------------------------------------------
     //-----------------------------------------------------------------------------
     //-----------------------------------------------------------------------------
-    ManualObject::ManualObjectSection::ManualObjectSection(ManualObject* parent,
-        const String& materialName, RenderOperation::OperationType opType, const String & groupName)
-        : mParent(parent), mMaterialName(materialName), mGroupName(groupName), m32BitIndices(false)
+    ManualObject::ManualObjectSection::ManualObjectSection(ManualObject* parent, const String& materialName,
+                                                           RenderOperation::OperationType opType,
+                                                           const String& groupName)
+        : ManualObjectSection(parent, MaterialManager::getSingleton().getByName(materialName, groupName), opType)
     {
-        mRenderOperation.operationType = opType;
-        // default to no indexes unless we're told
-        mRenderOperation.useIndexes = false;
-        mRenderOperation.useGlobalInstancingVertexBufferIsAvailable = false;
-        mRenderOperation.vertexData = OGRE_NEW VertexData();
-        mRenderOperation.vertexData->vertexCount = 0;
     }
     ManualObject::ManualObjectSection::ManualObjectSection(ManualObject* parent,
         const MaterialPtr& mat, RenderOperation::OperationType opType)
         : mParent(parent), mMaterial(mat), m32BitIndices(false)
     {
         assert(mMaterial);
-        mMaterialName = mMaterial->getName();
-        mGroupName = mMaterial->getGroup();
-
         mRenderOperation.operationType = opType;
         mRenderOperation.useIndexes = false;
-        mRenderOperation.useGlobalInstancingVertexBufferIsAvailable = false;
         mRenderOperation.vertexData = OGRE_NEW VertexData();
         mRenderOperation.vertexData->vertexCount = 0;
     }
@@ -681,30 +661,19 @@ ManualObject::ManualObject(const String& name)
     //-----------------------------------------------------------------------------
     const MaterialPtr& ManualObject::ManualObjectSection::getMaterial(void) const
     {
-        if (!mMaterial)
-        {
-            mMaterial = static_pointer_cast<Material>(MaterialManager::getSingleton().load(mMaterialName, mGroupName));
-        }
         return mMaterial;
     }
     //-----------------------------------------------------------------------------
     void ManualObject::ManualObjectSection::setMaterialName(const String& name,
         const String& groupName /* = ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME */)
     {
-        if (mMaterialName != name || mGroupName != groupName)
-        {
-            mMaterialName = name;
-            mGroupName = groupName;
-            mMaterial.reset();
-        }
+        mMaterial = MaterialManager::getSingleton().getByName(name, groupName);
     }
     //-----------------------------------------------------------------------------
     void ManualObject::ManualObjectSection::setMaterial(const MaterialPtr& mat)
     {
         assert(mat);
         mMaterial = mat;
-        mMaterialName = mat->getName();
-        mGroupName = mat->getGroup();
     }
     //-----------------------------------------------------------------------------
     void ManualObject::ManualObjectSection::getRenderOperation(RenderOperation& op)
@@ -748,11 +717,11 @@ ManualObject::ManualObject(const String& name)
     }
     //-----------------------------------------------------------------------------
     //-----------------------------------------------------------------------------
-    String ManualObjectFactory::FACTORY_TYPE_NAME = "ManualObject";
+    const String MOT_MANUAL_OBJECT = "ManualObject";
     //-----------------------------------------------------------------------------
     const String& ManualObjectFactory::getType(void) const
     {
-        return FACTORY_TYPE_NAME;
+        return MOT_MANUAL_OBJECT;
     }
     //-----------------------------------------------------------------------------
     MovableObject* ManualObjectFactory::createInstanceImpl(

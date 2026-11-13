@@ -35,13 +35,7 @@ THE SOFTWARE.
 #include "OgreHeaderPrefix.h"
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
-#  if !defined(WIN32_LEAN_AND_MEAN)
-#   define WIN32_LEAN_AND_MEAN
-#  endif
-#  if !defined(NOMINMAX) && defined(_MSC_VER)
-#   define NOMINMAX // required to stop windows.h messing up std::min
-#  endif
-#  include <windows.h>
+#include <wtypes.h>
 #endif
 
 namespace OgreBites
@@ -60,34 +54,26 @@ namespace OgreBites
     public:
         virtual ~WindowEventListener() {}
 
-        /**
-        @remarks
-            Window has moved position
+        /** Window has moved position
         @param rw
             The RenderWindow which created this events
         */
         virtual void windowMoved(Ogre::RenderWindow* rw) { (void)rw; }
 
-        /**
-        @remarks
-            Window has resized
+        /** Window has resized
         @param rw
             The RenderWindow which created this events
         */
         virtual void windowResized(Ogre::RenderWindow* rw) { (void)rw; }
 
-        /**
-        @remarks
-            Window is closing (Only triggered if user pressed the [X] button)
+        /** Window is closing (Only triggered if user pressed the [X] button)
         @param rw
             The RenderWindow which created this events
         @return True will close the window(default).
         */
         virtual bool windowClosing(Ogre::RenderWindow* rw) { return true; }
 
-        /**
-        @remarks
-            Window has been closed (Only triggered if user pressed the [X] button)
+        /** Window has been closed (Only triggered if user pressed the [X] button)
         @param rw
             The RenderWindow which created this events
         @note
@@ -97,17 +83,14 @@ namespace OgreBites
         */
         virtual void windowClosed(Ogre::RenderWindow* rw) { (void)rw; }
 
-        /**
-        @remarks
-            Window has lost/gained focus
+        /** Window has lost/gained focus
         @param rw
             The RenderWindow which created this events
         */
         virtual void windowFocusChange(Ogre::RenderWindow* rw) { (void)rw; }
     };
 
-    /**
-        Utility class to handle Window Messages
+    /** Utility class to handle Window Messages
 
         This only provides a minimal implementation for moving/ resizing windows.
         @note For input handling and proper platform integration rather use SDL2/ Qt/ whatever.
@@ -121,9 +104,7 @@ namespace OgreBites
         */
         static void messagePump();
 
-        /**
-        @remarks
-            Add a listener to listen to renderwindow events (multiple listener's per renderwindow is fine)
+        /** Add a listener to listen to renderwindow events (multiple listener's per renderwindow is fine)
             The same listener can listen to multiple windows, as the Window Pointer is sent along with
             any messages.
         @param window
@@ -133,9 +114,7 @@ namespace OgreBites
         */
         static void addWindowEventListener( Ogre::RenderWindow* window, WindowEventListener* listener );
 
-        /**
-        @remarks
-            Remove previously added listener
+        /** Remove previously added listener
         @param window
             The RenderWindow you registered with
         @param listener
@@ -143,18 +122,14 @@ namespace OgreBites
         */
         static void removeWindowEventListener( Ogre::RenderWindow* window, WindowEventListener* listener );
 
-        /**
-        @remarks
-            Call upon creation of Ogre windows. You are free to add your
+        /** Call upon creation of Ogre windows. You are free to add your
             external windows here too if needed.
         @param window
             The RenderWindow to monitor
         */
         static void _addRenderWindow(Ogre::RenderWindow* window);
 
-        /**
-        @remarks
-            Called upon deletion of previously registered windows.
+        /** Called upon deletion of previously registered windows.
         @param window
             The RenderWindow to remove from list
         */

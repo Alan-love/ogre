@@ -34,11 +34,12 @@ namespace RTShader {
 /*                                                                      */
 /************************************************************************/
 String FFPTransform::Type = "FFP_Transform";
+const String SRS_TRANSFORM = "FFP_Transform";
 
 //-----------------------------------------------------------------------
 const String& FFPTransform::getType() const
 {
-    return Type;
+    return SRS_TRANSFORM;
 }
 
 
@@ -80,11 +81,14 @@ bool FFPTransform::createCpuSubPrograms(ProgramSet* programSet)
     // This requires GLES3.0
     if (ShaderGenerator::getSingleton().getTargetLanguage() == "glsles" &&
         !GpuProgramManager::getSingleton().isSyntaxSupported("glsl300es"))
-        mInstanced = false;
+        mInstancingTexCoordIndex = 0;
 
     auto stage = vsEntry->getStage(FFP_VS_TRANSFORM);
-    if(mInstanced)
+    if(mInstancingTexCoordIndex)
     {
+        vsProgram->setInstancingIncluded(true);
+        // this at prevents software skinning, which is not supported with instancing
+        vsProgram->setSkeletalAnimationIncluded(true);
         if (isHLSL)
         {
             // set hlsl shader to use row-major matrices instead of column-major.
@@ -92,7 +96,8 @@ bool FFPTransform::createCpuSubPrograms(ProgramSet* programSet)
             vsProgram->setUseColumnMajorMatrices(false);
         }
 
-        auto wMatrix = vsEntry->resolveInputParameter(mTexCoordIndex, GCT_MATRIX_3X4);
+        auto wMatrix = vsEntry->resolveInputParameter(Parameter::SPC_TEXTURE_COORDINATE0 + mInstancingTexCoordIndex,
+                                                      GCT_MATRIX_3X4);
         stage.callFunction(FFP_FUNC_TRANSFORM, wMatrix, positionIn, Out(positionIn).xyz());
 
         if(mDoLightCalculations)
@@ -103,7 +108,7 @@ bool FFPTransform::createCpuSubPrograms(ProgramSet* programSet)
         // we can end here because the world matrix will be identity with instanced rendering
         // so the code below will work as indended
     }
-    stage.callFunction(FFP_FUNC_TRANSFORM, wvpMatrix, positionIn, positionOut);
+    stage.callBuiltin("mul", wvpMatrix, positionIn, positionOut);
 
     if(!mSetPointSize || isHLSL) // not supported with DX11
         return true;
@@ -124,46 +129,41 @@ void FFPTransform::copyFrom(const SubRenderState& rhs)
 {
     const FFPTransform& rhsTransform = static_cast<const FFPTransform&>(rhs);
     mSetPointSize = rhsTransform.mSetPointSize;
-    mInstanced = rhsTransform.mInstanced;
-    mTexCoordIndex = rhsTransform.mTexCoordIndex;
+    mInstancingTexCoordIndex = rhsTransform.mInstancingTexCoordIndex;
+}
+
+bool FFPTransform::setParameter(const String& name, const String& value)
+{
+    if (name == "instanced")
+    {
+        return StringConverter::parse(value, mInstancingTexCoordIndex);
+    }
+    return false;
 }
 
 //-----------------------------------------------------------------------
 const String& FFPTransformFactory::getType() const
 {
-    return FFPTransform::Type;
+    return SRS_TRANSFORM;
 }
 
 //-----------------------------------------------------------------------
-SubRenderState* FFPTransformFactory::createInstance(ScriptCompiler* compiler, 
-                                                   PropertyAbstractNode* prop, Pass* pass, SGScriptTranslator* translator)
+SubRenderState* FFPTransformFactory::createInstance(const ScriptProperty& prop, Pass* pass,
+                                                    SGScriptTranslator* translator)
 {
-    if (prop->name == "transform_stage")
+    if (prop.name == "transform_stage")
     {
-        if(prop->values.size() > 0)
+        if(prop.values.size() > 0)
         {
-            bool hasError = false;
-            String modelType;
-            int texCoordSlot = 1;
-
-            auto it = prop->values.begin();
-
-            if(!SGScriptTranslator::getString(*it, &modelType))
-            {
-                hasError = true;
-            }
-
-            if(++it != prop->values.end() && !SGScriptTranslator::getInt(*++it, &texCoordSlot))
-                hasError = true;
-
-            if(hasError)
-            {
-                compiler->addError(ScriptCompiler::CE_INVALIDPARAMETERS, prop->file, prop->line);
+            if(prop.values[0] != "instanced")
                 return NULL;
-            }
 
-            auto ret = static_cast<FFPTransform*>(createOrRetrieveInstance(translator));
-            ret->setInstancingParams(modelType == "instanced", texCoordSlot);
+            int texCoordSlot = 1;
+            if(prop.values.size() > 1 && !StringConverter::parse(prop.values[1], texCoordSlot))
+                return NULL;
+
+            auto ret = createOrRetrieveInstance(translator);
+            ret->setParameter("instanced", std::to_string(texCoordSlot));
 
             return ret;
         }

@@ -60,27 +60,22 @@ public:
     /** 
     @see SubRenderState::getType.
     */
-    virtual const String& getType() const;
+    const String& getType() const override;
 
     /** 
     @see SubRenderState::getType.
     */
-    virtual int getExecutionOrder() const;
-
-    /** 
-    @see SubRenderState::updateGpuProgramsParams.
-    */
-    virtual void updateGpuProgramsParams(Renderable* rend, const Pass* pass, const AutoParamDataSource* source, const LightList* pLightList);
+    int getExecutionOrder() const override;
 
     /** 
     @see SubRenderState::copyFrom.
     */
-    virtual void copyFrom(const SubRenderState& rhs);
+    void copyFrom(const SubRenderState& rhs) override;
 
     /** 
     @see SubRenderState::preAddToRenderState.
     */
-    virtual bool preAddToRenderState(const RenderState* renderState, Pass* srcPass, Pass* dstPass);
+    bool preAddToRenderState(const RenderState* renderState, Pass* srcPass, Pass* dstPass) override;
 
     /** normalise the blinn-phong reflection model to make it energy conserving
      *
@@ -90,8 +85,6 @@ public:
 
     bool setParameter(const String& name, const String& value) override;
 
-    static String Type;
-
     /**
     Get the specular component state.
     */
@@ -99,42 +92,23 @@ public:
 
 // Protected types:
 protected:
-
+    int mLightCount;
     // Per light parameters.
-    struct _OgreRTSSExport LightParams
-    {
-        Light::LightTypes       mType;              // Light type.      
-        // Light position.
-        UniformParameterPtr mPosition;
-        // Light direction.
-        UniformParameterPtr mDirection;
-        // Attenuation parameters.
-        UniformParameterPtr mAttenuatParams;
-        // Spot light parameters.
-        UniformParameterPtr mSpotParams;
-        // Diffuse colour.
-        UniformParameterPtr mDiffuseColour;
-        // Specular colour.
-        UniformParameterPtr mSpecularColour;
+    // Light position.
+    UniformParameterPtr mPositions;
+    // Light direction.
+    UniformParameterPtr mDirections;
+    // Attenuation parameters.
+    UniformParameterPtr mAttenuatParams;
+    // Spot light parameters.
+    UniformParameterPtr mSpotParams;
+    // Diffuse colour.
+    UniformParameterPtr mDiffuseColours;
+    // Specular colour.
+    UniformParameterPtr mSpecularColours;
 
-        // for normal mapping:
-        /// light position direction (texture space for normal mapping, else same as mToLightDir).
-        ParameterPtr mToLight;
-        /// light direction (texture space for normal mapping, else same as mDirection).
-        ParameterPtr mPSInDirection;
+    void addDefines(Program* program);
 
-        /// Vertex shader output vertex position to light position direction (texture space).
-        ParameterPtr mVSOutToLightDir;
-        /// Vertex shader output light direction (texture space).
-        ParameterPtr mVSOutDirection;
-    };
-
-    typedef std::vector<LightParams>               LightParamsList;
-    typedef LightParamsList::iterator               LightParamsIterator;
-    typedef LightParamsList::const_iterator         LightParamsConstIterator;
-
-// Protected methods
-protected:
     /** 
     Set the track per vertex colour type. Ambient, Diffuse, Specular and Emissive lighting components source
     can be the vertex colour component. To establish such a link one should provide the matching flags to this
@@ -148,38 +122,19 @@ protected:
     TrackVertexColourType getTrackVertexColourType() const { return mTrackVertexColourType; }
 
     /** 
-    Set the light count per light type that this sub render state will generate.
-    @see ShaderGenerator::setLightCount.
-    */
-    void setLightCount(const Vector3i& lightCount);
-
-    /** 
-    Get the light count per light type that this sub render state will generate.
-    @see ShaderGenerator::getLightCount.
-    */
-    Vector3i getLightCount() const;
-
-    /** 
-    Set the specular component state. If set to true this sub render state will compute a specular
-    lighting component in addition to the diffuse component.
-    @param enable Pass true to enable specular component computation.
-    */
-    void setSpecularEnable(bool enable) { mSpecularEnable = enable; }
-
-    /** 
     @see SubRenderState::resolveParameters.
     */
-    virtual bool resolveParameters(ProgramSet* programSet);
+    bool resolveParameters(ProgramSet* programSet) override;
 
     /** 
     @see SubRenderState::resolveDependencies.
     */
-    virtual bool resolveDependencies(ProgramSet* programSet);
+    bool resolveDependencies(ProgramSet* programSet) override;
 
     /** 
     @see SubRenderState::addFunctionInvocations.
     */
-    virtual bool addFunctionInvocations(ProgramSet* programSet);
+    bool addFunctionInvocations(ProgramSet* programSet) override;
 
 
     /** 
@@ -188,21 +143,19 @@ protected:
     void addGlobalIlluminationInvocation(const FunctionStageRef& stage);
             
     /** 
-    Internal method that adds per light illumination component functions invocations.
+    Internal method that adds illumination component functions invocations.
     */
-    void addIlluminationInvocation(const LightParams* curLightParams, const FunctionStageRef& stage);
+    void addIlluminationInvocation(const FunctionStageRef& stage, const ParameterPtr& lights);
 
 
-// Attributes.
-protected:  
     // Track per vertex colour type.
     TrackVertexColourType mTrackVertexColourType;
     // Specular component enabled/disabled.
     bool mSpecularEnable;
     bool mNormalisedEnable;
     bool mTwoSidedLighting;
-    // Light list.
-    LightParamsList mLightParamsList;
+    int8 mLtcLUT1SamplerIndex;
+
     // World view matrix parameter.
     UniformParameterPtr mWorldViewMatrix;
     // World view matrix inverse transpose parameter.
@@ -211,10 +164,6 @@ protected:
     ParameterPtr mViewNormal;
     // Transformed view position
     ParameterPtr mViewPos;
-    // Transformed direction to light
-    ParameterPtr mToLight;
-    // Transformed direction to view
-    ParameterPtr mToView;
     // Vertex shader input position parameter.
     ParameterPtr mVSInPosition;
     // Vertex shader input normal.
@@ -235,6 +184,11 @@ protected:
     UniformParameterPtr mSurfaceEmissiveColour;
     // Surface shininess parameter.
     UniformParameterPtr mSurfaceShininess;
+
+    UniformParameterPtr mLTCLUT1;
+    UniformParameterPtr mLTCLUT2;
+
+    ParameterPtr mShadowFactor;
 };
 
 
@@ -249,17 +203,17 @@ public:
     /** 
     @see SubRenderStateFactory::getType.
     */
-    virtual const String& getType() const;
+    const String& getType() const override;
 
     /** 
     @see SubRenderStateFactory::createInstance.
     */
-    virtual SubRenderState* createInstance(ScriptCompiler* compiler, PropertyAbstractNode* prop, Pass* pass, SGScriptTranslator* translator);
+    SubRenderState* createInstance(const ScriptProperty& prop, Pass* pass, SGScriptTranslator* translator) override;
 
     /** 
     @see SubRenderStateFactory::writeInstance.
     */
-    virtual void writeInstance(MaterialSerializer* ser, SubRenderState* subRenderState, Pass* srcPass, Pass* dstPass);
+    void writeInstance(MaterialSerializer* ser, SubRenderState* subRenderState, Pass* srcPass, Pass* dstPass) override;
 
     
 protected:
@@ -267,7 +221,7 @@ protected:
     /** 
     @see SubRenderStateFactory::createInstanceImpl.
     */
-    virtual SubRenderState* createInstanceImpl();
+    SubRenderState* createInstanceImpl() override;
 
 
 };

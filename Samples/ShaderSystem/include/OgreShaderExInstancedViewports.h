@@ -47,100 +47,58 @@ namespace RTShader {
 class ShaderExInstancedViewports : public SubRenderState
 {
     friend class ShaderExInstancedViewportsFactory;
+    bool mOwnsGlobalData; // only true for template sub render state
+    bool mLayeredTarget;
 
+    String mSchemeName;
 // Interface.
 public:
     /** Class default constructor */    
     ShaderExInstancedViewports();
+    ~ShaderExInstancedViewports();
     
     /** 
     @see SubRenderState::getType.
     */
-    virtual const String&   getType             () const;
+    const String&   getType             () const override;
 
     /** 
     @see SubRenderState::getExecutionOrder.
     */
-    virtual int             getExecutionOrder       () const;
+    int             getExecutionOrder       () const override;
 
     /** 
     @see SubRenderState::copyFrom.
     */
-    virtual void            copyFrom                (const SubRenderState& rhs);
+    void            copyFrom                (const SubRenderState& rhs) override;
 
     /** 
     @see SubRenderState::preAddToRenderState.
     */
-    virtual bool            preAddToRenderState     (const RenderState* renderState, Pass* srcPass, Pass* dstPass);
+    bool            preAddToRenderState     (const RenderState* renderState, Pass* srcPass, Pass* dstPass) override;
 
     /** 
     @see SubRenderState::updateGpuProgramsParams.
     */
-    virtual void            updateGpuProgramsParams (Renderable* rend, const Pass* pass,  const AutoParamDataSource* source,  const LightList* pLightList);
+    void            updateGpuProgramsParams (Renderable* rend, const Pass* pass,  const AutoParamDataSource* source,  const LightList* pLightList) override;
 
 
     /** Set the monitors count. */
     void                    setMonitorsCount        (const Vector2 monitorsCount);
-    
-    /** Return the monitors count. */
-    Vector2                 getMonitorsCount        () const { return mMonitorsCount; }
+
+    void setParameter(const String& name, const Any& value) override;
 
     static String Type;
 
 // Protected methods.
 protected:
-    
+    bool createCpuSubPrograms(ProgramSet* programSet) override;
 
-    /** 
-    @see SubRenderState::resolveParameters.
-    */
-    virtual bool            resolveParameters       (ProgramSet* programSet);
+    UniformParameterPtr     mPSInMonitorsCount;
+    UniformParameterPtr     mVSInMatrixArray;
 
-    /** 
-    @see SubRenderState::resolveDependencies.
-    */
-    virtual bool            resolveDependencies     (ProgramSet* programSet);
-
-    /** 
-    @see SubRenderState::addFunctionInvocations.
-    */
-    virtual bool            addFunctionInvocations  (ProgramSet* programSet);
-
-    /** 
-    Internal method that adds related vertex shader functions invocations.
-    */
-    bool            addVSInvocations                (Function* vsMain, const int groupOrder);
-
-
-    /** 
-    Internal method that adds related pixel shader functions invocations.
-    */
-    bool            addPSInvocations                (Function* psMain, const int groupOrder);
-
-
-// Attributes.
-protected:  
-    ParameterPtr            mVSInPosition;      // Vertex shader original input position in projective space.
-    ParameterPtr            mVSOriginalOutPositionProjectiveSpace;      // Vertex shader original output position in projective space.
-    ParameterPtr            mVSOutPositionProjectiveSpace;      // Vertex shader output texcord position in projective space.
-    ParameterPtr            mPSInPositionProjectiveSpace;       // Pixel shader input position in projective space.
-    UniformParameterPtr     mVSInMonitorsCount;                 // Vertex shader uniform monitors count.        
-    UniformParameterPtr     mPSInMonitorsCount;                 // Pixel shader uniform monitors count.     
-    ParameterPtr            mVSInMonitorIndex;                  // Vertex shader uniform monitor index.     
-    ParameterPtr            mVSOutMonitorIndex;                 // Vertex shader output monitor index.      
-    ParameterPtr            mPSInMonitorIndex;                  // Pixel shader input monitor index.    
-
-    ParameterPtr            mVSInViewportOffsetMatrixR0;    
-    ParameterPtr            mVSInViewportOffsetMatrixR1;    
-    ParameterPtr            mVSInViewportOffsetMatrixR2;    
-    ParameterPtr            mVSInViewportOffsetMatrixR3;    
-
-    UniformParameterPtr     mWorldViewMatrix;                       // world & view parameter.
-    UniformParameterPtr     mProjectionMatrix;                      // projection parameter.
-
-    Vector2                 mMonitorsCount;
+    Vector2                 mViewportGrid;
     bool                    mMonitorsCountChanged;
-
 };
 
 
@@ -155,24 +113,14 @@ public:
     /** 
     @see SubRenderStateFactory::getType.
     */
-    virtual const String&   getType             () const;
-
-    /** 
-    @see SubRenderStateFactory::createInstance.
-    */
-    virtual SubRenderState* createInstance      (ScriptCompiler* compiler, PropertyAbstractNode* prop, Pass* pass, SGScriptTranslator* translator);
-
-    /** 
-    @see SubRenderStateFactory::writeInstance.
-    */
-    virtual void            writeInstance       (MaterialSerializer* ser, SubRenderState* subRenderState, Pass* srcPass, Pass* dstPass);
+    const String&   getType             () const override;
 
 protected:
 
     /** 
     @see SubRenderStateFactory::createInstanceImpl.
     */
-    virtual SubRenderState* createInstanceImpl  ();
+    SubRenderState* createInstanceImpl  () override;
 
 
 

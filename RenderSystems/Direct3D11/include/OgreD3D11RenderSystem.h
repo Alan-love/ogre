@@ -95,8 +95,6 @@ namespace Ogre
 
         /// Internal method for populating the capabilities structure
         RenderSystemCapabilities* createRenderSystemCapabilities() const;
-        /** See RenderSystem definition */
-        void initialiseFromRenderSystemCapabilities(RenderSystemCapabilities* caps, RenderTarget* primary);
 
         void convertVertexShaderCaps(RenderSystemCapabilities* rsc) const;
         void convertPixelShaderCaps(RenderSystemCapabilities* rsc) const;
@@ -124,12 +122,7 @@ namespace Ogre
         
         bool mReadBackAsTexture;
 
-        D3D11HLSLProgram* mBoundVertexProgram;
-        D3D11HLSLProgram* mBoundFragmentProgram;
-        D3D11HLSLProgram* mBoundGeometryProgram;
-        D3D11HLSLProgram* mBoundTessellationHullProgram;
-        D3D11HLSLProgram* mBoundTessellationDomainProgram;
-        D3D11HLSLProgram* mBoundComputeProgram;
+        std::array<D3D11HLSLProgram*, GPT_COUNT> mBoundProgram;
 
         ComPtr<ID3D11ShaderResourceView> mDSTResView;
         ComPtr<ID3D11BlendState> mBoundBlendState;
@@ -155,11 +148,8 @@ namespace Ogre
         /// structure holding texture unit settings for every stage
         struct sD3DTextureStageDesc
         {
-            /// the type of the texture
-            TextureType type;
-
             /// texture 
-            ID3D11ShaderResourceView  *pTex;
+            D3D11Texture  *pTex;
             ID3D11SamplerState    *pSampler;
             bool used;
         } mTexStageDesc[OGRE_MAX_TEXTURE_LAYERS];
@@ -262,12 +252,6 @@ namespace Ogre
         void setStencilState(const StencilState& state) override;
 
         // Low-level overridden members, mainly for internal use
-        D3D11HLSLProgram* _getBoundVertexProgram() const;
-        D3D11HLSLProgram* _getBoundFragmentProgram() const;
-        D3D11HLSLProgram* _getBoundGeometryProgram() const;
-        D3D11HLSLProgram* _getBoundTessellationHullProgram() const;
-        D3D11HLSLProgram* _getBoundTessellationDomainProgram() const;
-        D3D11HLSLProgram* _getBoundComputeProgram() const;
         void _setTexture(size_t unit, bool enabled, const TexturePtr &texPtr);
         void _setSampler(size_t unit, Sampler& sampler);
         void _setAlphaRejectSettings( CompareFunction func, unsigned char value, bool alphaToCoverage );
@@ -276,11 +260,7 @@ namespace Ogre
         void _setCullingMode( CullingMode mode );
         void _setDepthClamp(bool enable);
         void _setDepthBufferParams( bool depthTest = true, bool depthWrite = true, CompareFunction depthFunction = CMPF_LESS_EQUAL );
-        void _setDepthBufferCheckEnabled( bool enabled = true );
-        bool _getDepthBufferCheckEnabled( void );
         void setColourBlendState(const ColourBlendState& state);
-        void _setDepthBufferWriteEnabled(bool enabled = true);
-        void _setDepthBufferFunction( CompareFunction func = CMPF_LESS_EQUAL );
         void _setDepthBias(float constantBias, float slopeScaleBias);
 		void _convertProjectionMatrix(const Matrix4& matrix, Matrix4& dest, bool forGpuProgram = false);
         void _setPolygonMode(PolygonMode level);

@@ -23,16 +23,12 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 	
 	Post shader: Multipass, ambient (base) pass
 */
-#ifdef GL_ES
-#version 300 es
-#else
-#version 150
-#endif
+OGRE_NATIVE_GLSL_VERSION_DIRECTIVE
+
+#include "OgreUnifiedShader.h"
 
 in vec2 oUv0;
-in vec3 oRay;
-
-out vec4 oColour;
+in f32vec3 oRay;
 
 uniform sampler2D Tex0;
 uniform sampler2D Tex1;
@@ -52,11 +48,11 @@ void main()
 	vec4 a1 = texture(Tex1, oUv0); // Attribute 1: Normal+depth
 
 	// Clip fragment if depth is too close, so the skybox can be rendered on the background
-	if((a1.w - 0.0001) < 0.0)
+	if(a1.w > 0.95)
         discard;
 
 	// Calculate ambient colour of fragment
-	oColour = vec4(ambientColor * vec4(a0.rgb,0));
+	gl_FragColor = vec4(ambientColor * vec4(a0.rgb,0));
 
 	// Calculate depth of fragment;
 	vec3 viewPos = normalize(oRay) * farClipDistance * a1.w;

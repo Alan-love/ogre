@@ -35,14 +35,14 @@ class _OgreSampleClassExport Sample_Grass : public SdkSample
         mInfo["Help"] = "Press B to toggle bounding boxes.";
     }
 
-    bool frameRenderingQueued(const FrameEvent& evt)
+    bool frameRenderingQueued(const FrameEvent& evt) override
     {
         mLightAnimState->addTime(evt.timeSinceLastFrame);   // move the light around
         waveGrass(evt.timeSinceLastFrame);                  // wave the grass around slowly to simulate wind
         return SdkSample::frameRenderingQueued(evt);        // don't forget the parent class updates!
     }
 
-    bool keyPressed(const KeyboardEvent& evt)
+    bool keyPressed(const KeyboardEvent& evt) override
     {
         Keycode key = evt.keysym.sym;
         // toggle bounding boxes with B key unless the help dialog is visible
@@ -56,11 +56,11 @@ class _OgreSampleClassExport Sample_Grass : public SdkSample
     /*=============================================================================
     // This class will be used to pulsate the light and billboard.
     =============================================================================*/
-    class LightPulse : public ControllerValue<Real>
+    class LightPulse : public ControllerValue<float>
  {
  public:
 
-     LightPulse(Light* light, Billboard* billboard, const ColourValue& maxColour, Real maxSize)
+     LightPulse(Light* light, Billboard* billboard, const ColourValue& maxColour, float maxSize)
      {
          mLight = light;
          mBillboard = billboard;
@@ -68,12 +68,12 @@ class _OgreSampleClassExport Sample_Grass : public SdkSample
          mMaxSize = maxSize;
      }
 
-     Real getValue () const
+     float getValue () const override
      {
          return mIntensity;
      }
 
-     void setValue (Real value)
+     void setValue (float value) override
      {
          mIntensity = value;
 
@@ -83,7 +83,7 @@ class _OgreSampleClassExport Sample_Grass : public SdkSample
          mBillboard->setColour(newColour);
 
          // calculate new billboard size and apply it
-         Real newSize = mMaxSize * mIntensity;
+         float newSize = mMaxSize * mIntensity;
          mBillboard->setDimensions(newSize, newSize);
      }
 
@@ -92,20 +92,18 @@ class _OgreSampleClassExport Sample_Grass : public SdkSample
      Light* mLight;
      Billboard* mBillboard;
      ColourValue mMaxColour;
-     Real mMaxSize;
-     Real mIntensity;
+     float mMaxSize;
+     float mIntensity;
  };
 
- void setupContent()
+ void setupContent() override
  {
-#ifdef OGRE_BUILD_COMPONENT_RTSHADERSYSTEM
-     // Make this viewport work with shader generator scheme.
-     mViewport->setMaterialScheme(RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
-#endif
+     // Make this viewport work with shader generator
+     mViewport->setMaterialScheme(MSN_SHADERGEN);
      mSceneMgr->setSkyBox(true, "Examples/SpaceSkyBox");
 
      // create a mesh for our ground
-     MeshManager::getSingleton().createPlane("ground", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+     MeshManager::getSingleton().createPlane("ground", RGN_DEFAULT,
                                              Plane(Vector3::UNIT_Y, 0), 1000, 1000, 20, 20, true, 1, 6, 6, Vector3::UNIT_Z);
 
      // create a ground entity from our mesh and attach it to the origin
@@ -143,10 +141,8 @@ class _OgreSampleClassExport Sample_Grass : public SdkSample
      //! [grass_field]
 
      // build tangent vectors for the ogre head mesh
-     MeshPtr headMesh = MeshManager::getSingleton().load("ogrehead.mesh", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
-     unsigned short src, dest;
-     if (!headMesh->suggestTangentVectorBuildParams(VES_TANGENT, src, dest))
-         headMesh->buildTangentVectors(VES_TANGENT, src, dest);
+     MeshPtr headMesh = MeshManager::getSingleton().load("ogrehead.mesh", RGN_DEFAULT);
+     headMesh->buildTangentVectors();
 
      // put an ogre head in the middle of the field
      Entity* head = mSceneMgr->createEntity("Head", "ogrehead.mesh");
@@ -224,8 +220,8 @@ class _OgreSampleClassExport Sample_Grass : public SdkSample
      Billboard* bb = bbs->createBillboard(0, 0, 0, lightColour);
 
      // create a controller for the light intensity, using our LightPulsator class
-     ControllerFunctionRealPtr func(OGRE_NEW WaveformControllerFunction(Ogre::WFT_SINE, 0.5, 0.5, 0, 0.5));
-     ControllerValueRealPtr dest(OGRE_NEW LightPulse(light, bb, lightColour, 15));
+     auto func = WaveformControllerFunction::create(WFT_SINE, 0.5, 0.5, 0, 0.5);
+     auto dest = std::make_shared<LightPulse>(light, bb, lightColour, 15.0f);
      ControllerManager& cm = ControllerManager::getSingleton();
      mLightController = cm.createController(cm.getFrameTimeSource(), dest, func);
 
@@ -263,11 +259,11 @@ class _OgreSampleClassExport Sample_Grass : public SdkSample
 
  void waveGrass(Real timeElapsed)
  {
-     static Real xinc = Math::PI * 0.3;
-     static Real zinc = Math::PI * 0.44;
-     static Real xpos = Math::RangeRandom(-Math::PI, Math::PI);
-     static Real zpos = Math::RangeRandom(-Math::PI, Math::PI);
-     static Vector4 offset(0, 0, 0, 0);
+     static float xinc = Math::PI * 0.3;
+     static float zinc = Math::PI * 0.44;
+     static float xpos = Math::RangeRandom(-Math::PI, Math::PI);
+     static float zpos = Math::RangeRandom(-Math::PI, Math::PI);
+     static Vector4f offset(0);
 
      xpos += xinc * timeElapsed;
      zpos += zinc * timeElapsed;
@@ -278,8 +274,8 @@ class _OgreSampleClassExport Sample_Grass : public SdkSample
          // a little randomness
          xpos += reg.second->getCentre().x * 0.001;
          zpos += reg.second->getCentre().z * 0.001;
-         offset.x = std::sin(xpos) * 4;
-         offset.z = std::sin(zpos) * 4;
+         offset[0] = std::sin(xpos) * 4;
+         offset[2] = std::sin(zpos) * 4;
 
          for (auto lod : reg.second->getLODBuckets())
          {
@@ -292,7 +288,7 @@ class _OgreSampleClassExport Sample_Grass : public SdkSample
      }
  }
 
- void checkBoxToggled(CheckBox* box)
+ void checkBoxToggled(CheckBox* box) override
  {
      auto mat = MaterialManager::getSingleton().getByName(box->isChecked() ? "Examples/GrassBladesWaver"
                                                                            : "Examples/GrassBlades");
@@ -308,16 +304,16 @@ class _OgreSampleClassExport Sample_Grass : public SdkSample
      }
  }
 
- void cleanupContent()
+ void cleanupContent() override
  {
      ControllerManager::getSingleton().destroyController(mLightController);
-     MeshManager::getSingleton().remove("ground", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
-     MeshManager::getSingleton().remove("grass", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+     MeshManager::getSingleton().remove("ground", RGN_DEFAULT);
+     MeshManager::getSingleton().remove("grass", RGN_DEFAULT);
  }
 
  StaticGeometry* mField;
  AnimationState* mLightAnimState;
- Controller<Real>* mLightController;
+ ControllerFloat* mLightController;
 };
 
 #endif

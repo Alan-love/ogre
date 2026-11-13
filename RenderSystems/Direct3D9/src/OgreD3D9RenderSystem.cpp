@@ -35,7 +35,6 @@ THE SOFTWARE.
 #include "OgreD3D9TextureManager.h"
 #include "OgreD3D9Texture.h"
 #include "OgreLogManager.h"
-#include "OgreLight.h"
 #include "OgreMath.h"
 #include "OgreViewport.h"
 #include "OgreD3D9HardwareBufferManager.h"
@@ -61,7 +60,9 @@ THE SOFTWARE.
 
 #define FLOAT2DWORD(f) *((DWORD*)&f)
 
-namespace Ogre 
+static DWORD getSamplerId(size_t unit) { return static_cast<DWORD>(unit); }
+
+namespace Ogre
 {
     D3D9RenderSystem* D3D9RenderSystem::msD3D9RenderSystem = NULL;
 
@@ -79,22 +80,22 @@ namespace Ogre
         // update singleton access pointer.
         msD3D9RenderSystem = this;
 
-        // set the instance being passed 
+        // set the instance being passed
         mhInstance = hInstance;
 
         // set pointers to NULL
-        mD3D = NULL;        
+        mD3D = NULL;
         mDriverList = NULL;
         mActiveD3DDriver = NULL;
         mTextureManager = NULL;
         mHardwareBufferManager = NULL;
-        mGpuProgramManager = NULL;          
+        mGpuProgramManager = NULL;
         mUseNVPerfHUD = false;
-        mHLSLProgramFactory = NULL;     
-        mDeviceManager = NULL;  
+        mHLSLProgramFactory = NULL;
+        mDeviceManager = NULL;
         mPerStageConstantSupport = false;
         mEnableFixedPipeline = true;
-        mAutoHardwareBufferManagement = false;
+        mAutoHardwareBufferManagement = true;
 
 		for(int i = 0 ; i < OGRE_MAX_TEXTURE_LAYERS ; i++)
 		{
@@ -108,18 +109,13 @@ namespace Ogre
         // Create the resource manager.
         mResourceManager = OGRE_NEW D3D9ResourceManager();
 
-        
-        // init lights
-        for(int i = 0; i < MAX_LIGHTS; i++ )
-            mLights[i] = 0;
-
         // Create our Direct3D object
         if( NULL == (mD3D = Direct3DCreate9(D3D_SDK_VERSION)) )
             OGRE_EXCEPT( Exception::ERR_INTERNAL_ERROR, "Failed to create Direct3D9 object", "D3D9RenderSystem::D3D9RenderSystem" );
 
         // set config options defaults
         initConfigOptions();
-        
+
         // set stages desc. to defaults
         for (size_t n = 0; n < OGRE_MAX_TEXTURE_LAYERS; n++)
         {
@@ -127,16 +123,15 @@ namespace Ogre
             mTexStageDesc[n].coordIndex = 0;
             mTexStageDesc[n].texType = D3D9Mappings::D3D_TEX_TYPE_NORMAL;
             mTexStageDesc[n].pTex = 0;
-            mTexStageDesc[n].pVertexTex = 0;
         }
 
         mLastVertexSourceCount = 0;
-        
+
         mCurrentLights.clear();
 
         // Enumerate events
         mEventNames.push_back("DeviceLost");
-        mEventNames.push_back("DeviceRestored");            
+        mEventNames.push_back("DeviceRestored");
     }
 
     const GpuProgramParametersPtr& D3D9RenderSystem::getFixedFunctionParams(TrackVertexColourType tracking,
@@ -260,7 +255,7 @@ namespace Ogre
 
     //---------------------------------------------------------------------
     D3D9RenderSystem::~D3D9RenderSystem()
-    {       
+    {
         shutdown();
 
         // Deleting the HLSL program factory
@@ -272,15 +267,15 @@ namespace Ogre
             OGRE_DELETE mHLSLProgramFactory;
             mHLSLProgramFactory = 0;
         }
-        
+
         SAFE_RELEASE( mD3D );
-        
+
         if (mResourceManager != NULL)
         {
             OGRE_DELETE mResourceManager;
             mResourceManager = NULL;
         }
-        
+
 #if OGRE_NO_QUAD_BUFFER_STEREO == 0
         OGRE_DELETE mStereoDriver;
         mStereoDriver = NULL;
@@ -308,12 +303,12 @@ namespace Ogre
     bool D3D9RenderSystem::_checkMultiSampleQuality(D3DMULTISAMPLE_TYPE type, DWORD *outQuality, D3DFORMAT format, UINT adapterNum, D3DDEVTYPE deviceType, BOOL fullScreen)
     {
         HRESULT hr;
-        hr = mD3D->CheckDeviceMultiSampleType( 
-            adapterNum, 
-            deviceType, 
-            format, 
-            fullScreen, 
-            type, 
+        hr = mD3D->CheckDeviceMultiSampleType(
+            adapterNum,
+            deviceType,
+            format,
+            fullScreen,
+            type,
             outQuality);
 
         if (SUCCEEDED(hr))
@@ -364,12 +359,12 @@ namespace Ogre
         optMultihead.currentValue = "Auto";
         optMultihead.immutable = false;
 
-        optResourceCeationPolicy.name = "Resource Creation Policy";     
+        optResourceCeationPolicy.name = "Resource Creation Policy";
         optResourceCeationPolicy.possibleValues.push_back( "Create on all devices" );
         optResourceCeationPolicy.possibleValues.push_back( "Create on active device" );
 
         if (mResourceManager->getCreationPolicy() == RCP_CREATE_ON_ACTIVE_DEVICE)
-            optResourceCeationPolicy.currentValue = "Create on active device";          
+            optResourceCeationPolicy.currentValue = "Create on active device";
         else if (mResourceManager->getCreationPolicy() == RCP_CREATE_ON_ALL_DEVICES)
             optResourceCeationPolicy.currentValue = "Create on all devices";
         else
@@ -578,13 +573,13 @@ namespace Ogre
             if (value == "Create on active device")
                 mResourceManager->setCreationPolicy(RCP_CREATE_ON_ACTIVE_DEVICE);
             else if (value == "Create on all devices")
-                mResourceManager->setCreationPolicy(RCP_CREATE_ON_ALL_DEVICES);     
+                mResourceManager->setCreationPolicy(RCP_CREATE_ON_ALL_DEVICES);
         }
 
         if (name == "Auto hardware buffer management")
         {
             StringConverter::parse(value, mAutoHardwareBufferManagement);
-        }       
+        }
 
         if (name == "Fixed Pipeline Enabled")
         {
@@ -620,9 +615,9 @@ namespace Ogre
                 {
                     DWORD numLevels = 2;
                     bOK = this->_checkMultiSampleQuality(
-                        (D3DMULTISAMPLE_TYPE)n, 
-                        &numLevels, 
-                        videoMode->getFormat(), 
+                        (D3DMULTISAMPLE_TYPE)n,
+                        &numLevels,
+                        videoMode->getFormat(),
                         driver->getAdapterNumber(),
                         D3DDEVTYPE_HAL,
                         TRUE);
@@ -712,19 +707,19 @@ namespace Ogre
         // Create the device manager.
         mDeviceManager = OGRE_NEW D3D9DeviceManager();
 
-        // Create the texture manager for use by others     
+        // Create the texture manager for use by others
         mTextureManager = OGRE_NEW D3D9TextureManager();
 
-        // Also create hardware buffer manager      
+        // Also create hardware buffer manager
         mHardwareBufferManager = OGRE_NEW D3D9HardwareBufferManager();
         mHardwareBufferManager->setAutoHardwareBufferManagement(mAutoHardwareBufferManagement);
 
-        // Create the GPU program manager       
+        // Create the GPU program manager
         mGpuProgramManager = OGRE_NEW D3D9GpuProgramManager();
 
-        // Create & register HLSL factory       
+        // Create & register HLSL factory
         mHLSLProgramFactory = OGRE_NEW D3D9HLSLProgramFactory();
-        
+
         LogManager::getSingleton().logMessage("***************************************");
         LogManager::getSingleton().logMessage("*** D3D9 : Subsystem Initialised OK ***");
         LogManager::getSingleton().logMessage("***************************************");
@@ -733,7 +728,7 @@ namespace Ogre
     void D3D9RenderSystem::shutdown()
     {
         RenderSystem::shutdown();
-        
+
         if (mDeviceManager != NULL)
         {
             OGRE_DELETE mDeviceManager;
@@ -744,11 +739,11 @@ namespace Ogre
         {
             OGRE_DELETE mDriverList;
             mDriverList = NULL;
-        }               
-        mActiveD3DDriver = NULL;    
-                        
+        }
+        mActiveD3DDriver = NULL;
+
         LogManager::getSingleton().logMessage("D3D9 : Shutting down cleanly.");
-        
+
         if (mTextureManager != NULL)
         {
             OGRE_DELETE mTextureManager;
@@ -765,10 +760,10 @@ namespace Ogre
         {
             OGRE_DELETE mGpuProgramManager;
             mGpuProgramManager = NULL;
-        }           
+        }
     }
     //---------------------------------------------------------------------
-    RenderWindow* D3D9RenderSystem::_createRenderWindow(const String &name, 
+    RenderWindow* D3D9RenderSystem::_createRenderWindow(const String &name,
         unsigned int width, unsigned int height, bool fullScreen,
         const NameValuePairList *miscParams)
     {
@@ -780,7 +775,7 @@ namespace Ogre
 #endif
 
         D3D9RenderWindow* renderWindow = OGRE_NEW D3D9RenderWindow(mhInstance);
-        
+
         renderWindow->create(name, width, height, fullScreen, miscParams);
 
         mResourceManager->lockDeviceAccess();
@@ -800,13 +795,13 @@ namespace Ogre
         }
 
         mResourceManager->unlockDeviceAccess();
-    
-        mRenderWindows.push_back(renderWindow);     
-        
+
+        mRenderWindows.push_back(renderWindow);
+
         updateRenderSystemCapabilities(renderWindow);
 
         attachRenderTarget( *renderWindow );
-        
+
 #if OGRE_NO_QUAD_BUFFER_STEREO == 0
         // Must be called after device has been linked to window
         D3D9StereoDriverBridge::getSingleton().addRenderWindow(renderWindow);
@@ -817,7 +812,7 @@ namespace Ogre
     }
     //---------------------------------------------------------------------
     RenderSystemCapabilities* D3D9RenderSystem::updateRenderSystemCapabilities(D3D9RenderWindow* renderWindow)
-    {           
+    {
         RenderSystemCapabilities* rsc = mRealCapabilities;
         if (rsc == NULL)
             rsc = OGRE_NEW RenderSystemCapabilities();
@@ -831,36 +826,33 @@ namespace Ogre
         {
             // Supports fixed-function
             rsc->setCapability(RSC_FIXED_FUNCTION);
-        }   
-            
-                
-        // Init caps to maximum.        
+        }
+
+
+        // Init caps to maximum.
         rsc->setNumTextureUnits(OGRE_MAX_TEXTURE_LAYERS);
         rsc->setNumVertexAttributes(14); // see D3DDECLUSAGE
         rsc->setCapability(RSC_ANISOTROPY);
-        rsc->setCapability(RSC_TWO_SIDED_STENCIL);      
+        rsc->setCapability(RSC_TWO_SIDED_STENCIL);
         rsc->setCapability(RSC_STENCIL_WRAP);
-        rsc->setCapability(RSC_HWOCCLUSION);        
-        rsc->setCapability(RSC_USER_CLIP_PLANES);           
+        rsc->setCapability(RSC_HWOCCLUSION);
+        rsc->setCapability(RSC_USER_CLIP_PLANES);
         rsc->setCapability(RSC_32BIT_INDEX);
-        rsc->setCapability(RSC_TEXTURE_1D);         
-        rsc->setCapability(RSC_TEXTURE_3D);         
+        rsc->setCapability(RSC_TEXTURE_1D);
+        rsc->setCapability(RSC_TEXTURE_3D);
         rsc->setCapability(RSC_NON_POWER_OF_2_TEXTURES);
         rsc->setNonPOW2TexturesLimited(false);
         rsc->setNumMultiRenderTargets(OGRE_MAX_MULTIPLE_RENDER_TARGETS);
-        rsc->setCapability(RSC_MRT_DIFFERENT_BIT_DEPTHS);       
-        rsc->setCapability(RSC_POINT_SPRITES);          
-        rsc->setCapability(RSC_POINT_EXTENDED_PARAMETERS);                              
+        rsc->setCapability(RSC_POINT_SPRITES);
         rsc->setMaxPointSize(2.19902e+012f);
-        rsc->setCapability(RSC_MIPMAP_LOD_BIAS);                
+        rsc->setCapability(RSC_MIPMAP_LOD_BIAS);
         rsc->setCapability(RSC_PERSTAGECONSTANT);
         rsc->setCapability(RSC_HWSTENCIL);
-        rsc->setStencilBufferBitDepth(8);
         rsc->setCapability(RSC_RTT_MAIN_DEPTHBUFFER_ATTACHABLE);
         rsc->setCapability(RSC_RTT_DEPTHBUFFER_RESOLUTION_LESSEQUAL);
         rsc->setCapability(RSC_VERTEX_BUFFER_INSTANCE_DATA);
         rsc->setCapability(RSC_CAN_GET_COMPILED_SHADER_BUFFER);
-        rsc->setCapability(RSC_WBUFFER); 
+        rsc->setCapability(RSC_WBUFFER);
 
         for (uint i=0; i < mDeviceManager->getDeviceCount(); ++i)
         {
@@ -868,7 +860,7 @@ namespace Ogre
             IDirect3DDevice9* d3d9Device = device->getD3D9Device();
 
             IDirect3DSurface9* pSurf;
-            
+
 
             // Check for hardware stencil support
             d3d9Device->GetDepthStencilSurface(&pSurf);
@@ -881,11 +873,11 @@ namespace Ogre
                 pSurf->Release();
 
                 if (surfDesc.Format != D3DFMT_D15S1 &&
-                    surfDesc.Format != D3DFMT_D24S8 &&              
-                    surfDesc.Format != D3DFMT_D24X4S4 && 
-                    surfDesc.Format != D3DFMT_D24FS8)           
-                    rsc->unsetCapability(RSC_HWSTENCIL);    
-            }                                                                   
+                    surfDesc.Format != D3DFMT_D24S8 &&
+                    surfDesc.Format != D3DFMT_D24X4S4 &&
+                    surfDesc.Format != D3DFMT_D24FS8)
+                    rsc->unsetCapability(RSC_HWSTENCIL);
+            }
 
             // Check for hardware occlusion support
             HRESULT hr = d3d9Device->CreateQuery(D3DQUERYTYPE_OCCLUSION,  NULL);
@@ -893,17 +885,12 @@ namespace Ogre
             if (FAILED(hr))
                 rsc->unsetCapability(RSC_HWOCCLUSION);
         }
-        
+
         // Update RS caps using the minimum value found in adapter list.
         for (unsigned int i=0; i < mDriverList->count(); ++i)
         {
-            D3D9Driver* pCurDriver       = mDriverList->item(i);            
+            D3D9Driver* pCurDriver       = mDriverList->item(i);
             const D3DCAPS9& rkCurCaps    = pCurDriver->getD3D9DeviceCaps();
-
-            if (rkCurCaps.MaxSimultaneousTextures < rsc->getNumTextureUnits())
-            {
-                rsc->setNumTextureUnits(static_cast<ushort>(rkCurCaps.MaxSimultaneousTextures));
-            }
 
             bool has_level_9_1 = true;
 
@@ -932,65 +919,63 @@ namespace Ogre
                 rsc->unsetCapability(RSC_STENCIL_WRAP);
 
             // User clip planes
-            if (rkCurCaps.MaxUserClipPlanes == 0)           
-                rsc->unsetCapability(RSC_USER_CLIP_PLANES);         
+            if (rkCurCaps.MaxUserClipPlanes == 0)
+                rsc->unsetCapability(RSC_USER_CLIP_PLANES);
 
             // D3DFMT_INDEX32 type?
-            if (rkCurCaps.MaxVertexIndex <= 0xFFFF)         
-                rsc->unsetCapability(RSC_32BIT_INDEX);  
+            if (rkCurCaps.MaxVertexIndex <= 0xFFFF)
+                rsc->unsetCapability(RSC_32BIT_INDEX);
 
             // UBYTE4 type?
-            if ((rkCurCaps.DeclTypes & D3DDTCAPS_UBYTE4) == 0)          
+            if ((rkCurCaps.DeclTypes & D3DDTCAPS_UBYTE4) == 0)
                 has_level_9_1 = false;
 
             // Check cube map support.
             if ((rkCurCaps.TextureCaps & D3DPTEXTURECAPS_CUBEMAP) == 0)
                 has_level_9_1 = false;
-            
+
             // 3D textures?
-            if ((rkCurCaps.TextureCaps & D3DPTEXTURECAPS_VOLUMEMAP) == 0)           
-                rsc->unsetCapability(RSC_TEXTURE_3D);           
+            if ((rkCurCaps.TextureCaps & D3DPTEXTURECAPS_VOLUMEMAP) == 0)
+                rsc->unsetCapability(RSC_TEXTURE_3D);
 
             if (rkCurCaps.TextureCaps & D3DPTEXTURECAPS_POW2)
             {
                 // Conditional support for non POW2
-                if (rkCurCaps.TextureCaps & D3DPTEXTURECAPS_NONPOW2CONDITIONAL)             
-                    rsc->setNonPOW2TexturesLimited(true);               
+                if (rkCurCaps.TextureCaps & D3DPTEXTURECAPS_NONPOW2CONDITIONAL)
+                    rsc->setNonPOW2TexturesLimited(true);
 
                 // Only power of 2 supported.
-                else                    
-                    rsc->unsetCapability(RSC_NON_POWER_OF_2_TEXTURES);              
-            }   
+                else
+                    rsc->unsetCapability(RSC_NON_POWER_OF_2_TEXTURES);
+            }
 
             // Number of render targets
             if (rkCurCaps.NumSimultaneousRTs < rsc->getNumMultiRenderTargets())
             {
                 rsc->setNumMultiRenderTargets(std::min((ushort)rkCurCaps.NumSimultaneousRTs, (ushort)OGRE_MAX_MULTIPLE_RENDER_TARGETS));
-            }   
+            }
 
             if((rkCurCaps.PrimitiveMiscCaps & D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS) == 0)
             {
-                rsc->unsetCapability(RSC_MRT_DIFFERENT_BIT_DEPTHS);
+                rsc->setCapability(RSC_MRT_SAME_BIT_DEPTHS);
             }
 
-            // Point sprites 
+            // Point sprites
             if (rkCurCaps.MaxPointSize <= 1.0f)
             {
                 rsc->unsetCapability(RSC_POINT_SPRITES);
-                // sprites and extended parameters go together in D3D
-                rsc->unsetCapability(RSC_POINT_EXTENDED_PARAMETERS);                
             }
-            
+
             // Take the minimum point size.
             if (rkCurCaps.MaxPointSize < rsc->getMaxPointSize())
-                rsc->setMaxPointSize(rkCurCaps.MaxPointSize);   
+                rsc->setMaxPointSize(rkCurCaps.MaxPointSize);
 
             // Mipmap LOD biasing?
-            if ((rkCurCaps.RasterCaps & D3DPRASTERCAPS_MIPMAPLODBIAS) == 0)         
-                rsc->unsetCapability(RSC_MIPMAP_LOD_BIAS);          
+            if ((rkCurCaps.RasterCaps & D3DPRASTERCAPS_MIPMAPLODBIAS) == 0)
+                rsc->unsetCapability(RSC_MIPMAP_LOD_BIAS);
 
             if((rkCurCaps.RasterCaps & D3DPRASTERCAPS_WBUFFER) == 0)
-                rsc->unsetCapability(RSC_WBUFFER); 
+                rsc->unsetCapability(RSC_WBUFFER);
 
             // Do we support per-stage src_manual constants?
             // HACK - ATI drivers seem to be buggy and don't support per-stage constants properly?
@@ -998,7 +983,7 @@ namespace Ogre
             if((rkCurCaps.PrimitiveMiscCaps & D3DPMISCCAPS_PERSTAGECONSTANT) == 0)
                 rsc->unsetCapability(RSC_PERSTAGECONSTANT);
 
-            // Advanced blend operations? min max subtract rev 
+            // Advanced blend operations? min max subtract rev
             if((rkCurCaps.PrimitiveMiscCaps & D3DPMISCCAPS_BLENDOP) == 0)
                 has_level_9_1 = false;
 
@@ -1011,7 +996,7 @@ namespace Ogre
         // We always support compression, D3DX will decompress if device does not support
         rsc->setCapability(RSC_TEXTURE_COMPRESSION);
         rsc->setCapability(RSC_TEXTURE_COMPRESSION_DXT);
-            
+
         convertVertexShaderCaps(rsc);
         convertPixelShaderCaps(rsc);
 
@@ -1041,8 +1026,8 @@ namespace Ogre
         rsc->setCapability(RSC_HWRENDER_TO_TEXTURE);
 
         // Determine if any floating point texture format is supported
-        D3DFORMAT floatFormats[6] = {D3DFMT_R16F, D3DFMT_G16R16F, 
-            D3DFMT_A16B16G16R16F, D3DFMT_R32F, D3DFMT_G32R32F, 
+        D3DFORMAT floatFormats[6] = {D3DFMT_R16F, D3DFMT_G16R16F,
+            D3DFMT_A16B16G16R16F, D3DFMT_R32F, D3DFMT_G32R32F,
             D3DFMT_A32B32G32R32F};
         IDirect3DSurface9* bbSurf;
         renderWindow->getCustomAttribute("DDBACKBUFFER", &bbSurf);
@@ -1051,8 +1036,8 @@ namespace Ogre
 
         for (int i = 0; i < 6; ++i)
         {
-            if (SUCCEEDED(mD3D->CheckDeviceFormat(mActiveD3DDriver->getAdapterNumber(), 
-                D3DDEVTYPE_HAL, bbSurfDesc.Format, 
+            if (SUCCEEDED(mD3D->CheckDeviceFormat(mActiveD3DDriver->getAdapterNumber(),
+                D3DDEVTYPE_HAL, bbSurfDesc.Format,
                 0, D3DRTYPE_TEXTURE, floatFormats[i])))
             {
                 rsc->setCapability(RSC_TEXTURE_FLOAT);
@@ -1061,7 +1046,7 @@ namespace Ogre
 
         }
 
-    
+
         // TODO: make convertVertex/Fragment fill in rsc
         // TODO: update the below line to use rsc
         // Vertex textures
@@ -1069,16 +1054,15 @@ namespace Ogre
         {
             // Run through all the texture formats looking for any which support
             // vertex texture fetching. Must have at least one!
-            // All ATI Radeon up to X1n00 say they support vs_3_0, 
+            // All ATI Radeon up to X1n00 say they support vs_3_0,
             // but they support no texture formats for vertex texture fetch (cheaters!)
             if (checkVertexTextureFormats(renderWindow))
             {
                 rsc->setCapability(RSC_VERTEX_TEXTURE_FETCH);
                 // always 4 vertex texture units in vs_3_0, and never shared
                 rsc->setNumVertexTextureUnits(4);
-                rsc->setVertexTextureUnitsShared(false);
             }
-        }   
+        }
         else
         {
             //True HW Instancing is supported since Shader model 3.0 ATI has a nasty
@@ -1094,7 +1078,7 @@ namespace Ogre
             if (rsc->getVendor() == GPU_NVIDIA)
             {
                 if (mD3D->CheckDeviceFormat(
-                        D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, D3DFMT_X8R8G8B8, 0,D3DRTYPE_SURFACE, 
+                        D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, D3DFMT_X8R8G8B8, 0,D3DRTYPE_SURFACE,
                         (D3DFORMAT)MAKEFOURCC('A', 'T', 'O', 'C')) == S_OK)
                 {
                     rsc->setCapability(RSC_ALPHA_TO_COVERAGE);
@@ -1112,20 +1096,20 @@ namespace Ogre
 
 
         if (mRealCapabilities == NULL)
-        {       
+        {
             mRealCapabilities = rsc;
             mRealCapabilities->addShaderProfile("hlsl");
 
             initFixedFunctionParams(); // create params
 
-            // if we are using custom capabilities, then 
+            // if we are using custom capabilities, then
             // mCurrentCapabilities has already been loaded
             if(!mUseCustomCapabilities)
                 mCurrentCapabilities = mRealCapabilities;
 
             fireEvent("RenderSystemCapabilitiesCreated");
 
-            initialiseFromRenderSystemCapabilities(mCurrentCapabilities, renderWindow);
+            initialiseFromRenderSystemCapabilities(mCurrentCapabilities);
         }
 
         return rsc;
@@ -1140,12 +1124,12 @@ namespace Ogre
         // Find the device with the lowest vertex shader caps.
         for (unsigned int i=0; i < mDriverList->count(); ++i)
         {
-            D3D9Driver* pCurDriver      = mDriverList->item(i);         
+            D3D9Driver* pCurDriver      = mDriverList->item(i);
             const D3DCAPS9& rkCurCaps   = pCurDriver->getD3D9DeviceCaps();
             ushort currMajor            = static_cast<ushort>((rkCurCaps.VertexShaderVersion & 0x0000FF00) >> 8);
             ushort currMinor            = static_cast<ushort>(rkCurCaps.VertexShaderVersion & 0x000000FF);
 
-            if (currMajor < major)  
+            if (currMajor < major)
             {
                 major = currMajor;
                 minor = currMinor;
@@ -1155,7 +1139,7 @@ namespace Ogre
             {
                 minor = currMinor;
                 minVSCaps = rkCurCaps;
-            }           
+            }
         }
 
         // In case we didn't found any vertex shader support
@@ -1188,26 +1172,20 @@ namespace Ogre
         {
         case 1:
             // No boolean params allowed
-            rsc->setVertexProgramConstantBoolCount(0);
             // No integer params allowed
-            rsc->setVertexProgramConstantIntCount(0);
             // float params, always 4D
             rsc->setVertexProgramConstantFloatCount(static_cast<ushort>(minVSCaps.MaxVertexShaderConst));
 
             break;
         case 2:
             // 16 boolean params allowed
-            rsc->setVertexProgramConstantBoolCount(16);
             // 16 integer params allowed, 4D
-            rsc->setVertexProgramConstantIntCount(16);
             // float params, always 4D
             rsc->setVertexProgramConstantFloatCount(static_cast<ushort>(minVSCaps.MaxVertexShaderConst));
             break;
         case 3:
             // 16 boolean params allowed
-            rsc->setVertexProgramConstantBoolCount(16);
             // 16 integer params allowed, 4D
-            rsc->setVertexProgramConstantIntCount(16);
             // float params, always 4D
             rsc->setVertexProgramConstantFloatCount(static_cast<ushort>(minVSCaps.MaxVertexShaderConst));
             break;
@@ -1240,12 +1218,12 @@ namespace Ogre
         // Find the device with the lowest pixel shader caps.
         for (unsigned int i=0; i < mDriverList->count(); ++i)
         {
-            D3D9Driver* pCurDriver      = mDriverList->item(i);         
+            D3D9Driver* pCurDriver      = mDriverList->item(i);
             const D3DCAPS9& currCaps    = pCurDriver->getD3D9DeviceCaps();
             ushort currMajor            = static_cast<ushort>((currCaps.PixelShaderVersion & 0x0000FF00) >> 8);
             ushort currMinor            = static_cast<ushort>(currCaps.PixelShaderVersion & 0x000000FF);
 
-            if (currMajor < major)  
+            if (currMajor < major)
             {
                 major = currMajor;
                 minor = currMinor;
@@ -1255,9 +1233,9 @@ namespace Ogre
             {
                 minor = currMinor;
                 minPSCaps = currCaps;
-            }           
+            }
         }
-        
+
         bool ps2a = false;
         bool ps2b = false;
 
@@ -1285,9 +1263,7 @@ namespace Ogre
         {
         case 1:
             // no boolean params allowed
-            rsc->setFragmentProgramConstantBoolCount(0);
             // no integer params allowed
-            rsc->setFragmentProgramConstantIntCount(0);
             // float params, always 4D
             // NB in ps_1_x these are actually stored as fixed point values,
             // but they are entered as floats
@@ -1295,17 +1271,13 @@ namespace Ogre
             break;
         case 2:
             // 16 boolean params allowed
-            rsc->setFragmentProgramConstantBoolCount(16);
             // 16 integer params allowed, 4D
-            rsc->setFragmentProgramConstantIntCount(16);
             // float params, always 4D
             rsc->setFragmentProgramConstantFloatCount(32);
             break;
         case 3:
             // 16 boolean params allowed
-            rsc->setFragmentProgramConstantBoolCount(16);
             // 16 integer params allowed, 4D
-            rsc->setFragmentProgramConstantIntCount(16);
             // float params, always 4D
             rsc->setFragmentProgramConstantFloatCount(224);
             break;
@@ -1350,7 +1322,7 @@ namespace Ogre
             D3DFORMAT fmt = D3D9Mappings::_getPF(pf);
 
             if (SUCCEEDED(mD3D->CheckDeviceFormat(
-                mActiveD3DDriver->getAdapterNumber(), D3DDEVTYPE_HAL, bbSurfDesc.Format, 
+                mActiveD3DDriver->getAdapterNumber(), D3DDEVTYPE_HAL, bbSurfDesc.Format,
                 D3DUSAGE_QUERY_VERTEXTEXTURE, D3DRTYPE_TEXTURE, fmt)))
             {
                 // cool, at least one supported
@@ -1365,15 +1337,8 @@ namespace Ogre
 
     }
     //-----------------------------------------------------------------------
-    void D3D9RenderSystem::initialiseFromRenderSystemCapabilities(RenderSystemCapabilities* caps, RenderTarget* primary)
+    void D3D9RenderSystem::initialiseFromRenderSystemCapabilities(RenderSystemCapabilities* caps, RenderTarget*)
     {
-        if (caps->getRenderSystemName() != getName())
-        {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, 
-                "Trying to initialize D3D9RenderSystem from RenderSystemCapabilities that do not support Direct3D9",
-                "D3D9RenderSystem::initialiseFromRenderSystemCapabilities");
-        }
-
         for(const auto& lang : caps->getSupportedShaderProfiles())
         {
             if (lang == "hlsl")
@@ -1402,14 +1367,14 @@ namespace Ogre
             D3D9RenderWindow* currDevicePrimaryWindow = currDevice->getPrimaryWindow();
             IDirect3DSurface9* pSurface = currDevicePrimaryWindow->getRenderSurface();
             D3DSURFACE_DESC srfDesc;
-            
+
             // Get surface desc
             if (FAILED(pSurface->GetDesc(&srfDesc)))
                 return false;
 
             // Calculate usage
             DWORD d3dusage = D3DUSAGE_QUERY_FILTER;
-            if (usage & TU_RENDERTARGET) 
+            if (usage & TU_RENDERTARGET)
                 d3dusage |= D3DUSAGE_RENDERTARGET;
             if (usage & TU_DYNAMIC)
                 d3dusage |= D3DUSAGE_DYNAMIC;
@@ -1443,8 +1408,8 @@ namespace Ogre
             if (FAILED(hr))
                 return false;
         }
-        
-        return true;        
+
+        return true;
     }
     //-----------------------------------------------------------------------
     MultiRenderTarget * D3D9RenderSystem::createMultiRenderTarget(const String & name)
@@ -1470,7 +1435,7 @@ namespace Ogre
         for (sw = mRenderWindows.begin(); sw != mRenderWindows.end(); ++sw)
         {
             if ((*sw)->getName() == name)
-            {                   
+            {
                 mRenderWindows.erase(sw);
                 break;
             }
@@ -1478,7 +1443,7 @@ namespace Ogre
     }
     //---------------------------------------------------------------------
     void D3D9RenderSystem::destroyRenderTarget(const String& name)
-    {       
+    {
 #if OGRE_NO_QUAD_BUFFER_STEREO == 0
         D3D9StereoDriverBridge::getSingleton().removeRenderWindow(name);
 #endif
@@ -1486,7 +1451,7 @@ namespace Ogre
         detachRenderTargetImpl(name);
 
         // Do the real removal
-        RenderSystem::destroyRenderTarget(name);    
+        RenderSystem::destroyRenderTarget(name);
     }
     //---------------------------------------------------------------------
     String D3D9RenderSystem::getErrorDescription( long errorNumber ) const
@@ -1520,7 +1485,7 @@ namespace Ogre
     {
         HRESULT hr = __SetRenderState( D3DRS_AMBIENT, D3DCOLOR_COLORVALUE( r, g, b, 1.0f ) );
         if( FAILED( hr ) )
-            OGRE_EXCEPT( Exception::ERR_RENDERINGAPI_ERROR, 
+            OGRE_EXCEPT( Exception::ERR_RENDERINGAPI_ERROR,
             "Failed to set render stat D3DRS_AMBIENT", "D3D9RenderSystem::setAmbientLight" );
     }
     //---------------------------------------------------------------------
@@ -1549,7 +1514,7 @@ namespace Ogre
     {
         HRESULT hr = __SetRenderState( D3DRS_SHADEMODE, D3D9Mappings::get(so) );
         if( FAILED( hr ) )
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
             "Failed to set render stat D3DRS_SHADEMODE", "D3D9RenderSystem::setShadingType" );
     }
     //---------------------------------------------------------------------
@@ -1557,7 +1522,7 @@ namespace Ogre
     {
         HRESULT hr;
         if( FAILED( hr = __SetRenderState( D3DRS_LIGHTING, enabled ) ) )
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
             "Failed to set render state D3DRS_LIGHTING", "D3D9RenderSystem::setLightingEnabled" );
     }
     //---------------------------------------------------------------------
@@ -1569,7 +1534,7 @@ namespace Ogre
         if (!enabled)
         {
             if( FAILED( hr = getActiveD3D9Device()->LightEnable( static_cast<DWORD>(index), FALSE) ) )
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
                 "Unable to disable light", "D3D9RenderSystem::setD3D9Light" );
         }
     }
@@ -1628,17 +1593,17 @@ namespace Ogre
     void D3D9RenderSystem::_setSurfaceTracking( TrackVertexColourType tracking )
     {
 
-        if(tracking != TVC_NONE) 
+        if(tracking != TVC_NONE)
         {
             __SetRenderState(D3DRS_COLORVERTEX, TRUE);
             __SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, (tracking&TVC_AMBIENT)?D3DMCS_COLOR1:D3DMCS_MATERIAL);
             __SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, (tracking&TVC_DIFFUSE)?D3DMCS_COLOR1:D3DMCS_MATERIAL);
             __SetRenderState(D3DRS_SPECULARMATERIALSOURCE, (tracking&TVC_SPECULAR)?D3DMCS_COLOR1:D3DMCS_MATERIAL);
             __SetRenderState(D3DRS_EMISSIVEMATERIALSOURCE, (tracking&TVC_EMISSIVE)?D3DMCS_COLOR1:D3DMCS_MATERIAL);
-        } 
-        else 
+        }
+        else
         {
-            __SetRenderState(D3DRS_COLORVERTEX, FALSE);               
+            __SetRenderState(D3DRS_COLORVERTEX, FALSE);
         }
 
     }
@@ -1680,6 +1645,7 @@ namespace Ogre
     {
         HRESULT hr;
         D3D9TexturePtr dt = static_pointer_cast<D3D9Texture>(tex);
+        auto hasVTF = mCurrentCapabilities->hasCapability(RSC_VERTEX_TEXTURE_FETCH);
         if (enabled && dt)
         {
             // note used
@@ -1708,6 +1674,17 @@ namespace Ogre
                 {
                     __SetSamplerState(getSamplerId(stage), D3DSAMP_SRGBTEXTURE, FALSE);
                 }
+
+                if (hasVTF && stage < 4)
+                {
+                    HRESULT hr = getActiveD3D9Device()->SetTexture(D3DVERTEXTEXTURESAMPLER0 + static_cast<DWORD>(stage), pTex);
+                    if( hr != S_OK )
+                    {
+                        String str = "Unable to set vertex texture '" + tex->getName() + "' in D3D9";
+                        OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, str);
+                    }
+                }
+
             }
         }
         else
@@ -1719,6 +1696,17 @@ namespace Ogre
                 {
                     String str = "Unable to disable texture '" + StringConverter::toString(stage) + "' in D3D9";
                     OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, str, "D3D9RenderSystem::_setTexture" );
+                }
+
+                if (hasVTF && stage < 4)
+                {
+                    HRESULT hr = getActiveD3D9Device()->SetTexture(D3DVERTEXTEXTURESAMPLER0 + static_cast<DWORD>(stage), 0);
+                    if( hr != S_OK )
+                    {
+                        String str = "Unable to disable vertex texture '"
+                            + StringConverter::toString(stage) + "' in D3D9";
+                        OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, str);
+                    }
                 }
             }
 
@@ -1778,68 +1766,17 @@ namespace Ogre
             OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to set texture filter ", "D3D9RenderSystem::_setSampler");
     }
     //---------------------------------------------------------------------
-    void D3D9RenderSystem::_setVertexTexture(size_t stage, const TexturePtr& tex)
-    {
-        if (!tex)
-        {
-
-            if (mTexStageDesc[stage].pVertexTex != 0)
-            {
-                HRESULT hr = getActiveD3D9Device()->SetTexture(D3DVERTEXTEXTURESAMPLER0 + static_cast<DWORD>(stage), 0);
-                if( hr != S_OK )
-                {
-                    String str = "Unable to disable vertex texture '" 
-                        + StringConverter::toString(stage) + "' in D3D9";
-                    OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, str, "D3D9RenderSystem::_setVertexTexture" );
-                }
-            }
-
-            // set stage desc. to defaults
-            mTexStageDesc[stage].pVertexTex = 0;
-        }
-        else
-        {
-            D3D9TexturePtr dt = static_pointer_cast<D3D9Texture>(tex);
-            // note used
-            dt->touch();
-
-            IDirect3DBaseTexture9 *pTex = dt->getTexture();
-            if (mTexStageDesc[stage].pVertexTex != pTex)
-            {
-                HRESULT hr = getActiveD3D9Device()->SetTexture(D3DVERTEXTEXTURESAMPLER0 + static_cast<DWORD>(stage), pTex);
-                if( hr != S_OK )
-                {
-                    String str = "Unable to set vertex texture '" + tex->getName() + "' in D3D9";
-                    OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, str, "D3D9RenderSystem::_setVertexTexture" );
-                }
-
-                // set stage desc.
-                mTexStageDesc[stage].pVertexTex = pTex;
-            }
-
-        }
-
-    }
-    //---------------------------------------------------------------------
-    void D3D9RenderSystem::_disableTextureUnit(size_t texUnit)
-    {
-        RenderSystem::_disableTextureUnit(texUnit);
-        // also disable vertex texture unit
-        static TexturePtr nullPtr;
-        _setVertexTexture(texUnit, nullPtr);
-    }
-    //---------------------------------------------------------------------
     void D3D9RenderSystem::_setTextureCoordSet( size_t stage, size_t index )
     {
         // if vertex shader is being used, stage and index must match
-        if (mVertexProgramBound)
+        if (mProgramBound[GPT_VERTEX_PROGRAM])
             index = stage;
 
         HRESULT hr;
         // Record settings
         mTexStageDesc[stage].coordIndex = index;
 
-        if (mVertexProgramBound)
+        if (mProgramBound[GPT_VERTEX_PROGRAM])
             hr = __SetTextureStageState( static_cast<DWORD>(stage), D3DTSS_TEXCOORDINDEX, index );
         else
             hr = __SetTextureStageState( static_cast<DWORD>(stage), D3DTSS_TEXCOORDINDEX, D3D9Mappings::get(mTexStageDesc[stage].autoTexCoordType, mDeviceManager->getActiveDevice()->getD3D9DeviceCaps()) | index );
@@ -1855,7 +1792,7 @@ namespace Ogre
         mTexStageDesc[stage].autoTexCoordType = m;
         mTexStageDesc[stage].frustum = frustum;
 
-        if (mVertexProgramBound)
+        if (mProgramBound[GPT_VERTEX_PROGRAM])
             hr = __SetTextureStageState( static_cast<DWORD>(stage), D3DTSS_TEXCOORDINDEX, mTexStageDesc[stage].coordIndex );
         else
             hr = __SetTextureStageState( static_cast<DWORD>(stage), D3DTSS_TEXCOORDINDEX, D3D9Mappings::get(m, mDeviceManager->getActiveDevice()->getD3D9DeviceCaps()) | mTexStageDesc[stage].coordIndex );
@@ -1871,7 +1808,7 @@ namespace Ogre
         TexCoordCalcMethod autoTexCoordType = mTexStageDesc[stage].autoTexCoordType;
 
         // if a vertex program is bound, we mustn't set texture transforms
-        if (mVertexProgramBound)
+        if (mProgramBound[GPT_VERTEX_PROGRAM])
         {
             hr = __SetTextureStageState( static_cast<DWORD>(stage), D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
             if( FAILED( hr ) )
@@ -1935,7 +1872,7 @@ namespace Ogre
         if (autoTexCoordType == TEXCALC_PROJECTIVE_TEXTURE)
         {
             // Derive camera space to projector space transform
-            // To do this, we need to undo the camera view matrix, then 
+            // To do this, we need to undo the camera view matrix, then
             // apply the projector view & projection matrices
             newMat = mViewMatrix.inverse();
             if(mTexProjRelative)
@@ -2067,18 +2004,6 @@ namespace Ogre
         }
     }
     //---------------------------------------------------------------------
-    void D3D9RenderSystem::_setTextureAddressingMode( size_t stage, 
-        const Sampler::UVWAddressingMode& uvw )
-    {
-        HRESULT hr;
-        if( FAILED( hr = __SetSamplerState( getSamplerId(stage), D3DSAMP_ADDRESSU, D3D9Mappings::get(uvw.u, mDeviceManager->getActiveDevice()->getD3D9DeviceCaps()) ) ) )
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to set texture addressing mode for U", "D3D9RenderSystem::_setTextureAddressingMode" );
-        if( FAILED( hr = __SetSamplerState( getSamplerId(stage), D3DSAMP_ADDRESSV, D3D9Mappings::get(uvw.v, mDeviceManager->getActiveDevice()->getD3D9DeviceCaps()) ) ) )
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to set texture addressing mode for V", "D3D9RenderSystem::_setTextureAddressingMode" );
-        if( FAILED( hr = __SetSamplerState( getSamplerId(stage), D3DSAMP_ADDRESSW, D3D9Mappings::get(uvw.w, mDeviceManager->getActiveDevice()->getD3D9DeviceCaps()) ) ) )
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to set texture addressing mode for W", "D3D9RenderSystem::_setTextureAddressingMode" );
-    }
-    //---------------------------------------------------------------------
     void D3D9RenderSystem::_setTextureBlendMode( size_t stage, const LayerBlendModeEx& bm )
     {
         HRESULT hr = S_OK;
@@ -2091,7 +2016,7 @@ namespace Ogre
         else if( bm.blendType == LBT_ALPHA )
             tss = D3DTSS_ALPHAOP;
         else
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, 
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
             "Invalid blend type", "D3D9RenderSystem::_setTextureBlendMode");
 
         // set manual factor if required by operation
@@ -2117,12 +2042,12 @@ namespace Ogre
         {
             tss = D3DTSS_ALPHAARG1;
             manualD3D = D3DCOLOR_COLORVALUE( mManualBlendColours[stage][0].r,
-                mManualBlendColours[stage][0].g, 
+                mManualBlendColours[stage][0].g,
                 mManualBlendColours[stage][0].b, bm.alphaArg1 );
         }
         else
         {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, 
+            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
                 "Invalid blend type", "D3D9RenderSystem::_setTextureBlendMode");
         }
         // Set manual factor if required
@@ -2157,8 +2082,8 @@ namespace Ogre
         {
             tss = D3DTSS_ALPHAARG2;
             manualD3D = D3DCOLOR_COLORVALUE( mManualBlendColours[stage][1].r,
-                mManualBlendColours[stage][1].g, 
-                mManualBlendColours[stage][1].b, 
+                mManualBlendColours[stage][1].g,
+                mManualBlendColours[stage][1].b,
                 bm.alphaArg2 );
         }
         // Set manual factor if required
@@ -2182,7 +2107,7 @@ namespace Ogre
             OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to set source 2", "D3D9RenderSystem::_setTextureBlendMode" );
 
         // Set interpolation factor if lerping
-        if (bm.operation == LBX_BLEND_DIFFUSE_COLOUR && 
+        if (bm.operation == LBX_BLEND_DIFFUSE_COLOUR &&
             mDeviceManager->getActiveDevice()->getD3D9DeviceCaps().TextureOpCaps & D3DTEXOPCAPS_LERP)
         {
             // choose source 0 (lerp factor)
@@ -2197,7 +2122,7 @@ namespace Ogre
             hr = __SetTextureStageState(static_cast<DWORD>(stage), tss, D3DTA_DIFFUSE);
 
             if (FAILED(hr))
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to set lerp source 0", 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to set lerp source 0",
                 "D3D9RenderSystem::_setTextureBlendMode" );
 
         }
@@ -2212,7 +2137,7 @@ namespace Ogre
         if (func != CMPF_ALWAYS_PASS)
         {
             if( FAILED( hr = __SetRenderState( D3DRS_ALPHATESTENABLE,  TRUE ) ) )
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to enable alpha testing", 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to enable alpha testing",
                 "D3D9RenderSystem::_setAlphaRejectSettings" );
 
             a2c = alphaToCoverage;
@@ -2220,7 +2145,7 @@ namespace Ogre
         else
         {
             if( FAILED( hr = __SetRenderState( D3DRS_ALPHATESTENABLE,  FALSE ) ) )
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to disable alpha testing", 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to disable alpha testing",
                 "D3D9RenderSystem::_setAlphaRejectSettings" );
         }
         // Set always just be sure
@@ -2272,7 +2197,7 @@ namespace Ogre
         mCullingMode = mode;
         HRESULT hr;
 
-        if( FAILED (hr = __SetRenderState(D3DRS_CULLMODE, 
+        if( FAILED (hr = __SetRenderState(D3DRS_CULLMODE,
             D3D9Mappings::get(mode, flipFrontFace()))) )
             OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to set culling mode", "D3D9RenderSystem::_setCullingMode" );
     }
@@ -2524,17 +2449,6 @@ namespace Ogre
             "D3D9RenderSystem::setStencilBufferParams");
     }
     //---------------------------------------------------------------------
-    void D3D9RenderSystem::_setTextureUnitFiltering(size_t unit, FilterType ftype, 
-        FilterOptions filter)
-    {
-        HRESULT hr;
-        D3D9Mappings::eD3DTexType texType = mTexStageDesc[unit].texType;
-        hr = __SetSamplerState( getSamplerId(unit), D3D9Mappings::get(ftype), 
-            D3D9Mappings::get(ftype, filter, mDeviceManager->getActiveDevice()->getD3D9DeviceCaps(), texType));
-        if (FAILED(hr))
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Failed to set texture filter ", "D3D9RenderSystem::_setTextureUnitFiltering");
-    }
-    //---------------------------------------------------------------------
     DWORD D3D9RenderSystem::_getCurrentAnisotropy(size_t unit)
     {
         DWORD oldVal;
@@ -2557,6 +2471,9 @@ namespace Ogre
     //---------------------------------------------------------------------
     HRESULT D3D9RenderSystem::__SetSamplerState(DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD value)
     {
+        if(sampler < 4)
+            __SetSamplerState(sampler + D3DVERTEXTEXTURESAMPLER0, type, value);
+
         HRESULT hr;
         DWORD oldVal;
 
@@ -2612,9 +2529,9 @@ namespace Ogre
         //Create the depthstencil surface
         IDirect3DSurface9 *depthBufferSurface = NULL;
         IDirect3DDevice9* activeDevice = getActiveD3D9Device();
-        HRESULT hr = activeDevice->CreateDepthStencilSurface( 
+        HRESULT hr = activeDevice->CreateDepthStencilSurface(
                                             srfDesc.Width, srfDesc.Height, dsfmt,
-                                            srfDesc.MultiSampleType, srfDesc.MultiSampleQuality, 
+                                            srfDesc.MultiSampleType, srfDesc.MultiSampleQuality,
                                             TRUE,  // discard true or false?
                                             &depthBufferSurface, NULL);
         if( FAILED(hr) )
@@ -2625,7 +2542,7 @@ namespace Ogre
                         "D3D9RenderSystem::_createDepthBufferFor" );
         }
 
-        D3D9DepthBuffer *newDepthBuffer = OGRE_NEW D3D9DepthBuffer( DepthBuffer::POOL_DEFAULT, this,
+        D3D9DepthBuffer *newDepthBuffer = OGRE_NEW D3D9DepthBuffer( renderTarget->getDepthBufferPool(), this,
                                                 activeDevice, depthBufferSurface,
                                                 dsfmt, srfDesc.Width, srfDesc.Height,
                                                 srfDesc.MultiSampleType, srfDesc.MultiSampleQuality, false );
@@ -2758,14 +2675,14 @@ namespace Ogre
         {
             HRESULT hr;
 
-            // If this is called without going through RenderWindow::update, then 
-            // the device will not have been set. Calling it twice is safe, the 
+            // If this is called without going through RenderWindow::update, then
+            // the device will not have been set. Calling it twice is safe, the
             // implementation ensures nothing happens if the same device is set twice
             if (std::find(mRenderWindows.begin(), mRenderWindows.end(), target) != mRenderWindows.end())
             {
                 D3D9RenderWindow *window = static_cast<D3D9RenderWindow*>(target);
                 mDeviceManager->setActiveRenderTargetDevice(window->getDevice());
-                // also make sure we validate the device; if this never went 
+                // also make sure we validate the device; if this never went
                 // through update() it won't be set
                 window->_validateDevice();
 
@@ -2784,7 +2701,7 @@ namespace Ogre
             IDirect3DDevice9* activeDevice = getActiveD3D9Device();
             D3D9DepthBuffer *depthBuffer = static_cast<D3D9DepthBuffer*>(target->getDepthBuffer());
 
-            if( target->getDepthBufferPool() != DepthBuffer::POOL_NO_DEPTH &&
+            if( target->getDepthBufferPool() != RBP_NONE &&
                 (!depthBuffer || depthBuffer->getDeviceCreator() != activeDevice ) )
             {
                 //Depth is automatically managed and there is no depth buffer attached to this RT
@@ -2940,7 +2857,7 @@ namespace Ogre
 
         // Clear left overs of previous viewport.
         // I.E: Viewport A can use 3 different textures and light states
-        // When trying to render viewport B these settings should be cleared, otherwise 
+        // When trying to render viewport B these settings should be cleared, otherwise
         // graphical artifacts might occur.
         mDeviceManager->getActiveDevice()->clearDeviceStreams();
     }
@@ -2953,80 +2870,30 @@ namespace Ogre
 
         mDeviceManager->destroyInactiveRenderDevices();
     }
-    //---------------------------------------------------------------------
-    struct D3D9RenderContext : public RenderSystem::RenderSystemContext
-    {
-        RenderTarget* target;
-    };
-    //---------------------------------------------------------------------
-    RenderSystem::RenderSystemContext* D3D9RenderSystem::_pauseFrame(void)
-    {
-        //Stop rendering
-        _endFrame();
-
-        D3D9RenderContext* context = OGRE_ALLOC_T(D3D9RenderContext, 1, MEMCATEGORY_RENDERSYS);
-        context->target = mActiveRenderTarget;
-        
-        
-        return context;
-    }
-    //---------------------------------------------------------------------
-    void D3D9RenderSystem::_resumeFrame(RenderSystemContext* context)
-    {
-        //Resume rendering
-        _beginFrame();
-        D3D9RenderContext* d3dContext = static_cast<D3D9RenderContext*>(context);
-
-        OGRE_FREE(context, MEMCATEGORY_RENDERSYS);
-    }
     void D3D9RenderSystem::setVertexDeclaration(VertexDeclaration* decl)
-    {
-        setVertexDeclaration(decl, true);
-    }
-    //---------------------------------------------------------------------
-    void D3D9RenderSystem::setVertexDeclaration(VertexDeclaration* decl, bool useGlobalInstancingVertexBufferIsAvailable)
     {
         HRESULT hr;
 
-        D3D9VertexDeclaration* d3ddecl = 
-            static_cast<D3D9VertexDeclaration*>(decl);
+        D3D9VertexDeclaration* d3ddecl = static_cast<D3D9VertexDeclaration*>(decl);
 
-        if (FAILED(hr = getActiveD3D9Device()->SetVertexDeclaration(d3ddecl->getD3DVertexDeclaration(getGlobalInstanceVertexBufferVertexDeclaration(), useGlobalInstancingVertexBufferIsAvailable))))
+        if (FAILED(hr = getActiveD3D9Device()->SetVertexDeclaration(d3ddecl->getD3DVertexDeclaration())))
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set D3D9 vertex declaration", 
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set D3D9 vertex declaration",
                 "D3D9RenderSystem::setVertexDeclaration");
         }
 
     }
     //---------------------------------------------------------------------
-    void D3D9RenderSystem::setVertexBufferBinding(VertexBufferBinding* binding)
-    {
-        setVertexBufferBinding(binding, 1, true, false);
-    }
-    //---------------------------------------------------------------------
-    void D3D9RenderSystem::setVertexBufferBinding(
-        VertexBufferBinding* binding, size_t numberOfInstances, bool useGlobalInstancingVertexBufferIsAvailable, bool indexesUsed)
+    void D3D9RenderSystem::setVertexBufferBinding(VertexBufferBinding* binding, int numberOfInstances, bool indexesUsed)
     {
         /*if (!prg)
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
                 "Null program bound.",
                 "D3D9RenderSystem::bindGpuProgram");
         }*/
 
         HRESULT hr;
-
-        if (useGlobalInstancingVertexBufferIsAvailable)
-        {
-            numberOfInstances *= getGlobalNumberOfInstances();
-        }
-        
-        HardwareVertexBufferSharedPtr globalInstanceVertexBuffer = getGlobalInstanceVertexBuffer();
-        VertexDeclaration* globalVertexDeclaration = getGlobalInstanceVertexBufferVertexDeclaration();
-        bool hasInstanceData = useGlobalInstancingVertexBufferIsAvailable &&
-                    globalInstanceVertexBuffer && globalVertexDeclaration != NULL 
-                || binding->hasInstanceData();
-
 
         // TODO: attempt to detect duplicates
         const VertexBufferBinding::VertexBufferBindingMap& binds = binding->getBindings();
@@ -3043,7 +2910,7 @@ namespace Ogre
                 hr = getActiveD3D9Device()->SetStreamSource(static_cast<UINT>(source), NULL, 0, 0);
                 if (FAILED(hr))
                 {
-                    OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to reset unused D3D9 stream source", 
+                    OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to reset unused D3D9 stream source",
                         "D3D9RenderSystem::setVertexBufferBinding");
                 }
             }
@@ -3057,12 +2924,12 @@ namespace Ogre
 
             if (FAILED(hr))
             {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set D3D9 stream source for buffer binding", 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set D3D9 stream source for buffer binding",
                     "D3D9RenderSystem::setVertexBufferBinding");
             }
 
             // SetStreamSourceFreq
-            if ( hasInstanceData ) 
+            if ( numberOfInstances > 1 )
             {
                 if ( i->second->isInstanceData() )
                 {
@@ -3072,14 +2939,14 @@ namespace Ogre
                 {
                     if ( !indexesUsed )
                     {
-                        OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Instance data used without index data.", 
+                        OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Instance data used without index data.",
                             "D3D9RenderSystem::setVertexBufferBinding");
                     }
                     hr = getActiveD3D9Device()->SetStreamSourceFreq( static_cast<UINT>(source), D3DSTREAMSOURCE_INDEXEDDATA | numberOfInstances );
                 }
                 if (FAILED(hr))
                 {
-                    OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set D3D9 stream source Freq", 
+                    OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set D3D9 stream source Freq",
                         "D3D9RenderSystem::setVertexBufferBinding");
                 }
             }
@@ -3088,49 +2955,13 @@ namespace Ogre
                 hr = getActiveD3D9Device()->SetStreamSourceFreq( static_cast<UINT>(source), 1 );
                 if (FAILED(hr))
                 {
-                    OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to reset unused D3D9 stream source Freq", 
+                    OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to reset unused D3D9 stream source Freq",
                         "D3D9RenderSystem::setVertexBufferBinding");
                 }
             }
 
         }
-        
-        if (useGlobalInstancingVertexBufferIsAvailable)
-        {
-        // bind global instance buffer if exist
-        if( globalInstanceVertexBuffer )
-        {
-            if ( !indexesUsed )
-            {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Instance data used without index data.", 
-                    "D3D9RenderSystem::setVertexBufferBinding");
-            }
 
-            D3D9HardwareBuffer* d3d9buf = globalInstanceVertexBuffer->_getImpl<D3D9HardwareBuffer>();
-
-            hr = getActiveD3D9Device()->SetStreamSource(
-                    static_cast<UINT>(source),
-                    (IDirect3DVertexBuffer9*)d3d9buf->getD3D9Resource(),
-                    0, // no stream offset, this is handled in _render instead
-                    static_cast<UINT>(i->second->getVertexSize()) // stride
-                    );
-
-            if (FAILED(hr))
-            {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set D3D9 stream source for buffer binding", 
-                    "D3D9RenderSystem::setVertexBufferBinding");
-            }
-
-            hr = getActiveD3D9Device()->SetStreamSourceFreq( static_cast<UINT>(source), D3DSTREAMSOURCE_INSTANCEDATA | i->second->getInstanceDataStepRate() );
-            if (FAILED(hr))
-            {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set D3D9 stream source Freq", 
-                    "D3D9RenderSystem::setVertexBufferBinding");
-            }
-        }
-
-        }
-        
         // Unbind any unused sources
         for (size_t unused = source; unused < mLastVertexSourceCount; ++unused)
         {
@@ -3138,14 +2969,14 @@ namespace Ogre
             hr = getActiveD3D9Device()->SetStreamSource(static_cast<UINT>(unused), NULL, 0, 0);
             if (FAILED(hr))
             {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to reset unused D3D9 stream source", 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to reset unused D3D9 stream source",
                     "D3D9RenderSystem::setVertexBufferBinding");
             }
 
             hr = getActiveD3D9Device()->SetStreamSourceFreq( static_cast<UINT>(unused), 1 );
             if (FAILED(hr))
             {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to reset unused D3D9 stream source Freq", 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to reset unused D3D9 stream source Freq",
                     "D3D9RenderSystem::setVertexBufferBinding");
             }
 
@@ -3166,20 +2997,20 @@ namespace Ogre
 
 
         if ( !mEnableFixedPipeline && !mRealCapabilities->hasCapability(RSC_FIXED_FUNCTION)
-             && 
+             &&
              (
-                ( !mVertexProgramBound ) ||
-                (!mFragmentProgramBound && op.operationType != RenderOperation::OT_POINT_LIST)        
+                ( !mProgramBound[GPT_VERTEX_PROGRAM] ) ||
+                (!mProgramBound[GPT_FRAGMENT_PROGRAM] && op.operationType != RenderOperation::OT_POINT_LIST)
               )
-           ) 
+           )
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
                 "Attempted to render using the fixed pipeline when it is disabled.",
                 "D3D9RenderSystem::_render");
         }
 
-        setVertexDeclaration(op.vertexData->vertexDeclaration, op.useGlobalInstancingVertexBufferIsAvailable);
-        setVertexBufferBinding(op.vertexData->vertexBufferBinding, op.numberOfInstances, op.useGlobalInstancingVertexBufferIsAvailable, op.useIndexes);
+        setVertexDeclaration(op.vertexData->vertexDeclaration);
+        setVertexBufferBinding(op.vertexData->vertexBufferBinding, op.numberOfInstances, op.useIndexes);
 
         // Determine rendering operation
         D3DPRIMITIVETYPE primType = D3DPT_TRIANGLELIST;
@@ -3235,11 +3066,11 @@ namespace Ogre
             {
                 // do indexed draw operation
                 hr = getActiveD3D9Device()->DrawIndexedPrimitive(
-                    primType, 
-                    static_cast<INT>(op.vertexData->vertexStart), 
-                    0, // Min vertex index - assume we can go right down to 0 
-                    static_cast<UINT>(op.vertexData->vertexCount), 
-                    static_cast<UINT>(op.indexData->indexStart), 
+                    primType,
+                    static_cast<INT>(op.vertexData->vertexStart),
+                    0, // Min vertex index - assume we can go right down to 0
+                    static_cast<UINT>(op.vertexData->vertexCount),
+                    static_cast<UINT>(op.indexData->indexStart),
                     static_cast<UINT>(primCount)
                     );
 
@@ -3252,13 +3083,13 @@ namespace Ogre
             {
                 // Unindexed, a little simpler!
                 hr = getActiveD3D9Device()->DrawPrimitive(
-                    primType, 
-                    static_cast<UINT>(op.vertexData->vertexStart), 
+                    primType,
+                    static_cast<UINT>(op.vertexData->vertexStart),
                     static_cast<UINT>(primCount)
-                    ); 
+                    );
 
             } while (updatePassIterationRenderState());
-        } 
+        }
 
         if( FAILED( hr ) )
         {
@@ -3270,7 +3101,7 @@ namespace Ogre
     //---------------------------------------------------------------------
     void D3D9RenderSystem::setNormaliseNormals(bool normalise)
     {
-        __SetRenderState(D3DRS_NORMALIZENORMALS, 
+        __SetRenderState(D3DRS_NORMALIZENORMALS,
             normalise ? TRUE : FALSE);
     }
     //---------------------------------------------------------------------
@@ -3278,7 +3109,7 @@ namespace Ogre
     {
         if (!prg)
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
                 "Null program bound.",
                 "D3D9RenderSystem::bindGpuProgram");
         }
@@ -3321,29 +3152,27 @@ namespace Ogre
     {
         /*if (!prg)
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
                 "Null program bound.",
                 "D3D9RenderSystem::bindGpuProgram");
         }*/
-
+        mActiveParameters[gptype].reset();
         HRESULT hr;
         switch(gptype)
         {
         case GPT_VERTEX_PROGRAM:
-            mActiveVertexGpuProgramParameters.reset();
             hr = getActiveD3D9Device()->SetVertexShader(NULL);
             if (FAILED(hr))
             {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Error resetting SetVertexShader to NULL", 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Error resetting SetVertexShader to NULL",
                     "D3D9RenderSystem::unbindGpuProgram");
             }
             break;
         case GPT_FRAGMENT_PROGRAM:
-            mActiveFragmentGpuProgramParameters.reset();
             hr = getActiveD3D9Device()->SetPixelShader(NULL);
             if (FAILED(hr))
             {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Error resetting SetPixelShader to NULL", 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Error resetting SetPixelShader to NULL",
                     "D3D9RenderSystem::unbindGpuProgram");
             }
             break;
@@ -3351,7 +3180,7 @@ namespace Ogre
         RenderSystem::unbindGpuProgram(gptype);
     }
     //---------------------------------------------------------------------
-    void D3D9RenderSystem::bindGpuProgramParameters(GpuProgramType gptype, 
+    void D3D9RenderSystem::bindGpuProgramParameters(GpuProgramType gptype,
         const GpuProgramParametersPtr& params, uint16 variability)
     {
         if (variability & (uint16)GPV_GLOBAL)
@@ -3363,32 +3192,31 @@ namespace Ogre
         HRESULT hr;
         GpuLogicalBufferStructPtr floatLogical = params->getLogicalBufferStruct();
 
+        mActiveParameters[gptype] = params;
         switch(gptype)
         {
         case GPT_VERTEX_PROGRAM:
-            mActiveVertexGpuProgramParameters = params;
             {
                     OGRE_LOCK_MUTEX(floatLogical->mutex);
 
-                    for (GpuLogicalIndexUseMap::const_iterator i = floatLogical->map.begin();
-                        i != floatLogical->map.end(); ++i)
+                    for (const auto& m : floatLogical->map)
                     {
-                        if (i->second.variability & variability)
+                        if (m.second.variability & variability)
                         {
-                            size_t logicalIndex = i->first;
-                            size_t slotCount = i->second.currentSize / 4;
-                            assert (i->second.currentSize % 4 == 0 && "Should not have any "
+                            size_t logicalIndex = m.first;
+                            size_t slotCount = m.second.currentSize / 4;
+                            assert (m.second.currentSize % 4 == 0 && "Should not have any "
                                 "elements less than 4 wide for D3D9");
 
-                            if(i->second.baseType == BCT_FLOAT)
+                            if(m.second.baseType == BCT_FLOAT)
                             {
-                                const float* pFloat = params->getFloatPointer(i->second.physicalIndex);
+                                const float* pFloat = params->getFloatPointer(m.second.physicalIndex);
                                 hr = getActiveD3D9Device()->SetVertexShaderConstantF(
                                     (UINT)logicalIndex, pFloat, (UINT)slotCount);
                             }
                             else
                             {
-                                const int* pInt = params->getIntPointer(i->second.physicalIndex);
+                                const int* pInt = params->getIntPointer(m.second.physicalIndex);
                                 hr = getActiveD3D9Device()->SetVertexShaderConstantI(
                                         static_cast<UINT>(logicalIndex), pInt, static_cast<UINT>(slotCount));
                             }
@@ -3404,29 +3232,27 @@ namespace Ogre
             }
             break;
         case GPT_FRAGMENT_PROGRAM:
-            mActiveFragmentGpuProgramParameters = params;
             {
                             OGRE_LOCK_MUTEX(floatLogical->mutex);
 
-                    for (GpuLogicalIndexUseMap::const_iterator i = floatLogical->map.begin();
-                        i != floatLogical->map.end(); ++i)
+                    for (const auto& m : floatLogical->map)
                     {
-                        if (i->second.variability & variability)
+                        if (m.second.variability & variability)
                         {
-                            size_t logicalIndex = i->first;
-                            size_t slotCount = i->second.currentSize / 4;
-                            assert (i->second.currentSize % 4 == 0 && "Should not have any "
+                            size_t logicalIndex = m.first;
+                            size_t slotCount = m.second.currentSize / 4;
+                            assert (m.second.currentSize % 4 == 0 && "Should not have any "
                                 "elements less than 4 wide for D3D9");
 
-                            if(i->second.baseType == BCT_FLOAT)
+                            if(m.second.baseType == BCT_FLOAT)
                             {
-                                const float* pFloat = params->getFloatPointer(i->second.physicalIndex);
+                                const float* pFloat = params->getFloatPointer(m.second.physicalIndex);
                                 hr = getActiveD3D9Device()->SetPixelShaderConstantF(
                                     (UINT)logicalIndex, pFloat, (UINT)slotCount);
                             }
                             else
                             {
-                                const int* pInt = params->getIntPointer(i->second.physicalIndex);
+                                const int* pInt = params->getIntPointer(m.second.physicalIndex);
                                 hr = getActiveD3D9Device()->SetPixelShaderConstantI(
                                         static_cast<UINT>(logicalIndex), pInt, static_cast<UINT>(slotCount));
                             }
@@ -3462,7 +3288,7 @@ namespace Ogre
             dx9ClipPlane.c = plane.normal.z;
             dx9ClipPlane.d = plane.d;
 
-            if (mVertexProgramBound)
+            if (mProgramBound[GPT_VERTEX_PROGRAM])
             {
                 // programmable clips in clip space (ugh)
                 // must transform worldspace planes by view/proj
@@ -3476,7 +3302,7 @@ namespace Ogre
             hr = getActiveD3D9Device()->SetClipPlane(static_cast<DWORD>(i), dx9ClipPlane);
             if (FAILED(hr))
             {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set clip plane", 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set clip plane",
                     "D3D9RenderSystem::setClipPlanes");
             }
 
@@ -3486,7 +3312,7 @@ namespace Ogre
         hr = __SetRenderState(D3DRS_CLIPPLANEENABLE, mask);
         if (FAILED(hr))
         {
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set render state for clip planes", 
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set render state for clip planes",
                 "D3D9RenderSystem::setClipPlanes");
         }
     }
@@ -3498,7 +3324,7 @@ namespace Ogre
         {
             if (FAILED(hr = __SetRenderState(D3DRS_SCISSORTESTENABLE, TRUE)))
             {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to enable scissor rendering state; " + getErrorDescription(hr), 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to enable scissor rendering state; " + getErrorDescription(hr),
                     "D3D9RenderSystem::setScissorTest");
             }
             RECT rect;
@@ -3508,7 +3334,7 @@ namespace Ogre
             rect.right = _rect.right;
             if (FAILED(hr = getActiveD3D9Device()->SetScissorRect(&rect)))
             {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set scissor rectangle; " + getErrorDescription(hr), 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set scissor rectangle; " + getErrorDescription(hr),
                     "D3D9RenderSystem::setScissorTest");
             }
         }
@@ -3516,13 +3342,13 @@ namespace Ogre
         {
             if (FAILED(hr = __SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE)))
             {
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to disable scissor rendering state; " + getErrorDescription(hr), 
+                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to disable scissor rendering state; " + getErrorDescription(hr),
                     "D3D9RenderSystem::setScissorTest");
             }
         }
     }
     //---------------------------------------------------------------------
-    void D3D9RenderSystem::clearFrameBuffer(unsigned int buffers, 
+    void D3D9RenderSystem::clearFrameBuffer(unsigned int buffers,
         const ColourValue& colour, float depth, unsigned short stencil)
     {
         DWORD flags = 0;
@@ -3540,16 +3366,16 @@ namespace Ogre
             flags |= D3DCLEAR_STENCIL;
         }
         HRESULT hr;
-        if( FAILED( hr = getActiveD3D9Device()->Clear( 
-            0, 
-            NULL, 
+        if( FAILED( hr = getActiveD3D9Device()->Clear(
+            0,
+            NULL,
             flags,
-            colour.getAsARGB(), 
-            depth, 
+            colour.getAsARGB(),
+            depth,
             stencil ) ) )
         {
             String msg = DXGetErrorDescription(hr);
-            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Error clearing frame buffer : " 
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Error clearing frame buffer : "
                 + msg, "D3D9RenderSystem::clearFrameBuffer" );
         }
     }
@@ -3571,7 +3397,7 @@ namespace Ogre
     //---------------------------------------------------------------------
     HardwareOcclusionQuery* D3D9RenderSystem::createHardwareOcclusionQuery()
     {
-        D3D9HardwareOcclusionQuery* ret = OGRE_NEW D3D9HardwareOcclusionQuery(); 
+        D3D9HardwareOcclusionQuery* ret = OGRE_NEW D3D9HardwareOcclusionQuery();
         mHwOcclusionQueries.push_back(ret);
         return ret;
     }
@@ -3607,8 +3433,8 @@ namespace Ogre
 
         if (pDirect3D9 == NULL)
         {
-            OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS, 
-                "Direct3D9 interface is NULL !!!", 
+            OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS,
+                "Direct3D9 interface is NULL !!!",
                 "D3D9RenderSystem::getDirect3D9" );
         }
 
@@ -3629,8 +3455,8 @@ namespace Ogre
             return msD3D9RenderSystem->mDeviceManager->getDeviceCount();
         }
 
-        OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS, 
-            "Invalid resource creation policy !!!", 
+        OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS,
+            "Invalid resource creation policy !!!",
             "D3D9RenderSystem::getResourceCreationDeviceCount" );
 
         return 0;
@@ -3646,14 +3472,14 @@ namespace Ogre
         {
             d3d9Device = msD3D9RenderSystem->getActiveD3D9Device();
         }
-        else if (creationPolicy == RCP_CREATE_ON_ALL_DEVICES) 
+        else if (creationPolicy == RCP_CREATE_ON_ALL_DEVICES)
         {
             d3d9Device = msD3D9RenderSystem->mDeviceManager->getDevice(index)->getD3D9Device();
         }
         else
         {
-            OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS, 
-                "Invalid resource creation policy !!!", 
+            OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS,
+                "Invalid resource creation policy !!!",
                 "D3D9RenderSystem::getResourceCreationDevice" );
         }
 
@@ -3662,7 +3488,7 @@ namespace Ogre
 
     //---------------------------------------------------------------------
     IDirect3DDevice9* D3D9RenderSystem::getActiveD3D9Device()
-    {   
+    {
         D3D9Device* activeDevice = msD3D9RenderSystem->mDeviceManager->getActiveDevice();
         IDirect3DDevice9* d3d9Device;
 
@@ -3670,17 +3496,17 @@ namespace Ogre
 
         if (d3d9Device == NULL)
         {
-            OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS, 
-                "Current d3d9 device is NULL !!!", 
+            OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS,
+                "Current d3d9 device is NULL !!!",
                 "D3D9RenderSystem::getActiveD3D9Device" );
         }
 
         return d3d9Device;
-    }   
+    }
 
     //---------------------------------------------------------------------
     IDirect3DDevice9* D3D9RenderSystem::getActiveD3D9DeviceIfExists()
-    {   
+    {
         D3D9Device* activeDevice = msD3D9RenderSystem->mDeviceManager->getActiveDevice();
         return activeDevice ? activeDevice->getD3D9Device() : NULL;
     }
@@ -3737,7 +3563,7 @@ namespace Ogre
                 // Verify that the depth format is compatible
                 if(mD3D->CheckDepthStencilMatch(
                     activeDevice->getAdapterNumber(),
-                    activeDevice->getDeviceType(), 
+                    activeDevice->getDeviceType(),
                     srfDesc.Format,
                     fmt, ddDepthStencilFormats[x]) == D3D_OK)
                 {
@@ -3769,15 +3595,10 @@ namespace Ogre
     }
 
     //---------------------------------------------------------------------
-	bool D3D9RenderSystem::IsActiveDeviceLost() 
+	bool D3D9RenderSystem::IsActiveDeviceLost()
 	{
 		return D3D9RenderSystem::getDeviceManager()->getActiveDevice()->isDeviceLost();
 	}
-
-    unsigned int D3D9RenderSystem::getDisplayMonitorCount() const
-    {
-        return mD3D->GetAdapterCount();
-    }
 
     //---------------------------------------------------------------------
     void D3D9RenderSystem::beginProfileEvent( const String &eventName )
@@ -3808,15 +3629,8 @@ namespace Ogre
     }
 
     //---------------------------------------------------------------------
-    DWORD D3D9RenderSystem::getSamplerId(size_t unit) 
-    {
-        return static_cast<DWORD>(unit) +
-            ((mTexStageDesc[unit].pVertexTex == NULL) ? 0 : D3DVERTEXTEXTURESAMPLER0);
-    }
-
-    //---------------------------------------------------------------------
     void D3D9RenderSystem::notifyOnDeviceLost(D3D9Device* device)
-    {   
+    {
         StringStream ss;
 
         ss << "D3D9 Device 0x[" << device->getD3D9Device() << "] entered lost state";
@@ -3828,17 +3642,17 @@ namespace Ogre
 
     //---------------------------------------------------------------------
     void D3D9RenderSystem::notifyOnDeviceReset(D3D9Device* device)
-    {       
-        // Reset state attributes.  
-        mVertexProgramBound = false;
-        mFragmentProgramBound = false;
+    {
+        // Reset state attributes.
+        mProgramBound[GPT_VERTEX_PROGRAM] = false;
+        mProgramBound[GPT_FRAGMENT_PROGRAM] = false;
         mLastVertexSourceCount = 0;
 
-        
+
         // Force all compositors to reconstruct their internal resources
         // render textures will have been changed without their knowledge
         CompositorManager::getSingleton()._reconstructAllCompositorResources();
-        
+
         // Restore previous active device.
 
         // Invalidate active view port.
@@ -3861,7 +3675,7 @@ namespace Ogre
 
     //---------------------------------------------------------------------
     void D3D9RenderSystem::determineFSAASettings(IDirect3DDevice9* d3d9Device,
-        size_t fsaa, const String& fsaaHint, D3DFORMAT d3dPixelFormat, 
+        size_t fsaa, const String& fsaaHint, D3DFORMAT d3dPixelFormat,
         bool fullScreen, D3DMULTISAMPLE_TYPE *outMultisampleType, DWORD *outMultisampleQuality)
     {
         bool ok = false;
@@ -3918,15 +3732,15 @@ namespace Ogre
 
             HRESULT hr;
             DWORD outQuality;
-            hr = mD3D->CheckDeviceMultiSampleType( 
-                deviceDriver->getAdapterNumber(), 
-                D3DDEVTYPE_HAL, 
-                d3dPixelFormat, 
-                fullScreen, 
-                *outMultisampleType, 
+            hr = mD3D->CheckDeviceMultiSampleType(
+                deviceDriver->getAdapterNumber(),
+                D3DDEVTYPE_HAL,
+                d3dPixelFormat,
+                fullScreen,
+                *outMultisampleType,
                 &outQuality);
 
-            if (SUCCEEDED(hr) && 
+            if (SUCCEEDED(hr) &&
                 (!useCSAA || outQuality > *outMultisampleQuality))
             {
                 ok = true;
@@ -3974,12 +3788,12 @@ namespace Ogre
     void D3D9RenderSystem::createStereoDriver(const NameValuePairList* miscParams)
     {
         // Get the value used to create the render system.  If none, get the parameter value used to create the window.
-        StereoModeType stereoMode = StringConverter::parseStereoMode(mOptions["Stereo Mode"].currentValue);
-        if (stereoMode == SMT_NONE)
+        bool stereoMode = StringConverter::parseBool(mOptions["Frame Sequential Stereo"].currentValue);
+        if (!stereoMode)
         {
             NameValuePairList::const_iterator iter = miscParams->find("stereoMode");
             if (iter != miscParams->end())
-              stereoMode = StringConverter::parseStereoMode((*iter).second);
+              stereoMode = StringConverter::parseBool((*iter).second);
         }
 
         // Always create the stereo bridge regardless of the mode

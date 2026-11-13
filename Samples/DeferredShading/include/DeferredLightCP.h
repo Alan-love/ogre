@@ -31,7 +31,7 @@ public:
     DeferredLightRenderOperation(Ogre::CompositorInstance* instance, const Ogre::CompositionPass* pass);
     
     /** @copydoc CompositorInstance::RenderSystemOperation::execute */
-    virtual void execute(Ogre::SceneManager *sm, Ogre::RenderSystem *rs);
+    void execute(Ogre::SceneManager *sm, Ogre::RenderSystem *rs) override;
 
     virtual ~DeferredLightRenderOperation();
 private:
@@ -45,14 +45,14 @@ private:
     Ogre::String mTexName1;
 
     //The material generator for the light geometry
-    MaterialGenerator* mLightMaterialGenerator;
+    std::unique_ptr<MaterialGenerator> mLightMaterialGenerator;
 
     //The map of deferred light geometries already constructed
-    typedef std::map<Ogre::Light*, DLight*> LightsMap;
+    typedef std::map<Ogre::Light*, std::unique_ptr<DLight>> LightsMap;
     LightsMap mLights;
 
     //The ambient light used to render the scene
-    AmbientLight* mAmbientLight;
+    std::unique_ptr<AmbientLight> mAmbientLight;
 
     //The viewport that we are rendering to
     Ogre::Viewport* mViewport;
@@ -65,14 +65,11 @@ class DeferredLightCompositionPass : public Ogre::CustomCompositionPass
 public:
 
     /** @copydoc CustomCompositionPass::createOperation */
-    virtual Ogre::CompositorInstance::RenderSystemOperation* createOperation(
-        Ogre::CompositorInstance* instance, const Ogre::CompositionPass* pass)
+    Ogre::CompositorInstance::RenderSystemOperation* createOperation(
+        Ogre::CompositorInstance* instance, const Ogre::CompositionPass* pass) override
     {
         return OGRE_NEW DeferredLightRenderOperation(instance, pass);
     }
-
-protected:
-    virtual ~DeferredLightCompositionPass() {}
 };
 
 #endif

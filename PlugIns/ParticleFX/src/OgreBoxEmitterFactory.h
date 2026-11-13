@@ -36,7 +36,7 @@ THE SOFTWARE.
 namespace Ogre {
 
     /** Factory class for particle emitter of type "Box".
-    @remarks
+
         Creates instances of BoxEmitter to be used in particle systems. 
     */
     class BoxEmitterFactory : public ParticleEmitterFactory
@@ -46,13 +46,7 @@ namespace Ogre {
     public:
         String getName() const override { return "Box"; }
 
-        ParticleEmitter* createEmitter(ParticleSystem* psys) 
-        {
-            ParticleEmitter* emit = OGRE_NEW BoxEmitter(psys);
-            mEmitters.push_back(emit);
-            return emit;
-        }
-
+        ParticleEmitter* createEmitter(ParticleSystem* psys) override { return new BoxEmitter(psys); }
     };
 
 }

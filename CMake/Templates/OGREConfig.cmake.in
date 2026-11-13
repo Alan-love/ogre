@@ -24,7 +24,7 @@
 
 set(OGRE_STATIC @OGRE_STATIC@)
 set_and_check(OGRE_MEDIA_DIR "@PACKAGE_OGRE_MEDIA_PATH@")
-set_and_check(OGRE_PLUGIN_DIR "@PACKAGE_OGRE_PLUGIN_DIR_CMAKE@")
+set_and_check(OGRE_PLUGIN_DIR "@PACKAGE_OGRE_PLUGINS_PATH@")
 set_and_check(OGRE_CONFIG_DIR "@PACKAGE_OGRE_CFG_INSTALL_PATH@")
 
 set(OGRE_PREFIX_DIR "@PACKAGE_CMAKE_INSTALL_PREFIX@")
@@ -66,8 +66,32 @@ endmacro()
 ## COMPONENTS
 include("${CMAKE_CURRENT_LIST_DIR}/OgreTargets.cmake")
 
+if(@OGRE_STATIC@)
+    # Static targets keep their private dependencies in the link interface as
+    # $<LINK_ONLY:...>, so the packages providing those imported targets have
+    # to be found before a consumer links them. This is quiet because only
+    # users of the respective target need them; those that do get a clear
+    # error about the missing target.
+    if(@OGRE_BUILD_PLUGIN_ASSIMP@)
+        # assimp >= 5.1, older versions do not provide assimp::assimp
+        find_package(assimp QUIET)
+    endif()
+    if(@OGRE_BUILD_PLUGIN_DOT_SCENE@)
+        find_package(pugixml QUIET)
+    endif()
+    if(@OGRE_BUILD_COMPONENT_BITES@ AND @SDL2_FOUND@)
+        find_package(SDL2 QUIET)
+    endif()
+    if(@OGRE_BUILD_COMPONENT_OVERLAY@ AND @ZLIB_FOUND@)
+        find_package(ZLIB QUIET)
+    endif()
+endif()
+
 if(@OGRE_BUILD_COMPONENT_BITES@)
     ogre_declare_component(Bites)
+endif()
+if(@OGRE_BUILD_COMPONENT_BULLET@)
+    ogre_declare_component(Bullet)
 endif()
 if(@OGRE_BUILD_COMPONENT_MESHLODGENERATOR@)
     ogre_declare_component(MeshLodGenerator)
@@ -146,7 +170,12 @@ endif()
 cmake_policy(POP)
 
 if(@OGRE_STATIC@)
-    list(APPEND OGRE_LIBRARIES OgreGLSupport@OGRE_LIB_SUFFIX@ @CMAKE_DL_LIBS@) # glXXw uses dlopen
+    if(TARGET OgreGLSupport)
+        # OgreGLSupport is exported as an imported target. Use the target name
+        # rather than the static output name, so that consumers do not have to
+        # add the install library directory to the linker search path.
+        list(APPEND OGRE_LIBRARIES OgreGLSupport @CMAKE_DL_LIBS@) # glXXw uses dlopen
+    endif()
     list(APPEND OGRE_LIBRARY_DIRS "${OGRE_LIBRARY_DIRS}/OGRE") # plugins folder
 endif()
 

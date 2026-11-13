@@ -35,14 +35,14 @@ using namespace Ogre;
 
 struct RTShaderSystem : public RootWithoutRenderSystemFixture
 {
-    void SetUp()
+    void SetUp() override
     {
         RootWithoutRenderSystemFixture::SetUp();
 
         RTShader::ShaderGenerator::initialize();
         RTShader::ShaderGenerator::getSingleton().setTargetLanguage("glsl");
     }
-    void TearDown()
+    void TearDown() override
     {
         RTShader::ShaderGenerator::destroy();
         RootWithoutRenderSystemFixture::TearDown();
@@ -103,6 +103,58 @@ TEST_F(RTShaderSystem, TargetRenderState)
     EXPECT_TRUE(pass->hasGpuProgram(GPT_FRAGMENT_PROGRAM));
 }
 
+TEST_F(RTShaderSystem, SubRenderStateInstances)
+{
+    using namespace RTShader;
+    auto& shaderGen = ShaderGenerator::getSingleton();
+    auto mat = MaterialManager::getSingleton().create("TestMat", RGN_DEFAULT);
+
+    shaderGen.createShaderBasedTechnique(mat->getTechniques()[0], "MyScheme");
+    auto renderState = shaderGen.getRenderState("MyScheme");
+    renderState->setLightCountAutoUpdate(false);
+
+    auto templateSRS = shaderGen.createSubRenderState(SRS_TRANSFORM);
+    renderState->addTemplateSubRenderState(templateSRS);
+
+    shaderGen.validateMaterial("MyScheme", *mat);
+
+    // the instance used by the generated pass must be reachable from the template
+    const auto& instances = templateSRS->getAccessor()->getSubRenderStateInstanceSet();
+    ASSERT_EQ(instances.size(), size_t(1));
+    EXPECT_EQ((*instances.begin())->getType(), SRS_TRANSFORM);
+
+    shaderGen.removeShaderBasedTechnique(mat->getTechniques()[0], "MyScheme");
+}
+
+TEST_F(RTShaderSystem, ClusteredLightCulling)
+{
+    auto mat = MaterialManager::getSingleton().create("TestMat", RGN_DEFAULT);
+    auto pass = mat->getTechniques()[0]->getPasses()[0];
+    pass->setLightingEnabled(true);
+
+    using namespace RTShader;
+    RenderState renderState;
+    renderState.addTemplateSubRenderStates({SRS_COOK_TORRANCE_LIGHTING, SRS_CLUSTERED_LIGHT_CULLING});
+
+    TargetRenderState targetRenderState;
+    targetRenderState.setLightCount(4);
+    targetRenderState.link(renderState, pass, pass);
+
+    // the pass is not SO_PHONG, the lighting model is taken from the linked render state
+    EXPECT_TRUE(targetRenderState.getSubRenderState(SRS_CLUSTERED_LIGHT_CULLING));
+
+    // without a lighting SRS nothing consumes the froxel light list
+    RenderState noLightingState;
+    noLightingState.addTemplateSubRenderState(
+        ShaderGenerator::getSingleton().createSubRenderState(SRS_CLUSTERED_LIGHT_CULLING));
+
+    TargetRenderState noLighting;
+    noLighting.setLightCount(4);
+    noLighting.link(noLightingState, pass, pass);
+
+    EXPECT_FALSE(noLighting.getSubRenderState(SRS_CLUSTERED_LIGHT_CULLING));
+}
+
 TEST_F(RTShaderSystem, FunctionInvocationOrder)
 {
     using namespace RTShader;
@@ -120,4 +172,22 @@ TEST_F(RTShaderSystem, FunctionInvocationOrder)
 
     EXPECT_TRUE(c == a);
     EXPECT_FALSE(c < a);
+}
+
+TEST_F(RTShaderSystem, NormalMapTextureUnitParameters)
+{
+    struct ErrorCounter : ScriptCompilerListener
+    {
+        int count = 0;
+        void handleError(ScriptCompiler*, uint32, const String&, int, const String&) override { count++; }
+    } errors;
+    ScriptCompilerManager::getSingleton().setListener(&errors);
+
+    String script = "material NormalMapTest { technique { pass { texture_unit { rtshader_system {"
+                    " normal_map parallax_occlusion height_scale 0.1 } } } } }";
+    DataStreamPtr stream = std::make_shared<MemoryDataStream>("memory.material", &script[0], script.size());
+    MaterialManager::getSingleton().parseScript(stream, RGN_DEFAULT);
+
+    ScriptCompilerManager::getSingleton().setListener(NULL);
+    EXPECT_EQ(errors.count, 0);
 }

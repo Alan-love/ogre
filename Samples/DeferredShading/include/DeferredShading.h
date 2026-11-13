@@ -34,11 +34,6 @@ The wiki article explaining this demo can be found here :
 
 #include "SdkSample.h"
 
-#if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
-#define WIN32_LEAN_AND_MEAN
-#include "windows.h"
-#endif
-
 #include "OgreCompositorInstance.h"
 #include "OgreSceneManager.h"
 #include "OgreSceneNode.h"
@@ -46,8 +41,13 @@ The wiki article explaining this demo can be found here :
 #include "OgreRenderTargetListener.h"
 #include "GeomUtils.h"
 
+#include <memory>
+
 using namespace Ogre;
 using namespace OgreBites;
+
+class GBufferSchemeHandler;
+class DeferredLightCompositionPass;
 
 /** System to manage Deferred Shading for a camera/render target.
  *  @note With the changes to the compositor framework, this class just
@@ -67,10 +67,6 @@ public:
         DSM_SHOWDSP = 3,     // Show depth and specular channel (for debugging)
         DSM_COUNT = 4
     };
-
-    //The first render queue that does get rendered into the GBuffer
-    //place objects (like skies) that should be before gbuffer before this one.
-    static const Ogre::uint8 PRE_GBUFFER_RENDER_QUEUE;
     
     //The first render queue that does not get rendered into the GBuffer
     //place transparent (or other non gbuffer) objects after this one
@@ -109,8 +105,11 @@ protected:
     bool mSSAO;
 
     //Used to unregister compositor logics and free memory
-    typedef std::map<String, CompositorLogic*> CompositorLogicMap;
+    typedef std::map<String, std::unique_ptr<CompositorLogic>> CompositorLogicMap;
     CompositorLogicMap mCompositorLogics;
+
+    std::unique_ptr<GBufferSchemeHandler> mGBufferSchemeHandler;
+    std::unique_ptr<DeferredLightCompositionPass> mDeferredLightPass;
 
     void createResources();
     

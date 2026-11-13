@@ -35,7 +35,6 @@ THE SOFTWARE.
 
 #include "OgreEmscriptenEGLSupport.h"
 #include "OgreEmscriptenEGLWindow.h"
-#include "OgreViewport.h"
 
 #include <iostream>
 #include <algorithm>
@@ -51,31 +50,30 @@ namespace Ogre {
           mMSAA(0),
           mCSAA(0)
     {
-        // already handled by resize
-        emscripten_set_fullscreenchange_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, (void*)this, 1, &EmscriptenEGLWindow::fullscreenCallback);
-        emscripten_set_webglcontextlost_callback("#canvas", (void*)this, 1, &EmscriptenEGLWindow::contextLostCallback);
-        emscripten_set_webglcontextrestored_callback("#canvas", (void*)this, 1, &EmscriptenEGLWindow::contextRestoredCallback);
-        emscripten_set_resize_callback("#canvas", (void*)this, 1, &EmscriptenEGLWindow::canvasWindowResized);
     }
 
     EmscriptenEGLWindow::~EmscriptenEGLWindow()
     {
-        emscripten_set_fullscreenchange_callback("#canvas", NULL, 0, NULL);
-        emscripten_set_resize_callback("#canvas", NULL, 0, NULL);
-        emscripten_set_webglcontextlost_callback("#canvas", NULL, 0, NULL);
-        emscripten_set_webglcontextrestored_callback("#canvas", NULL, 0, NULL);
+        if (mCanvasSelector.empty())
+            return;
+
+        // remove the callbacks from the targets they were registered on. This removes all
+        // handlers of these events, but the window owning the canvas is going away anyway
+        emscripten_set_fullscreenchange_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, NULL, 0, NULL);
+        emscripten_set_resize_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, NULL, 0, NULL);
+        emscripten_set_webglcontextlost_callback(mCanvasSelector.c_str(), NULL, 0, NULL);
+        emscripten_set_webglcontextrestored_callback(mCanvasSelector.c_str(), NULL, 0, NULL);
     }
 
     void EmscriptenEGLWindow::resize(uint width, uint height)
     {
-        mWidth = width;
-        mHeight = height;
-        
+        RenderWindow::resize(width, height);
 
         EMSCRIPTEN_RESULT result = emscripten_set_canvas_element_size(mCanvasSelector.c_str(), width, height);
         // This is a workaroud for issue: https://github.com/emscripten-core/emscripten/issues/3283.
         // The setTimeout of 0 will ensure that this code is runs on the next JSEventLoop.
-        EM_ASM(setTimeout(function(){var canvas = document.getElementById('canvas'); canvas.width = $0; canvas.height = $1;}, 0), width, height);
+        EM_ASM(setTimeout(function(){var canvas = document.querySelector(UTF8ToString($0)); canvas.width = $1; canvas.height = $2;}, 0),
+               mCanvasSelector.c_str(), width, height);
         
         if(result < 0)
         {
@@ -86,11 +84,6 @@ namespace Ogre {
         
         
         LogManager::getSingleton().logMessage("EmscriptenEGLWindow::resize "+mCanvasSelector+" w:" + Ogre::StringConverter::toString(mWidth) + " h:" + Ogre::StringConverter::toString(mHeight));
-        
-        // Notify viewports of resize
-        ViewportList::iterator it = mViewportList.begin();
-        while( it != mViewportList.end() )
-            (*it++).second->_updateDimensions();
     }
 
     void EmscriptenEGLWindow::windowMovedOrResized()
@@ -99,19 +92,14 @@ namespace Ogre {
 
         int w, h;
         emscripten_get_canvas_element_size(mCanvasSelector.c_str(), &w, &h);
-        mWidth = w;
-        mHeight = h;
 
-        // Notify viewports of resize
-        ViewportList::iterator it = mViewportList.begin();
-        while( it != mViewportList.end() )
-            (*it++).second->_updateDimensions();
+        RenderWindow::resize(w, h);
     }
     
     void EmscriptenEGLWindow::switchFullScreen(bool fullscreen)
     {
         if(fullscreen)
-            emscripten_request_fullscreen(NULL, 1);
+            emscripten_request_fullscreen(mCanvasSelector.c_str(), 1);
         else
             emscripten_exit_fullscreen();
     }
@@ -144,7 +132,6 @@ namespace Ogre {
                 }
                 
                 eglContext = eglGetCurrentContext();
-                mEglSurface = eglGetCurrentSurface(EGL_DRAW);
             }
 
             if((opt = miscParams->find("maxColourBufferSize")) != end)
@@ -184,12 +171,7 @@ namespace Ogre {
                 mCanvasSelector = opt->second;
             }
         }
-        
-        if (mEglSurface)
-        {
-            mEglConfig = mGLSupport->getGLConfigFromDrawable (mEglSurface, &width, &height);
-        }
-        
+
         if (!mEglConfig && eglContext)
         {
             mEglConfig = mGLSupport->getGLConfigFromContext(eglContext);
@@ -202,8 +184,6 @@ namespace Ogre {
                             "EGLWindow::create");
             }
         }
-        
-        mIsExternal = (mEglSurface != 0);
         
         if (!mEglConfig)
         {
@@ -224,6 +204,13 @@ namespace Ogre {
         
         mOldWidth = width;
         mOldHeight = height;
+
+        // the browser sends resize events to the window, not to the canvas
+        emscripten_set_fullscreenchange_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, this, 1, &EmscriptenEGLWindow::fullscreenCallback);
+        emscripten_set_resize_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, 1, &EmscriptenEGLWindow::canvasWindowResized);
+        emscripten_set_webglcontextlost_callback(mCanvasSelector.c_str(), this, 1, &EmscriptenEGLWindow::contextLostCallback);
+        emscripten_set_webglcontextrestored_callback(mCanvasSelector.c_str(), this, 1, &EmscriptenEGLWindow::contextRestoredCallback);
+
         if(fullScreen)
             switchFullScreen(true);
         
@@ -234,14 +221,14 @@ namespace Ogre {
         mClosed = false;
     }
 
-    int EmscriptenEGLWindow::contextLostCallback(int eventType, const void *reserved, void *userData)
+    EM_BOOL EmscriptenEGLWindow::contextLostCallback(int eventType, const void *reserved, void *userData)
     {
         Ogre::EmscriptenEGLWindow* thiz = static_cast<Ogre::EmscriptenEGLWindow*>(userData);
         thiz->_notifySurfaceDestroyed();
         return 0;
     }
     
-    int EmscriptenEGLWindow::contextRestoredCallback(int eventType, const void *reserved, void *userData)
+    EM_BOOL EmscriptenEGLWindow::contextRestoredCallback(int eventType, const void *reserved, void *userData)
     {
         Ogre::EmscriptenEGLWindow* thiz = static_cast<Ogre::EmscriptenEGLWindow*>(userData);
         thiz->_notifySurfaceCreated(&thiz->mWindow);
@@ -288,10 +275,7 @@ namespace Ogre {
             EGL_NONE
         };
 
-        bool bAASuccess = false;
-        if (mCSAA)
-        {
-            try
+            if (mCSAA)
             {
                 int CSAAminAttribs[] = {
                     EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
@@ -311,46 +295,40 @@ namespace Ogre {
                     EGL_NONE
                 };
                 mEglConfig = mGLSupport->selectGLConfig(CSAAminAttribs, CSAAmaxAttribs);
-                bAASuccess = true;
+                if (!mEglConfig)
+                {
+                    LogManager::getSingleton().logMessage("EmscriptenEGLWindow::_createInternalResources: setting CSAA failed");
+                }
             }
-            catch (Exception& e)
-            {
-                LogManager::getSingleton().logMessage("EmscriptenEGLWindow::_createInternalResources: setting CSAA failed");
-            }
-        }
 
-        if (mMSAA && !bAASuccess)
+        if (mMSAA && !mEglConfig)
         {
-            try
-            {
-                int MSAAminAttribs[] = {
-                    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                    EGL_BUFFER_SIZE, mMinBufferSize,
-                    EGL_DEPTH_SIZE, 16,
-                    EGL_SAMPLE_BUFFERS, 1,
-                    EGL_SAMPLES, mMSAA,
-                    EGL_NONE
-                };
-                int MSAAmaxAttribs[] = {
-                    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                    EGL_BUFFER_SIZE, mMaxBufferSize,
-                    EGL_DEPTH_SIZE, mMaxDepthSize,
-                    EGL_STENCIL_SIZE, mMaxStencilSize,
-                    EGL_SAMPLE_BUFFERS, 1,
-                    EGL_SAMPLES, mMSAA,
-                    EGL_NONE
-                };
-                mEglConfig = mGLSupport->selectGLConfig(MSAAminAttribs, MSAAmaxAttribs);
-                bAASuccess = true;
-            }
-            catch (Exception& e)
+            int MSAAminAttribs[] = {
+                EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                EGL_BUFFER_SIZE, mMinBufferSize,
+                EGL_DEPTH_SIZE, 16,
+                EGL_SAMPLE_BUFFERS, 1,
+                EGL_SAMPLES, mMSAA,
+                EGL_NONE
+            };
+            int MSAAmaxAttribs[] = {
+                EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                EGL_BUFFER_SIZE, mMaxBufferSize,
+                EGL_DEPTH_SIZE, mMaxDepthSize,
+                EGL_STENCIL_SIZE, mMaxStencilSize,
+                EGL_SAMPLE_BUFFERS, 1,
+                EGL_SAMPLES, mMSAA,
+                EGL_NONE
+            };
+            mEglConfig = mGLSupport->selectGLConfig(MSAAminAttribs, MSAAmaxAttribs);
+            if (!mEglConfig)
             {
                 LogManager::getSingleton().logMessage("EmscriptenEGLWindow::_createInternalResources: setting MSAA failed");
             }
         }
         
         mEglDisplay = mGLSupport->getGLDisplay();
-        if (!bAASuccess) mEglConfig = mGLSupport->selectGLConfig(minAttribs, maxAttribs);
+        if (!mEglConfig) mEglConfig = mGLSupport->selectGLConfig(minAttribs, maxAttribs);
         
         mEglSurface = createSurfaceFromWindow(mEglDisplay, mWindow);
         

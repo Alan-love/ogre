@@ -13,6 +13,7 @@
 
 if(EGL_FOUND)
   cmake_dependent_option(OGRE_GLSUPPORT_USE_EGL "use EGL for GL Context Creation instead of GLX/ WGL" TRUE "NOT WIN32" FALSE)
+  cmake_dependent_option(OGRE_USE_WAYLAND "use Wayland window manager" FALSE "UNIX;NOT APPLE;NOT EMSCRIPTEN;NOT ANDROID" FALSE)
 endif()
 
 if(ANDROID)
@@ -22,6 +23,8 @@ if(ANDROID)
   set(NATIVE_INCLUDES 
       ${CMAKE_CURRENT_SOURCE_DIR}/include/EGL 
       ${CMAKE_CURRENT_SOURCE_DIR}/include/EGL/Android)
+
+  set(PLATFORM_LIBS android EGL GLESv2)
 elseif (EMSCRIPTEN)
   file(GLOB PLATFORM_HEADERS "include/EGL/Emscripten/*.h" "include/EGL/*.h")
   file(GLOB PLATFORM_SOURCES "src/EGL/Emscripten/*.cpp" "src/EGL/*.cpp")
@@ -44,9 +47,7 @@ elseif (WIN32)
     set(NATIVE_INCLUDES
         ${CMAKE_CURRENT_SOURCE_DIR}/include/win32)
         
-    if(MINGW)
-        set(PLATFORM_LIBS opengl32)
-    endif()
+    set(PLATFORM_LIBS ${OPENGL_gl_LIBRARY})
   endif()
 elseif(APPLE_IOS)
   # only works with GLES2 - no shared components here.
@@ -63,25 +64,45 @@ elseif (APPLE)
   set(NATIVE_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/include/OSX 
     ${PROJECT_SOURCE_DIR}/OgreMain/include/OSX)
-  set(PLATFORM_LIBS "-framework CoreGraphics" "-framework Foundation" "-framework AppKit")
+  set(PLATFORM_LIBS "-framework AppKit" ${OPENGL_gl_LIBRARY})
 elseif (UNIX)
   if(OGRE_GLSUPPORT_USE_EGL)
-    file(GLOB PLATFORM_HEADERS "include/EGL/X11/*.h" "include/EGL/*.h")
-    file(GLOB PLATFORM_SOURCES "src/EGL/X11/*.cpp" "src/EGL/*.cpp")
-    
-    set(NATIVE_INCLUDES
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/EGL
+    list(APPEND _EGL_HEADERS "include/EGL/*.h")
+    list(APPEND _EGL_SOURCES "src/EGL/*.cpp")
+    list(APPEND NATIVE_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/include/EGL)
+    if(OGRE_USE_WAYLAND)
+      list(APPEND _EGL_HEADERS "include/EGL/Wayland/*.h")
+      list(APPEND _EGL_SOURCES "src/EGL/Wayland/*.cpp")
+      list(APPEND NATIVE_INCLUDES
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/EGL/Wayland)
+      set(PLATFORM_LIBS ${EGL_LIBRARIES} PkgConfig::waylands)
+    else()
+      list(APPEND _EGL_HEADERS "include/EGL/X11/*.h")
+      list(APPEND _EGL_SOURCES "src/EGL/X11/*.cpp")
+      list(APPEND _EGL_SOURCES "src/X11/*.cpp")
+      list(APPEND NATIVE_INCLUDES
         ${CMAKE_CURRENT_SOURCE_DIR}/include/EGL/X11)
-    set(PLATFORM_LIBS ${X11_LIBRARIES} ${X11_Xrandr_LIB} ${EGL_LIBRARIES})
+      set(PLATFORM_LIBS ${X11_LIBRARIES} ${X11_Xrandr_LIB} ${EGL_LIBRARIES})
+    endif()
+
+    file(GLOB PLATFORM_HEADERS ${_EGL_HEADERS})
+    file(GLOB PLATFORM_SOURCES ${_EGL_SOURCES})
   else()
     file(GLOB PLATFORM_HEADERS "include/GLX/*.h")
-    file(GLOB PLATFORM_SOURCES "src/GLX/*.cpp")
+    file(GLOB PLATFORM_SOURCES "src/GLX/*.cpp" "src/X11/*.cpp")
 
     set(NATIVE_INCLUDES
         ${CMAKE_CURRENT_SOURCE_DIR}/include/GLX
         ${OPENGL_INCLUDE_DIR})
-    
-    set(PLATFORM_LIBS ${X11_LIBRARIES} ${X11_Xrandr_LIB} ${OPENGL_gl_LIBRARY})
+
+    if(NOT OPENGL_glx_LIBRARY)
+      set(OPENGL_glx_LIBRARY ${OPENGL_gl_LIBRARY})
+    endif()
+
+    set(PLATFORM_LIBS ${X11_LIBRARIES} ${X11_Xrandr_LIB} ${OPENGL_glx_LIBRARY})
+  endif()
+  if(NOT OGRE_USE_WAYLAND)
+    list(APPEND NATIVE_INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/src/X11/")
   endif()
 endif ()
 
@@ -101,6 +122,8 @@ add_library(OgreGLSupport STATIC
     src/OgreGLTextureCommon.cpp
     src/OgreGLDepthBufferCommon.cpp
     src/OgreGLRenderTexture.cpp
+    src/OgreGLMultiRenderTarget.cpp
+    src/OgreGLRenderToVertexBufferCommon.cpp
     src/OgreGLHardwarePixelBufferCommon.cpp
     src/OgreGLUniformCache.cpp
     src/OgreGLVertexArrayObject.cpp
@@ -111,6 +134,10 @@ target_include_directories(OgreGLSupport PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/GLSL>"
     PRIVATE "$<BUILD_INTERFACE:${NATIVE_INCLUDES}>")
+
+  if(OGRE_USE_WAYLAND)
+    target_compile_definitions(OgreGLSupport PRIVATE OGRE_WAYLAND)
+  endif()
 
 set_property(TARGET OgreGLSupport PROPERTY POSITION_INDEPENDENT_CODE ON)
 generate_export_header(OgreGLSupport 

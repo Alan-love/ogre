@@ -55,16 +55,22 @@ def main():
     ]
 
     if sys.platform == "win32":
-        cmake_args += ["-DSWIG_EXECUTABLE=C:/ProgramData/chocolatey/bin/swig.exe",
-                       "-DOGRE_BIN_DIRECTORY=Ogre", # direct dlls into python package
-                       "-DOGRE_BUILD_RENDERSYSTEM_D3D9=OFF" # do not require old runtime
+        cmake_args += ["-DOGRE_BIN_DIRECTORY=Ogre", # direct dlls into python package
+                       "-DOGRE_CFG_INSTALL_PATH=bin", # but keep config files in bin, relative to Media
+                       "-DOGRE_BUILD_RENDERSYSTEM_D3D9=OFF", # do not require old runtime
+                       "-DOGRE_BUILD_RENDERSYSTEM_VULKAN=ON",
+                       "-DOGRE_BUILD_PLUGIN_GLSLANG=ON"
                        ]
     elif sys.platform == "linux":
         cmake_args += ["-DOGRE_GLSUPPORT_USE_EGL=ON",
+                       "-DOGRE_BUILD_RENDERSYSTEM_VULKAN=ON",
+                       "-DOGRE_BUILD_PLUGIN_GLSLANG=ON",
+                       "-DPYTHON_LIBRARY=dontcare", # workaround issue with cmake & manylinux
                        "-DCMAKE_CXX_FLAGS=-s", # strip assimp
                        "-DCMAKE_INSTALL_RPATH=$ORIGIN;$ORIGIN/OGRE"]
     elif sys.platform == "darwin":
         cmake_args += ["-DOGRE_BUILD_LIBS_AS_FRAMEWORKS=OFF",
+                       "-DCMAKE_OSX_ARCHITECTURES=arm64",
                        "-DCMAKE_INSTALL_RPATH=@loader_path;@loader_path/OGRE"]
 
     version = re.search("project\(OGRE VERSION (\S+)\)", open("CMakeLists.txt").read()).group(1)
@@ -92,23 +98,22 @@ def main():
         classifiers=[
             "Development Status :: 5 - Production/Stable",
             "Environment :: Console",
+            "Environment :: MacOS X",
+            "Environment :: Win32 (MS Windows)",
+            "Environment :: X11 Applications",
             "Intended Audience :: Developers",
             "Intended Audience :: Education",
             "Intended Audience :: Information Technology",
             "Intended Audience :: Science/Research",
-            "License :: OSI Approved :: MIT License",
             "Operating System :: MacOS",
             "Operating System :: Microsoft :: Windows",
-            "Operating System :: POSIX",
-            "Operating System :: Unix",
-            "Programming Language :: Python",
+            "Operating System :: POSIX :: Linux",
             "Programming Language :: Python :: 3",
-            "Programming Language :: Python :: 3 :: Only",
-            "Programming Language :: Python :: 3.8",
             "Programming Language :: C++",
             "Programming Language :: Python :: Implementation :: CPython",
             "Topic :: Scientific/Engineering",
             "Topic :: Multimedia :: Graphics :: 3D Rendering",
+            "Topic :: Multimedia :: Graphics :: Viewers",
             "Topic :: Software Development",
         ],
         cmake_args=cmake_args,

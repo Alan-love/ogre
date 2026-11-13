@@ -6,6 +6,7 @@
  */
 
 #include "OgreTrays.h"
+#include <sstream>
 
 namespace OgreBites
 {
@@ -71,7 +72,7 @@ Ogre::Vector2 Widget::cursorOffset(Ogre::OverlayElement *element, const Ogre::Ve
 
 Ogre::Real Widget::getCaptionWidth(const Ogre::DisplayString &caption, Ogre::TextAreaOverlayElement *area)
 {
-    Ogre::FontPtr font = area->getFont();
+    const Ogre::FontPtr& font = area->getFont();
     font->load(); // ensure glyph info is there
     Ogre::Real lineWidth = 0;
 
@@ -425,12 +426,8 @@ SelectMenu::SelectMenu(const Ogre::String &name, const Ogre::DisplayString &capt
 }
 
 void SelectMenu::copyItemsFrom(SelectMenu *other){
-    const Ogre::StringVector& items = other->getItems();
-    Ogre::StringVector::const_iterator it, itEnd;
-    itEnd = items.end();
-    for(it=items.begin(); it != itEnd; it++){
-        this->addItem(*it);
-    }
+    for(const auto& i : other->getItems())
+        addItem(i);
 }
 
 void SelectMenu::setCaption(const Ogre::DisplayString &caption)
@@ -538,17 +535,11 @@ void SelectMenu::selectItem(size_t index, bool notifyListener)
 
 bool SelectMenu::containsItem(const Ogre::DisplayString &item)
 {
-    bool res = false;
-    for (unsigned int i = 0; i < mItems.size(); i++)
-    {
-        if (item == mItems[i])
-        {
-            res = true;
-            break;
-        }
-    }
+    auto i = std::find(mItems.begin(), mItems.end(), item);
+    if (i != mItems.end())
+        return true;
 
-    return res;
+    return false;
 }
 
 void SelectMenu::selectItem(const Ogre::DisplayString &item, bool notifyListener)
@@ -791,7 +782,7 @@ Separator::Separator(const Ogre::String &name, Ogre::Real width)
     }
 }
 
-Slider::Slider(const Ogre::String &name, const Ogre::DisplayString &caption, Ogre::Real width, Ogre::Real trackWidth, Ogre::Real valueBoxWidth, Ogre::Real minValue, Ogre::Real maxValue, unsigned int snaps)
+Slider::Slider(const Ogre::String &name, const Ogre::DisplayString &caption, Ogre::Real width, Ogre::Real trackWidth, Ogre::Real valueBoxWidth, float minValue, float maxValue, unsigned int snaps)
     : mDragOffset(0.0f)
     , mValue(0.0f)
     , mMinValue(0.0f)
@@ -836,7 +827,7 @@ Slider::Slider(const Ogre::String &name, const Ogre::DisplayString &caption, Ogr
     setRange(minValue, maxValue, snaps, false);
 }
 
-void Slider::setRange(Ogre::Real minValue, Ogre::Real maxValue, unsigned int snaps, bool notifyListener)
+void Slider::setRange(float minValue, float maxValue, unsigned int snaps, bool notifyListener)
 {
     mMinValue = minValue;
     mMaxValue = maxValue;
@@ -857,17 +848,17 @@ void Slider::setRange(Ogre::Real minValue, Ogre::Real maxValue, unsigned int sna
     }
 }
 
-void Slider::setValue(Ogre::Real value, bool notifyListener)
+void Slider::setValue(float value, bool notifyListener)
 {
     if (mInterval == 0) return;
 
-    mValue = Ogre::Math::Clamp<Ogre::Real>(value, mMinValue, mMaxValue);
+    mValue = Ogre::Math::Clamp(value, mMinValue, mMaxValue);
 
     setValueCaption(Ogre::StringConverter::toString(mValue));
 
     if (mListener && notifyListener) mListener->sliderMoved(this);
 
-    if (!mDragging) mHandle->setLeft((int)((mValue - mMinValue) / (mMaxValue - mMinValue) *
+    if (!mDragging) mHandle->setLeft((int)(Ogre::Math::inverseLerp(mMinValue, mMaxValue, mValue) *
                                            (mTrack->getWidth() - mHandle->getWidth())));
 }
 
@@ -905,7 +896,7 @@ void Slider::_cursorReleased(const Ogre::Vector2 &cursorPos)
     if (mDragging)
     {
         mDragging = false;
-        mHandle->setLeft((int)((mValue - mMinValue) / (mMaxValue - mMinValue) *
+        mHandle->setLeft((int)(Ogre::Math::inverseLerp(mMinValue, mMaxValue, mValue) *
                                (mTrack->getWidth() - mHandle->getWidth())));
     }
 }
@@ -1193,10 +1184,8 @@ TrayManager::~TrayManager()
 
     destroyAllWidgets();
 
-    for (unsigned int i = 0; i < mWidgetDeathRow.size(); i++)   // delete widgets queued for destruction
-    {
-        delete mWidgetDeathRow[i];
-    }
+    for (auto *w : mWidgetDeathRow) // delete widgets queued for destruction
+        delete w;
     mWidgetDeathRow.clear();
 
     om.destroy(mBackdropLayer);
@@ -1277,11 +1266,6 @@ void TrayManager::hideCursor()
 
 void TrayManager::refreshCursor()
 {
-#if (OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0) || (OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS)
-    // TODO:
-    // the position should be based on the orientation, for now simply return
-    return;
-#endif
     mCursor->setPosition(mCursorPos.x, mCursorPos.y);
 }
 

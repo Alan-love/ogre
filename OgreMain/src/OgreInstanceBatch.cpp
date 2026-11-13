@@ -34,6 +34,8 @@ THE SOFTWARE.
 
 namespace Ogre
 {
+    const String MOT_INSTANCE_BATCH = "InstanceBatch";
+
     InstanceBatch::InstanceBatch( InstanceManager *creator, MeshPtr &meshReference,
                                     const MaterialPtr &material, size_t instancesPerBatch,
                                     const Mesh::IndexMap *indexToBoneMap, const String &batchName ) :
@@ -48,7 +50,6 @@ namespace Ogre
                 mBoundsDirty( false ),
                 mBoundsUpdated( false ),
                 mCurrentCamera( 0 ),
-                mMaterialLodIndex( 0 ),
                 mDirtyAnimation(true),
                 mTechnSupportsSkeletal( true ),
                 mCameraDistLastUpdateFrameNumber( std::numeric_limits<unsigned long>::max() ),
@@ -74,7 +75,7 @@ namespace Ogre
         mName = batchName;
 		if (mCreator != NULL)
 		{
-		    mCustomParams.resize( mCreator->getNumCustomParams() * mInstancesPerBatch, Ogre::Vector4::ZERO );
+		    mCustomParams.resize( mCreator->getNumCustomParams() * mInstancesPerBatch, Vector4f(0) );
 	    }
 		
 	}
@@ -126,22 +127,16 @@ namespace Ogre
     void InstanceBatch::_updateBounds(void)
     {
         mFullBoundingBox.setNull();
-
-        InstancedEntityVec::const_iterator itor = mInstancedEntities.begin();
-        InstancedEntityVec::const_iterator end  = mInstancedEntities.end();
-
         Real maxScale = 0;
-        while( itor != end )
-        {
-            InstancedEntity* ent = (*itor);
-            //Only increase the bounding box for those objects we know are in the scene
-            if( ent->isInScene() )
-            {
-                maxScale = std::max(maxScale, ent->getMaxScaleCoef());
-                mFullBoundingBox.merge( ent->_getDerivedPosition() );
-            }
 
-            ++itor;
+        for(auto *e : mInstancedEntities)
+        {
+            //Only increase the bounding box for those objects we know are in the scene
+            if(e->isInScene())
+            {
+                maxScale = std::max(maxScale, e->getMaxScaleCoef());
+                mFullBoundingBox.merge( e->_getDerivedPosition() );
+            }
         }
 
         Real addToBound = maxScale * _getMeshReference()->getBoundingSphereRadius();
@@ -153,8 +148,8 @@ namespace Ogre
         if (mParentNode) {
             mParentNode->needUpdate();
         }
-	mBoundsUpdated  = true;
-        mBoundsDirty    = false;
+	    mBoundsUpdated  = true;
+        mBoundsDirty = false;
     }
 
     //-----------------------------------------------------------------------
@@ -196,25 +191,18 @@ namespace Ogre
     //-----------------------------------------------------------------------
     void InstanceBatch::deleteAllInstancedEntities()
     {
-        InstancedEntityVec::const_iterator itor = mInstancedEntities.begin();
-        InstancedEntityVec::const_iterator end  = mInstancedEntities.end();
-
-        while( itor != end )
+        for (auto *e : mInstancedEntities)
         {
-            if( (*itor)->getParentSceneNode() )
-                (*itor)->getParentSceneNode()->detachObject( (*itor) );
-
-            OGRE_DELETE *itor++;
+            if(e->getParentSceneNode() )
+                e->getParentSceneNode()->detachObject(e);
+            OGRE_DELETE e;
         }
     }
     //-----------------------------------------------------------------------
     void InstanceBatch::deleteUnusedInstancedEntities()
     {
-        InstancedEntityVec::const_iterator itor = mUnusedEntities.begin();
-        InstancedEntityVec::const_iterator end  = mUnusedEntities.end();
-
-        while( itor != end )
-            OGRE_DELETE *itor++;
+        for (auto *e : mUnusedEntities)
+            OGRE_DELETE e;
 
         mUnusedEntities.clear();
     }
@@ -286,20 +274,12 @@ namespace Ogre
     void InstanceBatch::getInstancedEntitiesInUse( InstancedEntityVec &outEntities,
                                                     CustomParamsVec &outParams )
     {
-        InstancedEntityVec::const_iterator itor = mInstancedEntities.begin();
-        InstancedEntityVec::const_iterator end  = mInstancedEntities.end();
-
-        while( itor != end )
-        {
-            if( (*itor)->isInUse() )
-            {
-                outEntities.push_back( *itor );
-
+        for (auto *e : mInstancedEntities) {
+            if (e->isInUse()) {
+                outEntities.push_back(e);
                 for( unsigned char i=0; i<mCreator->getNumCustomParams(); ++i )
-                    outParams.push_back( _getCustomParam( *itor, i ) );
+                    outParams.push_back(_getCustomParam(e, i));
             }
-
-            ++itor;
         }
     }
     //-----------------------------------------------------------------------
@@ -410,14 +390,9 @@ namespace Ogre
 
         //Reassign instance IDs and tell we're the new parent
         uint32 instanceId = 0;
-        InstancedEntityVec::const_iterator itor = mInstancedEntities.begin();
-        InstancedEntityVec::const_iterator end  = mInstancedEntities.end();
-
-        while( itor != end )
-        {
-            (*itor)->mInstanceId = instanceId++;
-            (*itor)->mBatchOwner = this;
-            ++itor;
+        for (auto *e : mInstancedEntities) {
+            e->mInstanceId = instanceId++;
+            e->mBatchOwner = this;
         }
 
         //Recreate unused entities, if there's left space in our container
@@ -430,7 +405,7 @@ namespace Ogre
             InstancedEntity *instance = generateInstancedEntity(i);
             mInstancedEntities.push_back( instance );
             mUnusedEntities.push_back( instance );
-            mCustomParams.push_back( Ogre::Vector4::ZERO );
+            mCustomParams.push_back( Vector4f(0) );
         }
 
         //We've potentially changed our bounds
@@ -454,8 +429,7 @@ namespace Ogre
     //-----------------------------------------------------------------------
     const String& InstanceBatch::getMovableType(void) const
     {
-        static String sType = "InstanceBatch";
-        return sType;
+        return MOT_INSTANCE_BATCH;
     }
     //-----------------------------------------------------------------------
     void InstanceBatch::_notifyCurrentCamera( Camera* cam )
@@ -571,11 +545,6 @@ namespace Ogre
         return queryLights();
     }
     //-----------------------------------------------------------------------
-    Technique* InstanceBatch::getTechnique( void ) const
-    {
-        return mMaterial->getBestTechnique( mMaterialLodIndex, this );
-    }
-    //-----------------------------------------------------------------------
     void InstanceBatch::_updateRenderQueue( RenderQueue* queue )
     {
         /*if( m_boundsDirty )
@@ -588,15 +557,9 @@ namespace Ogre
 
         if( mVisible )
         {
-            if( mMeshReference->hasSkeleton() )
-            {
-                InstancedEntityVec::const_iterator itor = mInstancedEntities.begin();
-                InstancedEntityVec::const_iterator end  = mInstancedEntities.end();
-
-                while( itor != end )    
-                {
-                    mDirtyAnimation |= (*itor)->_updateAnimation();
-                    ++itor;
+            if( mMeshReference->hasSkeleton() ) {
+                for (auto *e : mInstancedEntities) {
+                    mDirtyAnimation |= e->_updateAnimation();
                 }
             }
 
@@ -614,12 +577,12 @@ namespace Ogre
     }
     //-----------------------------------------------------------------------
     void InstanceBatch::_setCustomParam( InstancedEntity *instancedEntity, unsigned char idx,
-                                         const Vector4 &newParam )
+                                         const Vector4f &newParam )
     {
         mCustomParams[instancedEntity->mInstanceId * mCreator->getNumCustomParams() + idx] = newParam;
     }
     //-----------------------------------------------------------------------
-    const Vector4& InstanceBatch::_getCustomParam( InstancedEntity *instancedEntity, unsigned char idx )
+    const Vector4f& InstanceBatch::_getCustomParam( InstancedEntity *instancedEntity, unsigned char idx )
     {
         return mCustomParams[instancedEntity->mInstanceId * mCreator->getNumCustomParams() + idx];
     }

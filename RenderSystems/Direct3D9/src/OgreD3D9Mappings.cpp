@@ -26,10 +26,13 @@ THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
 #include "OgreD3D9Mappings.h"
+#include "OgreHardwareVertexBuffer.h"
 #include "OgreString.h"
 #include "OgreStringConverter.h"
 #include "OgreLogManager.h"
 #include "OgreException.h"
+
+#define D3DFMT_INTZ ( (D3DFORMAT)MAKEFOURCC('I', 'N', 'T', 'Z') )
 
 namespace Ogre 
 {
@@ -40,26 +43,13 @@ namespace Ogre
         {
         case SO_FLAT:
             return D3DSHADE_FLAT;
+        case SO_PHONG:
+            // phong is not supported in D3D9
+            OGRE_FALLTHROUGH;
         case SO_GOURAUD:
             return D3DSHADE_GOURAUD;
-        case SO_PHONG:
-            return D3DSHADE_PHONG;
         }
         return 0;
-    }
-    //---------------------------------------------------------------------
-    D3DLIGHTTYPE D3D9Mappings::get(Ogre::Light::LightTypes lightType)
-    {
-        switch( lightType )
-        {
-        case Light::LT_POINT:
-            return D3DLIGHT_POINT;
-        case Light::LT_DIRECTIONAL:
-            return D3DLIGHT_DIRECTIONAL;
-        case Light::LT_SPOTLIGHT:
-            return D3DLIGHT_SPOT;
-        }
-        return D3DLIGHT_FORCE_DWORD;
     }
     //---------------------------------------------------------------------
     DWORD D3D9Mappings::get(TexCoordCalcMethod m, const D3DCAPS9& caps)
@@ -70,19 +60,10 @@ namespace Ogre
             return D3DTSS_TCI_PASSTHRU;
         case TEXCALC_ENVIRONMENT_MAP_REFLECTION:
             return D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR;
-        case TEXCALC_ENVIRONMENT_MAP_PLANAR:
-            if (caps.VertexProcessingCaps & D3DVTXPCAPS_TEXGEN_SPHEREMAP)
-            {
-                // Use sphere map if available
-                return D3DTSS_TCI_SPHEREMAP;
-            }
-            else
-            {
-                // If not, fall back on camera space reflection vector which isn't as good
-                return D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR;
-            }
         case TEXCALC_ENVIRONMENT_MAP_NORMAL:
             return D3DTSS_TCI_CAMERASPACENORMAL;
+        case TEXCALC_ENVIRONMENT_MAP_PLANAR:
+            // should be D3DTSS_TCI_CAMERASPACEPOSITION, but it has been like this since v0.12
         case TEXCALC_ENVIRONMENT_MAP:
             if (caps.VertexProcessingCaps & D3DVTXPCAPS_TEXGEN_SPHEREMAP)
             {
@@ -104,13 +85,13 @@ namespace Ogre
     {
         switch( tam )
         {
-        case TextureUnitState::TAM_WRAP:
+        case TAM_WRAP:
             return D3DTADDRESS_WRAP;
-        case TextureUnitState::TAM_MIRROR:
+        case TAM_MIRROR:
             return D3DTADDRESS_MIRROR;
-        case TextureUnitState::TAM_CLAMP:
+        case TAM_CLAMP:
             return D3DTADDRESS_CLAMP;
-        case TextureUnitState::TAM_BORDER:
+        case TAM_BORDER:
             if (devCaps.TextureAddressCaps & D3DPTADDRESSCAPS_BORDER)
                 return D3DTADDRESS_BORDER;
             else
@@ -550,6 +531,10 @@ namespace Ogre
         case VET_USHORT4_NORM:
             // valid only with vertex shaders >= 2.0
             return D3DDECLTYPE_USHORT4N;
+        case VET_HALF2:
+            return D3DDECLTYPE_FLOAT16_2;
+        case VET_HALF4:
+            return D3DDECLTYPE_FLOAT16_4;
         }
         // to keep compiler happy
         return D3DDECLTYPE_FLOAT3;
@@ -672,6 +657,8 @@ namespace Ogre
             return PF_DXT4;
         case D3DFMT_DXT5:
             return PF_DXT5;
+        case D3DFMT_INTZ:
+            return PF_DEPTH16;
         default:
             return PF_UNKNOWN;
         }
@@ -737,6 +724,8 @@ namespace Ogre
             return D3DFMT_DXT4;
         case PF_DXT5:
             return D3DFMT_DXT5;
+        case PF_DEPTH16:
+            return D3DFMT_INTZ;
         case PF_UNKNOWN:
         default:
             return D3DFMT_UNKNOWN;

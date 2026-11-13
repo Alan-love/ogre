@@ -13,22 +13,41 @@
 
 namespace Ogre
 {
+/** Draws a renderer configuration menu using ImGui
+  *
+  * Wrap this in a ImGui::Begin() and ImGui::End() call to create the dialog.
+  * @param renderSystemName The name of the render system that the user selected
+  */
+_OgreOverlayExport void DrawRenderingSettings(String& renderSystemName);
+
+///Ogre's integrated support for [Dear ImGui](https://github.com/ocornut/imgui)
 class _OgreOverlayExport ImGuiOverlay : public Overlay
 {
 public:
     ImGuiOverlay();
     ~ImGuiOverlay();
 
-    /// add font from ogre .fontdef file
-    /// must be called before first show()
+    /// add font from ogre .fontdef file.
+    /// Must be called before first show()
+    /// for the new font to be used.
     ImFont* addFont(const String& name, const String& group OGRE_RESOURCE_GROUP_INIT);
 
+    /// generally should be called before every frame,
+    /// before you render things with ImGui
+    /// for example, at the start of a RenderTargetListener::preViewportUpdate
+    ///
+    /// Must be called before the first frame
+    /// with a visible ImGuiOverlay is rendered
+    /// or else ImgGUI will SegFault.
+    ///
+    /// Must be called before many ImgGUI functions
+    /// or else they will SegFault.
     static void NewFrame();
 
-    void _findVisibleObjects(Camera* cam, RenderQueue* queue, Viewport* vp);
+    void _findVisibleObjects(Camera* cam, RenderQueue* queue, Viewport* vp) override;
 
 private:
-    void initialise();
+    void initialise() override;
 
     typedef std::vector<ImWchar> CodePointRange;
     std::vector<CodePointRange> mCodePointRanges;
@@ -43,25 +62,23 @@ private:
 
         void updateVertexData(ImDrawData* draw_data);
 
-        bool preRender(SceneManager* sm, RenderSystem* rsys);
+        bool preRender(SceneManager* sm, RenderSystem* rsys) override;
 
-        virtual void getWorldTransforms(Matrix4* xform) const { *xform = mXform; }
-        virtual void getRenderOperation(RenderOperation& op) { op = mRenderOp; }
+        void getWorldTransforms(Matrix4* xform) const override { *xform = mXform; }
+        void getRenderOperation(RenderOperation& op) override { op = mRenderOp; }
 
-        const LightList& getLights(void) const;
+        const LightList& getLights(void) const override;
 
         void createMaterial();
-        void createFontTexture();
 
-        const MaterialPtr& getMaterial() const { return mMaterial; }
+        const MaterialPtr& getMaterial() const override { return mMaterial; }
 
-        Real getSquaredViewDepth(const Camera*) const { return 0; }
+        Real getSquaredViewDepth(const Camera*) const override { return 0; }
 
         void _update();
 
         Matrix4 mXform;
         RenderOperation mRenderOp;
-        TexturePtr mFontTex;
         MaterialPtr mMaterial;
     };
 

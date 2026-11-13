@@ -4,7 +4,6 @@
 #extension GL_ARB_shader_texture_lod : require  
 #endif
 #else
-#version 100
 #extension GL_OES_standard_derivatives : enable
 #extension GL_EXT_shader_texture_lod: enable
 #define textureCubeLod textureLodEXT
@@ -30,31 +29,39 @@ precision highp float;
 // [4] "An Inexpensive BRDF Model for Physically based Rendering" by Christophe Schlick
 //     https://www.cs.virginia.edu/~jdl/bib/appearance/analytic%20models/schlick94b.pdf
 
-uniform vec3 u_LightDirection;
-uniform vec3 u_LightColor;
-
 #ifdef USE_IBL
-uniform SAMPLERCUBE(u_DiffuseEnvSampler, 5);
-uniform SAMPLERCUBE(u_SpecularEnvSampler, 6);
-uniform SAMPLER2D(u_brdfLUT, 7);
+SAMPLERCUBE(u_DiffuseEnvSampler, 5);
+SAMPLERCUBE(u_SpecularEnvSampler, 6);
+SAMPLER2D(u_brdfLUT, 7);
 #endif
 
 #ifdef HAS_BASECOLORMAP
-uniform SAMPLER2D(u_BaseColorSampler, 0);
+SAMPLER2D(u_BaseColorSampler, 0);
+#endif
+#ifdef HAS_METALROUGHNESSMAP
+SAMPLER2D(u_MetallicRoughnessSampler, 3);
 #endif
 #ifdef HAS_NORMALMAP
-uniform SAMPLER2D(u_NormalSampler, 1);
+SAMPLER2D(u_NormalSampler, 1);
+#endif
+#ifdef HAS_EMISSIVEMAP
+SAMPLER2D(u_EmissiveSampler, 2);
+#endif
+#ifdef HAS_OCCLUSIONMAP
+SAMPLER2D(u_OcclusionSampler, 4);
+#endif
+
+OGRE_UNIFORMS_BEGIN
+uniform vec3 u_LightDirection;
+uniform vec3 u_LightColor;
+
+#ifdef HAS_NORMALMAP
 uniform float u_NormalScale;
 #endif
 #ifdef HAS_EMISSIVEMAP
-uniform SAMPLER2D(u_EmissiveSampler, 2);
 uniform vec3 u_EmissiveFactor;
 #endif
-#ifdef HAS_METALROUGHNESSMAP
-uniform SAMPLER2D(u_MetallicRoughnessSampler, 3);
-#endif
 #ifdef HAS_OCCLUSIONMAP
-uniform SAMPLER2D(u_OcclusionSampler, 4);
 uniform float u_OcclusionStrength;
 #endif
 
@@ -67,6 +74,7 @@ uniform vec3 u_Camera;
 uniform vec4 u_ScaleDiffBaseMR;
 uniform vec4 u_ScaleFGDSpec;
 uniform vec4 u_ScaleIBLAmbient;
+OGRE_UNIFORMS_END
 
 // Encapsulate the various inputs used by the various functions in the shading equation
 // We store values in this struct to simplify the integration of alternative implementations
@@ -148,12 +156,12 @@ vec3 getIBLContribution(PBRInfo pbrInputs, vec3 n, vec3 reflection)
     float lod = (pbrInputs.perceptualRoughness * mipCount);
     // retrieve a scale and bias to F0. See [1], Figure 3
     vec3 brdf = SRGBtoLINEAR(texture2D(u_brdfLUT, vec2(pbrInputs.NdotV, 1.0 - pbrInputs.perceptualRoughness))).rgb;
-    vec3 diffuseLight = SRGBtoLINEAR(textureCube(u_DiffuseEnvSampler, n)).rgb;
+    vec3 diffuseLight = textureCube(u_DiffuseEnvSampler, n).rgb;
 
 #ifdef USE_TEX_LOD
-    vec3 specularLight = SRGBtoLINEAR(textureCubeLod(u_SpecularEnvSampler, reflection, lod)).rgb;
+    vec3 specularLight = textureCubeLod(u_SpecularEnvSampler, reflection, lod).rgb;
 #else
-    vec3 specularLight = SRGBtoLINEAR(textureCube(u_SpecularEnvSampler, reflection)).rgb;
+    vec3 specularLight = textureCube(u_SpecularEnvSampler, reflection).rgb;
 #endif
 
     vec3 diffuse = diffuseLight * pbrInputs.diffuseColor;
@@ -280,6 +288,7 @@ MAIN_DECLARATION
     vec3 l = normalize(u_LightDirection);             // Vector from surface point to light
     vec3 h = normalize(l+v);                          // Half vector between both l and v
     vec3 reflection = -normalize(reflect(v, n));
+    reflection.z *= -1.0;
 
     pbrInputs.NdotL = clamp(dot(n, l), 0.001, 1.0);
     pbrInputs.NdotV = abs(dot(n, v)) + 0.001;

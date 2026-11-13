@@ -73,7 +73,7 @@ static void prepareCircleMaterial()
 class _OgreSampleClassExport Sample_Water : public SdkSample
 {
 public:
-    Sample_Water(): waterMesh(0)
+    Sample_Water()
     {
         mInfo["Title"] = "Water";
         mInfo["Description"] = "A demo of a simple water effect.";
@@ -82,7 +82,7 @@ public:
     }
     
 protected:
-    WaterMesh *waterMesh ;
+    std::unique_ptr<WaterMesh> waterMesh ;
     Entity *waterEntity ;
     AnimationState* mAnimState;
     SceneNode *headNode ;
@@ -92,7 +92,7 @@ protected:
     SceneManager *sceneMgr ;
 
     // Just override the mandatory create scene method
-    void setupContent(void)
+    void setupContent(void) override
     {
         sceneMgr = mSceneMgr ;
         // Set ambient light
@@ -103,7 +103,7 @@ protected:
         Light* l = mSceneMgr->createLight("MainLight");
         
         // Create water mesh and entity
-        waterMesh = new WaterMesh(MESH_NAME, PLANE_SIZE, COMPLEXITY);
+        waterMesh = std::make_unique<WaterMesh>(MESH_NAME, PLANE_SIZE, COMPLEXITY);
         waterEntity = mSceneMgr->createEntity(ENTITY_NAME,
                                               MESH_NAME);
         //~ waterEntity->setMaterialName(MATERIAL_NAME);
@@ -177,10 +177,7 @@ protected:
         waterNode->attachObject(billboardSet);
 
         setupControls();
-
-#if OGRE_PLATFORM != OGRE_PLATFORM_APPLE_IOS
         setDragLook(true);
-#endif
         
         timeoutDelay = 0.0f;
     }
@@ -209,10 +206,9 @@ protected:
         mTrayMgr->showCursor();
     }
     
-    void cleanupContent()
+    void cleanupContent() override
     {
-        delete waterMesh;
-        waterMesh = 0;
+        waterMesh.reset();
     }
     
 protected:
@@ -269,7 +265,7 @@ protected:
         }
     }
     
-    void sliderMoved(Slider* slider)
+    void sliderMoved(Slider* slider) override
     {
         if (slider->getName() == "HeadDepthSlider")
         {
@@ -293,7 +289,7 @@ protected:
         }
     }
     
-    void checkBoxToggled(CheckBox* checkBox)
+    void checkBoxToggled(CheckBox* checkBox) override
     {
         if (checkBox->getName() == "FakeNormalsCB")
         {
@@ -305,7 +301,7 @@ protected:
         }
     }
     
-    void itemSelected(SelectMenu* menu)
+    void itemSelected(SelectMenu* menu) override
     {
         //Only one menu in this demo
         const String& materialName = menu->getSelectedItem();
@@ -334,19 +330,18 @@ protected:
         Real ty = ((sin(sines[2]) + sin(sines[3])) / 4 + 0.5 ) * (float)(COMPLEXITY-2) + 1 ;
         waterMesh->push(tx,ty, -headDepth);
         Real step = PLANE_SIZE / COMPLEXITY ;
-        headNode->resetToInitialState();
-        headNode->scale(3,3,3);
+        headNode->setScale(3,3,3);
         Vector3 newPos = Vector3(step*tx, headDepth, step*ty);
         Vector3 diffPos = newPos - oldPos ;
         Quaternion headRotation = Vector3::UNIT_Z.getRotationTo(diffPos);
         oldPos = newPos ;
-        headNode->translate(newPos);
-        headNode->rotate(headRotation);
+        headNode->setPosition(newPos);
+        headNode->setOrientation(headRotation);
     }
     
 public:
     
-    bool keyPressed(const KeyboardEvent& evt)
+    bool keyPressed(const KeyboardEvent& evt) override
     {
         static bool rain = false;
 
@@ -358,7 +353,7 @@ public:
         return SdkSample::keyPressed(evt);
     }
     
-    bool frameRenderingQueued(const FrameEvent& evt)
+    bool frameRenderingQueued(const FrameEvent& evt) override
     {
         if( SdkSample::frameRenderingQueued(evt) == false )
             return false;

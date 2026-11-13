@@ -38,11 +38,10 @@ namespace Ogre
 {
     extern const String CustomAttributeIdString_GLCONTEXT;
 
-    VulkanTextureGpuWindow::VulkanTextureGpuWindow(String name,
+    VulkanTextureGpuWindow::VulkanTextureGpuWindow(const String& name,
         TextureType initialType, TextureManager *textureManager,
         VulkanWindow *window ) :
-        VulkanTextureGpuRenderTarget( name, initialType,
-                                      textureManager ),
+        VulkanTextureGpu( textureManager, name, 0, "", true, 0),
         mWindow( window ),
         mCurrentImageIdx( 0u )
     {
@@ -69,7 +68,7 @@ namespace Ogre
             createMsaaSurface();
 
         // create surface to handle download
-        auto buf = std::make_shared<VulkanHardwarePixelBuffer>(this, mWidth, mHeight, mDepth, 1);
+        auto buf = std::make_shared<VulkanHardwarePixelBuffer>(this, mWidth, mHeight, mDepth, 0, 0);
         mSurfaceList.push_back(buf);
         mCurrLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
         mNextLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;

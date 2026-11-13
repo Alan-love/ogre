@@ -24,7 +24,7 @@ public:
         addScreenshotFrame(25);
     }
 
-    bool frameRenderingQueued(const FrameEvent& evt)
+    bool frameRenderingQueued(const FrameEvent& evt) override
     {
         Real theta = ControllerManager::getSingleton().getElapsedTime();
 
@@ -47,7 +47,7 @@ public:
 
 protected:
 
-    void checkBoxToggled(CheckBox* box)
+    void checkBoxToggled(CheckBox* box) override
     {
         auto& cm = CompositorManager::getSingleton();
         cm.setCompositorEnabled(mViewport, "WBOIT", box->isChecked());
@@ -55,17 +55,20 @@ protected:
         if(box->isChecked())
         {
             mWaterStream->setMaterialName("Examples/WaterStream/OIT");
-            mWaterStream->setRenderQueueGroup(96); // transparents must be separated
         }
         else
         {
             mWaterStream->setMaterialName("Examples/WaterStream");
-            mWaterStream->setRenderQueueGroup(RENDER_QUEUE_MAIN);
         }
     }
 
-    void setupContent()
-    {     
+    void setupContent() override
+    {
+#ifdef OGRE_BUILD_COMPONENT_RTSHADERSYSTEM
+        // Need RTSS for WBOIT
+        mViewport->setMaterialScheme(MSN_SHADERGEN);
+        MaterialManager::getSingleton().setActiveScheme(mViewport->getMaterialScheme());
+#endif
         mSceneMgr->setSkyBox(true, "Examples/TrippySkyBox");
 
         mCameraMan->setStyle(CS_ORBIT);
@@ -89,14 +92,23 @@ protected:
         mFishNode->attachObject(ent);
         mFishNode->setScale(2, 2, 2);
 
-        // OIT compositor (disabled)
-        auto& cm = CompositorManager::getSingleton();
-        cm.addCompositor(mViewport, "WBOIT");
-
+        mWaterStream->setMaterialName("Examples/WaterStream");
         if(!mTrayMgr)
             return;
+
         // GUI
         mTrayMgr->showCursor();
+
+        // OIT compositor (disabled)
+        auto& cm = CompositorManager::getSingleton();
+        if(!cm.addCompositor(mViewport, "WBOIT"))
+            return; // not supported
+
+        auto oitMat = Ogre::MaterialManager::getSingleton().getByName("Examples/WaterStream/OIT");
+        oitMat->load();
+        if (oitMat->getBestTechnique()->getSchemeName() != mViewport->getMaterialScheme())
+            return;
+
         mTrayMgr->createCheckBox(TL_TOPLEFT, "OIT", "Order Independent Transparency")->setChecked(false, true);
     }
 

@@ -51,14 +51,11 @@ namespace Ogre {
         /// Animations are applied by calculating a weighted cumulative total
         ANIMBLEND_CUMULATIVE = 1
     };
-
-#define OGRE_MAX_NUM_BONES 256
-
     
     struct LinkedSkeletonAnimationSource;
 
     /** A collection of Bone objects used to animate a skinned mesh.
-    @remarks
+
         Skeletal animation works by having a collection of 'bones' which are 
         actually just joints with a position and orientation, arranged in a tree structure.
         For example, the wrist joint is a child of the elbow joint, which in turn is a
@@ -87,11 +84,11 @@ namespace Ogre {
         friend class SkeletonInstance;
     private:
         /// Internal constructor for use by SkeletonInstance only
-        Skeleton();
+        Skeleton(const String& name, ResourceHandle handle, const String& group);
 
     public:
         /** Constructor, don't call directly, use SkeletonManager.
-        @remarks
+
             On creation, a Skeleton has a no bones, you should create them and link
             them together appropriately. 
         */
@@ -101,7 +98,7 @@ namespace Ogre {
 
 
         /** Creates a brand new Bone owned by this Skeleton. 
-        @remarks
+
             This method creates an unattached new Bone for this skeleton.
             Unless this is to be a root bone (there may be more than one of 
             these), you must attach it to another Bone in the skeleton using addChild for it to be any use.
@@ -116,7 +113,7 @@ namespace Ogre {
         virtual Bone* createBone(void);
 
         /** Creates a brand new Bone owned by this Skeleton. 
-        @remarks
+
             This method creates an unattached new Bone for this skeleton and assigns it a 
             specific handle. Unless this is to be a root bone (there may be more than one of 
             these), you must attach it to another Bone in the skeleton using addChild for it to be any use. 
@@ -131,7 +128,7 @@ namespace Ogre {
         virtual Bone* createBone(unsigned short handle);
 
         /** Creates a brand new Bone owned by this Skeleton. 
-        @remarks
+
             This method creates an unattached new Bone for this skeleton and assigns it a 
             specific name.Unless this is to be a root bone (there may be more than one of 
             these), you must attach it to another Bone in the skeleton using addChild for it to be any use.
@@ -146,7 +143,7 @@ namespace Ogre {
         virtual Bone* createBone(const String& name);
 
         /** Creates a brand new Bone owned by this Skeleton. 
-        @remarks
+
             This method creates an unattached new Bone for this skeleton and assigns it a 
             specific name and handle. Unless this is to be a root bone (there may be more than one of 
             these), you must attach it to another Bone in the skeleton using addChild for it to be any use.
@@ -158,7 +155,7 @@ namespace Ogre {
         virtual Bone* createBone(const String& name, unsigned short handle);
 
         /** Returns the number of bones in this skeleton. */
-        virtual unsigned short getNumBones(void) const;
+        unsigned short getNumBones(void) const { return (unsigned short)mBoneList.size(); }
 
         typedef std::vector<Bone*> BoneList;
         typedef VectorIterator<BoneList> BoneIterator;
@@ -188,21 +185,25 @@ namespace Ogre {
         }
 
         /** Gets a bone by it's handle. */
-        virtual Bone* getBone(unsigned short handle) const;
+        Bone* getBone(unsigned short handle) const
+        {
+            assert(handle < mBoneList.size() && "Index out of bounds");
+            return mBoneList[handle];
+        }
 
         /** Gets a bone by it's name. */
-        virtual Bone* getBone(const String& name) const;
+        Bone* getBone(const String& name) const;
 
         /** Returns whether this skeleton contains the named bone. */
-        virtual bool hasBone(const String& name) const;
+        bool hasBone(const String& name) const;
 
         /** Sets the current position / orientation to be the 'binding pose' i.e. the layout in which 
             bones were originally bound to a mesh.
         */
-        virtual void setBindingPose(void);
+        void setBindingPose(void);
 
         /** Resets the position and orientation of all bones in this skeleton to their original binding position.
-        @remarks
+
             A skeleton is bound to a mesh in a binding pose. Bone positions are then modified from this
             position during animation. This method returns all the bones to their original position and
             orientation.
@@ -210,16 +211,15 @@ namespace Ogre {
             too, which is normally not done to allow the manual state to persist even 
             when keyframe animation is applied.
         */
-        virtual void reset(bool resetManualBones = false);
+        void reset(bool resetManualBones = false);
 
         /** Creates a new Animation object for animating this skeleton. 
-        @param name The name of this animation
-        @param length The length of the animation in seconds
+        @copydetails AnimationContainer::createAnimation
         */
-        virtual Animation* createAnimation(const String& name, Real length);
+        Animation* createAnimation(const String& name, Real length) override;
 
         /** Returns the named Animation object. 
-        @remarks
+
             Will pick up animations in linked skeletons 
             (@see addLinkedSkeletonAnimationSource). 
         @param name The name of the animation
@@ -230,26 +230,23 @@ namespace Ogre {
             const LinkedSkeletonAnimationSource** linker) const;
 
         /** Returns the named Animation object.
-         @remarks
+
              Will pick up animations in linked skeletons 
              (@see addLinkedSkeletonAnimationSource). 
          @param name The name of the animation
          */
-        virtual Animation* getAnimation(const String& name) const;
+        Animation* getAnimation(const String& name) const override;
 
         /// Internal accessor for animations (returns null if animation does not exist)
         virtual Animation* _getAnimationImpl(const String& name, 
             const LinkedSkeletonAnimationSource** linker = 0) const;
 
 
-        /** Returns whether this skeleton contains the named animation. */
-        virtual bool hasAnimation(const String& name) const;
-
-        /** Removes an Animation from this skeleton. */
-        virtual void removeAnimation(const String& name);
+        bool hasAnimation(const String& name) const override;
+        void removeAnimation(const String& name) override;
 
         /** Changes the state of the skeleton to reflect the application of the passed in collection of animations.
-        @remarks
+
             Animating a skeleton involves both interpolating between keyframes of a specific animation,
             and blending between the animations themselves. Calling this method sets the state of
             the skeleton so that it reflects the combination of all the passed in animations, at the
@@ -262,40 +259,39 @@ namespace Ogre {
 
 
         /** Initialise an animation set suitable for use with this skeleton. 
-        @remarks
+
             Only recommended for use inside the engine, not by applications.
         */
         virtual void _initAnimationState(AnimationStateSet* animSet);
 
         /** Refresh an animation set suitable for use with this skeleton. 
-        @remarks
+
             Only recommended for use inside the engine, not by applications.
         */
         virtual void _refreshAnimationState(AnimationStateSet* animSet);
 
         /** Populates the passed in array with the bone matrices based on the current position.
-        @remarks
+
             Internal use only. The array pointed to by the passed in pointer must
             be at least as large as the number of bones.
             Assumes animation has already been updated.
         */
-        virtual void _getBoneMatrices(Affine3* pMatrices);
+        void _getBoneMatrices(Affine3* pMatrices);
 
-        /** Gets the number of animations on this skeleton. */
-        virtual unsigned short getNumAnimations(void) const;
+        unsigned short getNumAnimations(void) const override;
 
         /** Gets a single animation by index. 
-        @remarks
+
             Will NOT pick up animations in linked skeletons 
             (@see addLinkedSkeletonAnimationSource).
         */
-        virtual Animation* getAnimation(unsigned short index) const;
+        Animation* getAnimation(unsigned short index) const override;
 
 
         /** Gets the animation blending mode which this skeleton will use. */
-        virtual SkeletonAnimationBlendMode getBlendMode() const;
+        SkeletonAnimationBlendMode getBlendMode() const { return mBlendState; }
         /** Sets the animation blending mode this skeleton will use. */
-        virtual void setBlendMode(SkeletonAnimationBlendMode state);
+        void setBlendMode(SkeletonAnimationBlendMode state) { mBlendState = state; }
 
         /// Updates all the derived transforms in the skeleton
         virtual void _updateTransforms(void);
@@ -309,7 +305,7 @@ namespace Ogre {
 
         /** Allows you to use the animations from another Skeleton object to animate
             this skeleton.
-        @remarks
+
             If you have skeletons of identical structure (that means identically
             named bones with identical handles, and with the same hierarchy), but
             slightly different proportions or binding poses, you can re-use animations
@@ -373,7 +369,7 @@ namespace Ogre {
         typedef std::vector<ushort> BoneHandleMap;
 
         /** Merge animations from another Skeleton object into this skeleton.
-        @remarks
+
             This function allow merge two structures compatible skeletons. The
             'compatible' here means identically bones will have same hierarchy,
             but skeletons are not necessary to have same number of bones (if
@@ -410,14 +406,14 @@ namespace Ogre {
             const StringVector& animations = StringVector());
 
         /** Build the bone handle map to use with Skeleton::_mergeSkeletonAnimations.
-        @remarks
+
             Identically bones are determine by handle.
         */
         virtual void _buildMapBoneByHandle(const Skeleton* source,
             BoneHandleMap& boneHandleMap) const;
 
         /** Build the bone handle map to use with Skeleton::_mergeSkeletonAnimations.
-        @remarks
+
             Identically bones are determine by name.
         */
         virtual void _buildMapBoneByName(const Skeleton* source,
@@ -425,7 +421,6 @@ namespace Ogre {
 
     protected:
         /// Storage of animations, lookup by name
-        typedef std::map<String, Animation*> AnimationList;
         AnimationList mAnimationsList;
     private:
         /// Lookup by bone name
@@ -441,8 +436,6 @@ namespace Ogre {
         /// List of references to other skeletons to use animations from 
         mutable LinkedSkeletonAnimSourceList mLinkedSkeletonAnimSourceList;
 
-        /// Bone automatic handles
-        unsigned short mNextAutoHandle;
         SkeletonAnimationBlendMode mBlendState;
         /// Manual bones dirty?
         bool mManualBonesDirty;
@@ -450,22 +443,22 @@ namespace Ogre {
         BoneList mBoneList;
 
         /** Internal method which parses the bones to derive the root bone. 
-        @remarks
+
             Must be const because called in getRootBone but mRootBone is mutable
             since lazy-updated.
         */
         void deriveRootBone(void) const;
 
         /// Debugging method
-        void _dumpContents(const String& filename);
+        _OgreExport friend std::ostream& operator<<(std::ostream& o, const Skeleton& s);
 
-        void loadImpl() {}
-        void unloadImpl() { unprepareImpl(); }
+        void loadImpl() override {}
+        void unloadImpl() override { unprepareImpl(); }
 
-        void prepareImpl(void);
-        void unprepareImpl(void);
+        void prepareImpl(void) override;
+        void unprepareImpl(void) override;
         /// @copydoc Resource::calculateSize
-        size_t calculateSize(void) const;
+        size_t calculateSize(void) const override;
 
     };
 
@@ -478,7 +471,7 @@ namespace Ogre {
         LinkedSkeletonAnimationSource(const String& skelName, Real scl)
             : skeletonName(skelName), scale(scl) {}
             LinkedSkeletonAnimationSource(const String& skelName, Real scl, 
-                SkeletonPtr skelPtr)
+                const SkeletonPtr& skelPtr)
                 : skeletonName(skelName), pSkeleton(skelPtr), scale(scl) {}
     };
     /** @} */

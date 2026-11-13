@@ -76,7 +76,7 @@ namespace Ogre {
         HBU_CPU_TO_GPU = HBU_CPU_ONLY | HBU_DETAIL_WRITE_ONLY,
     };
     /** Abstract class defining common features of hardware buffers.
-    @remarks
+
         A 'hardware buffer' is any area of memory held outside of core system ram,
         and in our case refers mostly to video ram, although in theory this class
         could be used with other memory areas such as sound card memory, custom
@@ -153,11 +153,11 @@ namespace Ogre {
                 */
                 HBL_DISCARD,
                 /** Lock the buffer for reading only. Not allowed in buffers which are created with
-                HBU_WRITE_ONLY.
+                HBU_GPU_ONLY.
                 Mandatory on static buffers, i.e. those created without the HBU_DYNAMIC flag.
                 */
                 HBL_READ_ONLY,
-                /** As HBL_DISCARD, except the application guarantees not to overwrite any
+                /** As HBL_WRITE_ONLY, except the application guarantees not to overwrite any
                 region of the buffer which has already been used in this frame, can allow
                 some optimisation on some APIs.
                 @note Only useful on buffers with no shadow buffer.*/
@@ -172,7 +172,6 @@ namespace Ogre {
             size_t mLockSize;
             std::unique_ptr<HardwareBuffer> mDelegate;
             std::unique_ptr<HardwareBuffer> mShadowBuffer;
-            bool mSystemMemory;
             bool mShadowUpdated;
             bool mSuppressHardwareUpdate;
             bool mIsLocked;
@@ -188,9 +187,9 @@ namespace Ogre {
 
         public:
             /// Constructor, to be called by HardwareBufferManager only
-            HardwareBuffer(Usage usage, bool systemMemory, bool useShadowBuffer)
-                : mSizeInBytes(0), mLockStart(0), mLockSize(0), mSystemMemory(systemMemory),
-                  mShadowUpdated(false), mSuppressHardwareUpdate(false), mIsLocked(false), mUsage(usage)
+            HardwareBuffer(Usage usage, bool useShadowBuffer)
+                : mSizeInBytes(0), mLockStart(0), mLockSize(0), mShadowUpdated(false), mSuppressHardwareUpdate(false),
+                  mIsLocked(false), mUsage(usage)
             {
                 // If use shadow buffer, upgrade to WRITE_ONLY on hardware side
                 if (useShadowBuffer && usage == HBU_CPU_ONLY)
@@ -240,7 +239,7 @@ namespace Ogre {
                 return this->lock(0, mSizeInBytes, options);
             }
             /** Releases the lock on this buffer. 
-            @remarks 
+
                 Locking and unlocking a buffer can, in some rare circumstances such as 
                 switching video modes whilst the buffer is locked, corrupt the 
                 contents of a buffer. This is pretty rare, but if it occurs, 
@@ -308,7 +307,7 @@ namespace Ogre {
             }
 
             /** Copy data from another buffer into this one.
-            @remarks
+
                 Note that the source buffer must not be created with the
                 usage HBU_WRITE_ONLY otherwise this will fail. 
             @param srcBuffer The buffer from which to read the copied data
@@ -322,7 +321,6 @@ namespace Ogre {
             {
                 if(mDelegate && !srcBuffer.isSystemMemory())
                 {
-                    // GPU copy
                     mDelegate->copyData(*srcBuffer.mDelegate, srcOffset, dstOffset, length, discardWholeBuffer);
                     return;
                 }
@@ -332,7 +330,7 @@ namespace Ogre {
             }
 
             /** Copy all data from another buffer into this one. 
-            @remarks
+
                 Normally these buffers should be of identical size, but if they're
                 not, the routine will use the smallest of the two sizes.
             */
@@ -366,7 +364,7 @@ namespace Ogre {
             /// Returns the Usage flags with which this buffer was created
             Usage getUsage(void) const { return mUsage; }
             /// Returns whether this buffer is held in system memory
-            bool isSystemMemory(void) const { return mSystemMemory; }
+            virtual bool isSystemMemory(void) const { return mDelegate && mDelegate->isSystemMemory(); }
             /// Returns whether this buffer has a system memory shadow for quicker reading
             bool hasShadowBuffer(void) const { return mShadowBuffer || (mDelegate && mDelegate->hasShadowBuffer()); }
             /// Returns whether or not this buffer is currently locked.

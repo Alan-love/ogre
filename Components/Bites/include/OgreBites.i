@@ -10,7 +10,6 @@
 #include "OgreCameraMan.h"
 #include "OgreTrays.h"
 #include "OgreAdvancedRenderControls.h"
-#include "OgreUnifiedHighLevelGpuProgram.h"
 #include "OgrePredefinedControllers.h"
 
 #include "OgreImGuiInputListener.h"
@@ -21,6 +20,12 @@
 %include exception.i 
 %include stdint.i
 %import "Ogre.i"
+
+#ifndef SWIGPYTHON
+%import "OgreOverlay.i"
+#else
+namespace Ogre { typedef String DisplayString; }
+#endif
 
 #define _OgreBitesExport
 
@@ -62,6 +67,7 @@ JNIEnv* OgreJNIGetEnv();
 #endif
 
 %include "OgreComponents.h"
+%ignore OgreBites::ApplicationContextBase::reconfigure;
 %include "OgreApplicationContextBase.h"
 %include "OgreApplicationContext.h"
 %include "OgreCameraMan.h"

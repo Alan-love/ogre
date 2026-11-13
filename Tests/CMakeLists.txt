@@ -9,21 +9,24 @@
 
 # Configure Tests build
 if (OGRE_BUILD_TESTS)
+  # enable CTest
+  ENABLE_TESTING()
+  INCLUDE(CTest)
 
-  if(NOT EXISTS ${PROJECT_BINARY_DIR}/googletest-1.10.x)
+  if(NOT EXISTS ${PROJECT_BINARY_DIR}/googletest-1.16.0)
     message(STATUS "Building gtest")
     file(DOWNLOAD
-        https://github.com/google/googletest/archive/v1.10.x.tar.gz
-        ${PROJECT_BINARY_DIR}/v1.10.x.tar.gz)
+        https://github.com/google/googletest/releases/download/v1.16.0/googletest-1.16.0.tar.gz
+        ${PROJECT_BINARY_DIR}/release-1.16.0.tar.gz)
     execute_process(COMMAND ${CMAKE_COMMAND}
-        -E tar xf v1.10.x.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+        -E tar xf release-1.16.0.tar.gz WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
     execute_process(COMMAND ${BUILD_COMMAND_COMMON}
-        ${PROJECT_BINARY_DIR}/googletest-1.10.x
+        ${PROJECT_BINARY_DIR}/googletest-1.16.0
         -Dgtest_force_shared_crt=TRUE
         -DBUILD_GMOCK=FALSE
-        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/googletest-1.10.x)
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/googletest-1.16.0)
     execute_process(COMMAND ${CMAKE_COMMAND}
-        --build ${PROJECT_BINARY_DIR}/googletest-1.10.x ${BUILD_COMMAND_OPTS})
+        --build ${PROJECT_BINARY_DIR}/googletest-1.16.0 ${BUILD_COMMAND_OPTS})
   endif()
   find_package(GTest REQUIRED CONFIG)
   include_directories(${CMAKE_CURRENT_SOURCE_DIR}/Common/include)
@@ -82,6 +85,16 @@ if (OGRE_BUILD_TESTS)
     ogre_install_target(Test_Ogre "" FALSE)
     target_link_libraries(Test_Ogre OgreBites Codec_STBI ${OGRE_LIBRARIES} GTest::gtest)
     
+    add_test(NAME Test_Ogre
+        COMMAND $<TARGET_FILE_NAME:Test_Ogre>
+        WORKING_DIRECTORY $<TARGET_FILE_DIR:Test_Ogre>)
+
+    if(OGRE_BUILD_COMPONENT_PYTHON)
+        add_test(NAME Test_Python_Ogre
+            COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Python/ogre_test.py
+            WORKING_DIRECTORY $<TARGET_FILE_DIR:Ogre>)
+    endif()
+
     if(ANDROID)
         set_target_properties(Test_Ogre PROPERTIES LINK_FLAGS -pie)
     endif()
@@ -153,3 +166,33 @@ if (OGRE_BUILD_TESTS)
     
     add_subdirectory(VisualTests)
 endif (OGRE_BUILD_TESTS)
+
+if(OGRE_BUILD_FUZZERS)
+  set(LIB_FUZZING_ENGINE "-fsanitize=fuzzer")
+  if(DEFINED ENV{LIB_FUZZING_ENGINE})
+    set(LIB_FUZZING_ENGINE "$ENV{LIB_FUZZING_ENGINE}")
+  endif()
+  add_executable(image_fuzz fuzz/image_fuzz.cpp)
+  target_link_libraries(image_fuzz OgreMain Codec_STBI ${LIB_FUZZING_ENGINE})
+  target_compile_features(image_fuzz PRIVATE cxx_std_17)
+
+  add_executable(stream_fuzz fuzz/stream_fuzz.cpp)
+  target_link_libraries(stream_fuzz OgreMain ${LIB_FUZZING_ENGINE})
+  target_compile_features(stream_fuzz PRIVATE cxx_std_17)
+
+  add_executable(zip_fuzz fuzz/zip_fuzz.cpp)
+  target_link_libraries(zip_fuzz OgreMain ${LIB_FUZZING_ENGINE})
+  target_compile_features(zip_fuzz PRIVATE cxx_std_17)
+
+  add_executable(dds_fuzz fuzz/dds_fuzz.cpp)
+  target_link_libraries(dds_fuzz OgreMain ${LIB_FUZZING_ENGINE})
+  target_compile_features(dds_fuzz PRIVATE cxx_std_17)
+
+  add_executable(ogre_deep_fuzz fuzz/ogre_deep_fuzz.cpp)
+  target_link_libraries(ogre_deep_fuzz OgreMain ${LIB_FUZZING_ENGINE})
+  target_compile_features(ogre_deep_fuzz PRIVATE cxx_std_17)
+
+  add_executable(script_fuzz fuzz/script_fuzz.cpp)
+  target_link_libraries(script_fuzz OgreMain ${LIB_FUZZING_ENGINE})
+  target_compile_features(script_fuzz PRIVATE cxx_std_17)
+endif ()

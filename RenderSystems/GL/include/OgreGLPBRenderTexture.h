@@ -39,12 +39,12 @@ namespace Ogre {
     class _OgreGLExport GLPBRenderTexture: public GLRenderTexture
     {
     public:
-        GLPBRenderTexture(GLPBRTTManager *manager, const String &name, const GLSurfaceDesc &target, bool writeGamma, uint fsaa);
+        GLPBRenderTexture(GLPBRTTManager *manager, const String &name, const GLSurfaceDesc &target, bool writeGamma);
         virtual ~GLPBRenderTexture();
         
-        virtual void getCustomAttribute(const String& name, void* pData);
+        void getCustomAttribute(const String& name, void* pData) override;
 
-        GLContext* getContext() const;
+        GLContext* getContext() const override;
     protected:
         GLPBRTTManager *mManager;
         PixelComponentType mPBFormat;
@@ -57,11 +57,9 @@ namespace Ogre {
     public:
         GLPBRTTManager(GLNativeSupport *support, RenderTarget *mainwindow);
         virtual ~GLPBRTTManager();
-        
-        /** @copydoc GLRTTManager::createRenderTexture
-        */
-        virtual RenderTexture *createRenderTexture(const String &name, 
-            const GLSurfaceDesc &target, bool writeGamma, uint fsaa);
+
+        RenderTexture *createRenderTexture(const String &name,
+            const GLSurfaceDesc &target, bool writeGamma) override;
         
          /** @copydoc GLRTTManager::checkFormat
         */
@@ -69,11 +67,11 @@ namespace Ogre {
         
         /** @copydoc GLRTTManager::bind
         */
-        virtual void bind(RenderTarget *target);
+        void bind(RenderTarget *target) override;
         
         /** @copydoc GLRTTManager::unbind
         */
-        virtual void unbind(RenderTarget *target);
+        void unbind(RenderTarget *target) override;
         
         /** Create PBuffer for a certain pixel format and size
         */

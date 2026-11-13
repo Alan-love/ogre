@@ -36,8 +36,8 @@ namespace Ogre
     class CmdDelegate : public ParamCommand
     {
     public:
-        String doGet(const void* target) const;
-        void doSet(void* target, const String& val);
+        String doGet(const void* target) const override;
+        void doSet(void* target, const String& val) override;
     };
     static CmdDelegate msCmdDelegate;
     static const String sLanguage = "unified";
@@ -55,7 +55,7 @@ namespace Ogre
 
             ParamDictionary* dict = getParamDictionary();
 
-            dict->addParameter(ParameterDef("delegate", 
+            dict->addParameter(ParameterDef("delegate",
                 "Additional delegate programs containing implementations.",
                 PT_STRING),&msCmdDelegate);
         }
@@ -82,15 +82,25 @@ namespace Ogre
                 deleg = GpuProgramManager::getSingleton().getByName(dn, RGN_AUTODETECT);
 
             // Silently ignore missing links
-            if(!deleg || (!deleg->isSupported() && !deleg->hasCompileError()))
+            if(!deleg)
                 continue;
+
+            if (deleg->getLanguage() == sLanguage)
+            {
+                LogManager::getSingleton().logError("unified program '" + getName() +
+                                                    "' cannot delegate to another unified program '" + dn + "'");
+                continue;
+            }
 
             if (deleg->getType() != getType())
             {
                 LogManager::getSingleton().logError("unified program '" + getName() +
-                                                    "' delegating to program with different type '" + dn + "'");
+                                                    "' cannot delegate to program with different type '" + dn + "'");
                 continue;
             }
+
+            if(!deleg->isSupported() && !deleg->hasCompileError())
+                continue;
 
             mChosenDelegate = deleg;
             break;
@@ -133,8 +143,8 @@ namespace Ogre
         memSize += GpuProgram::calculateSize();
 
         // Delegate Names
-        for (StringVector::const_iterator i = mDelegateNames.begin(); i != mDelegateNames.end(); ++i)
-            memSize += (*i).size() * sizeof(char);
+        for (const auto& n : mDelegateNames)
+            memSize += n.size() * sizeof(char);
 
         return memSize;
     }
@@ -372,21 +382,21 @@ namespace Ogre
     //-----------------------------------------------------------------------
     void UnifiedHighLevelGpuProgram::createLowLevelImpl(void)
     {
-        OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED, 
+        OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED,
             "This method should never get called!",
             "UnifiedHighLevelGpuProgram::createLowLevelImpl");
     }
     //-----------------------------------------------------------------------
     void UnifiedHighLevelGpuProgram::unloadHighLevelImpl(void)
     {
-        OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED, 
+        OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED,
             "This method should never get called!",
             "UnifiedHighLevelGpuProgram::unloadHighLevelImpl");
     }
     //-----------------------------------------------------------------------
     void UnifiedHighLevelGpuProgram::loadFromSource(void)
     {
-        OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED, 
+        OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED,
             "This method should never get called!",
             "UnifiedHighLevelGpuProgram::loadFromSource");
     }

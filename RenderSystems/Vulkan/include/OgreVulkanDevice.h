@@ -33,9 +33,9 @@ THE SOFTWARE.
 
 #include "OgreVulkanQueue.h"
 
-#include "vulkan/vulkan_core.h"
-
 #include "OgreHeaderPrefix.h"
+
+#include "vk_mem_alloc.h"
 
 namespace Ogre
 {
@@ -53,6 +53,8 @@ namespace Ogre
         VkInstance          mInstance;
         VkPhysicalDevice    mPhysicalDevice;
         VkDevice            mDevice;
+
+        VmaAllocator        mVmaAllocator;
 
         VkQueue             mPresentQueue;
         /// Graphics queue is *guaranteed by spec* to also be able to run compute and transfer
@@ -102,6 +104,8 @@ namespace Ogre
 
         /// Waits for the GPU to finish all pending commands.
         void stall( void );
+
+        VmaAllocator getAllocator() const { return mVmaAllocator; }
     };
 }  // namespace Ogre
 

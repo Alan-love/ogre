@@ -81,15 +81,15 @@ namespace Ogre
         for (ShadowTextureConfig& config : configList)
         {
             bool found = false;
-            for (ShadowTextureList::iterator t = mTextureList.begin(); t != mTextureList.end(); ++t)
+            for (auto & tex : mTextureList)
             {
-                const TexturePtr& tex = *t;
                 // Skip if already used this one
                 if (usedTextures.find(tex.get()) != usedTextures.end())
                     continue;
 
-                if (config.width == tex->getWidth() && config.height == tex->getHeight()
-                    && config.format == tex->getFormat() && config.fsaa == tex->getFSAA())
+                if (config.width == tex->getWidth() && config.height == tex->getHeight() &&
+                    config.depth == tex->getDepth() && config.type == tex->getTextureType() &&
+                    config.format == tex->getFormat() && config.fsaa == tex->getFSAA())
                 {
                     // Ok, a match
                     listToPopulate.push_back(tex);
@@ -101,13 +101,11 @@ namespace Ogre
             if (!found)
             {
                 // Create a new texture
-                static const String baseName = "Ogre/ShadowTexture";
-                String targName = baseName + StringConverter::toString(mCount++);
+                String targName = StringUtil::format("Ogre/ShadowTexture%zu", mCount++);
                 TexturePtr shadowTex = TextureManager::getSingleton().createManual(
-                    targName, 
-                    ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME, 
-                    TEX_TYPE_2D, config.width, config.height, 0, config.format, 
-                    TU_RENDERTARGET, NULL, false, config.fsaa);
+                    targName, RGN_INTERNAL, config.type, config.width, config.height, config.depth, 0, config.format,
+                    TU_RENDERTARGET | config.extraFlags, NULL, false, config.fsaa);
+                OgreAssert(shadowTex, "Unsupported shadow texture configuration");
                 // Ensure texture loaded
                 shadowTex->load();
 
@@ -121,12 +119,10 @@ namespace Ogre
 
     }
     //---------------------------------------------------------------------
-    TexturePtr ShadowTextureManager::getNullShadowTexture(PixelFormat format)
+    TexturePtr ShadowTextureManager::getNoShadowTexture(PixelFormat format)
     {
-        for (ShadowTextureList::iterator t = mNullTextureList.begin(); t != mNullTextureList.end(); ++t)
+        for (auto & tex : mNullTextureList)
         {
-            const TexturePtr& tex = *t;
-
             if (format == tex->getFormat())
             {
                 // Ok, a match
@@ -195,9 +191,9 @@ namespace Ogre
     //---------------------------------------------------------------------
     void ShadowTextureManager::clear()
     {
-        for (ShadowTextureList::iterator i = mTextureList.begin(); i != mTextureList.end(); ++i)
+        for (auto & i : mTextureList)
         {
-            TextureManager::getSingleton().remove((*i)->getHandle());
+            TextureManager::getSingleton().remove(i->getHandle());
         }
         mTextureList.clear();
 

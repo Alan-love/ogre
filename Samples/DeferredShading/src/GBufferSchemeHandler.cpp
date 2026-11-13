@@ -27,25 +27,15 @@ Technique* GBufferSchemeHandler::handleSchemeNotFound(unsigned short schemeIndex
 {
     Ogre::MaterialManager& matMgr = Ogre::MaterialManager::getSingleton();
     String curSchemeName = matMgr.getActiveScheme();
-    matMgr.setActiveScheme(MaterialManager::DEFAULT_SCHEME_NAME);
+    matMgr.setActiveScheme(MSN_DEFAULT);
     Technique* originalTechnique = originalMaterial->getBestTechnique(lodIndex, rend);
     matMgr.setActiveScheme(curSchemeName);
 
     RTShader::ShaderGenerator& rtShaderGen = RTShader::ShaderGenerator::getSingleton();
-    rtShaderGen.createShaderBasedTechnique(originalTechnique, "NoGBuffer");
     rtShaderGen.createShaderBasedTechnique(originalTechnique, "GBuffer");
 
     for (unsigned short i=0; i<originalTechnique->getNumPasses(); i++)
     {
-        Pass* originalPass = originalTechnique->getPass(i);
-
-        //Check transparency
-        if (originalPass->getDestBlendFactor() != Ogre::SBF_ZERO)
-        {
-            rtShaderGen.validateMaterial("NoGBuffer", *originalMaterial);
-            continue;
-        }
-
         rtShaderGen.validateMaterial("GBuffer", *originalMaterial);
         // Grab the generated technique.
         for(Technique* curTech : originalMaterial->getTechniques())

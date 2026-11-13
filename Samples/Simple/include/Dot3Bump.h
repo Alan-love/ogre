@@ -24,7 +24,7 @@ public:
             "cursor and access widgets. Use WASD keys to move.";
     }
 
-    bool frameRenderingQueued(const FrameEvent& evt)
+    bool frameRenderingQueued(const FrameEvent& evt) override
     {
         if (mMoveLights)
         {
@@ -36,7 +36,7 @@ public:
         return SdkSample::frameRenderingQueued(evt);  // don't forget the parent class updates!
     }
 
-    void itemSelected(SelectMenu* menu)
+    void itemSelected(SelectMenu* menu) override
     {
         if (menu == mMeshMenu)
         {
@@ -59,7 +59,7 @@ public:
         }
     }
 
-    void checkBoxToggled(CheckBox* box)
+    void checkBoxToggled(CheckBox* box) override
     {
         if (StringUtil::startsWith(box->getName(), "Light", false))
         {
@@ -77,12 +77,10 @@ public:
 
 protected:
 
-    void setupContent()
+    void setupContent() override
     {
-#ifdef OGRE_BUILD_COMPONENT_RTSHADERSYSTEM
         // Make this viewport work with shader generator scheme.
-        mViewport->setMaterialScheme(RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
-#endif
+        mViewport->setMaterialScheme(MSN_SHADERGEN);
 
         // create our main node to attach our entities to
         mObjectNode = mSceneMgr->getRootSceneNode()->createChildSceneNode();
@@ -99,54 +97,49 @@ protected:
     {
         StringVector matNames;
 
-        matNames.push_back("Examples/BumpMapping/MultiLight");
-        matNames.push_back("Examples/BumpMapping/MultiLightSpecular");
+
+#ifdef INCLUDE_RTSHADER_SYSTEM
+        matNames.push_back("RTSS/NormalMapping_SinglePass");
+        matNames.push_back("RTSS/OffsetMapping");
+        matNames.push_back("RTSS/ParallaxOcclusionMapping");
+        matNames.push_back("RTSS/NormalMapping_MultiPass");
+#endif
         matNames.push_back("Examples/ShowUV");
         matNames.push_back("Examples/ShowNormals");
         matNames.push_back("Examples/ShowTangents");
 
-#ifdef INCLUDE_RTSHADER_SYSTEM
-        matNames.push_back("RTSS/OffsetMapping");
-        matNames.push_back("RTSS/NormalMapping_SinglePass");
-        matNames.push_back("RTSS/NormalMapping_MultiPass");
-#endif
 
     
         mPossibilities["ogrehead.mesh"] = matNames;
+        mPossibilities["cube.mesh"] = matNames;
         mPossibilities["knot.mesh"] = matNames;
 
         matNames.clear();
+#ifdef INCLUDE_RTSHADER_SYSTEM
         matNames.push_back("Examples/Athene/NormalMapped");
-        matNames.push_back("Examples/Athene/NormalMappedSpecular");
-        matNames.push_back("Examples/Athene/NormalMappedSpecular");
+        matNames.push_back("Examples/Athene/NormalMapped_MultiPass");
+#endif
         matNames.push_back("Examples/ShowUV");
         matNames.push_back("Examples/ShowNormals");
         matNames.push_back("Examples/ShowTangents");
-#ifdef INCLUDE_RTSHADER_SYSTEM
-        matNames.push_back("RTSS/Athene/NormalMapping_SinglePass");
-        matNames.push_back("RTSS/Athene/NormalMapping_MultiPass");
-#endif
+
 
         mPossibilities["athene.mesh"] = matNames;
 
-        for (std::map<String, StringVector>::iterator it = mPossibilities.begin(); it != mPossibilities.end(); it++)
+        for (const auto& p : mPossibilities)
         {
             // load each mesh with non-default hardware buffer usage options
-            MeshPtr mesh = MeshManager::getSingleton().load(it->first, ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
-                HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY);
+            MeshPtr mesh = MeshManager::getSingleton().load(p.first, RGN_DEFAULT,
+                HBU_CPU_TO_GPU);
 
             // build tangent vectors for our mesh
-            unsigned short src, dest;
-            if (!mesh->suggestTangentVectorBuildParams(VES_TANGENT, src, dest))
-            {
-                mesh->buildTangentVectors(VES_TANGENT, src, dest);
-                // this version cleans mirrored and rotated UVs but requires quality models
-                // mesh->buildTangentVectors(VES_TANGENT, src, dest, true, true);
-            }
+            mesh->buildTangentVectors();
+            // this version cleans mirrored and rotated UVs but requires quality models
+            // mesh->buildTangentVectors(VES_TANGENT, src, dest, true, true);
 
             // create an entity from the mesh and set the first available material
             Entity* ent = mSceneMgr->createEntity(mesh->getName(), mesh->getName());
-            ent->setMaterialName(it->second.front());
+            ent->setMaterialName(p.second.front());
         }
     }
 
@@ -197,8 +190,8 @@ protected:
 
         // create a menu to choose the model displayed
         mMeshMenu = mTrayMgr->createLongSelectMenu(TL_BOTTOM, "Mesh", "Mesh", 370, 290, 10);
-        for (std::map<String, StringVector>::iterator it = mPossibilities.begin(); it != mPossibilities.end(); it++)
-            mMeshMenu->addItem(it->first);
+        for (const auto& p : mPossibilities)
+            mMeshMenu->addItem(p.first);
 
         // create a menu to choose the material used by the model
         mMaterialMenu = mTrayMgr->createLongSelectMenu(TL_BOTTOM, "Material", "Material", 370, 290, 10);

@@ -32,8 +32,6 @@ public:
     bool preAddToRenderState(const RenderState* renderState, Pass* srcPass, Pass* dstPass) override;
     bool createCpuSubPrograms(ProgramSet* programSet) override;
     void copyFrom(const SubRenderState& rhs) override {}
-
-    static String Type;
 };
 
 /**
@@ -45,8 +43,7 @@ class WBOITFactory : public SubRenderStateFactory
 public:
     const String& getType() const override;
 
-    SubRenderState* createInstance(ScriptCompiler* compiler, PropertyAbstractNode* prop, Pass* pass,
-                                           SGScriptTranslator* translator) override;
+    SubRenderState* createInstance(const ScriptProperty& prop, Pass* pass, SGScriptTranslator* translator) override;
 
     void writeInstance(MaterialSerializer* ser, SubRenderState* subRenderState, Pass* srcPass, Pass* dstPass) override;
 

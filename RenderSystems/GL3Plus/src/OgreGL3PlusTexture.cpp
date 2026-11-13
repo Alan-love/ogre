@@ -61,6 +61,7 @@ namespace Ogre {
         {
         case TEX_TYPE_1D:
             return GL_TEXTURE_1D;
+        default:
         case TEX_TYPE_2D:
             return GL_TEXTURE_2D;
         case TEX_TYPE_3D:
@@ -69,8 +70,8 @@ namespace Ogre {
             return GL_TEXTURE_CUBE_MAP;
         case TEX_TYPE_2D_ARRAY:
             return GL_TEXTURE_2D_ARRAY;
-        default:
-            return 0;
+        case TEX_TYPE_2D_MULTISAMPLE:
+            return GL_TEXTURE_2D_MULTISAMPLE;
         };
     }
 
@@ -84,22 +85,9 @@ namespace Ogre {
         // Adjust format if required.
         mFormat = TextureManager::getSingleton().getNativeFormat(mTextureType, mFormat, mUsage);
 
-        // Check requested number of mipmaps.
-        uint32 maxMips = getMaxMipmaps();
-
-        if (PixelUtil::isCompressed(mFormat) && (mNumMipmaps == 0))
-            mNumRequestedMipmaps = 0;
-
-        mNumMipmaps = mNumRequestedMipmaps;
-        if (mNumMipmaps > maxMips)
-            mNumMipmaps = maxMips;
-
         // Create a texture object and identify its GL type.
         OGRE_CHECK_GL_ERROR(glGenTextures(1, &mTextureID));
         GLenum texTarget = getGL3PlusTextureTarget();
-
-        if (mRenderSystem->getCapabilities()->hasCapability(RSC_DEBUG))
-            OGRE_CHECK_GL_ERROR(glObjectLabel(GL_TEXTURE, mTextureID, -1, mName.c_str()));
 
         // Calculate size for all mip levels of the texture.
         uint32 width, height, depth;
@@ -112,6 +100,9 @@ namespace Ogre {
         // Bind texture object to its type, making it the active texture object
         // for that type.
         mRenderSystem->_getStateCacheManager()->bindGLTexture( texTarget, mTextureID );
+
+        if (mRenderSystem->getCapabilities()->hasCapability(RSC_DEBUG))
+            OGRE_CHECK_GL_ERROR(glObjectLabel(GL_TEXTURE, mTextureID, -1, mName.c_str()));
 
         mRenderSystem->_getStateCacheManager()->setTexParameteri(texTarget, GL_TEXTURE_BASE_LEVEL, 0);
         mRenderSystem->_getStateCacheManager()->setTexParameteri(texTarget, GL_TEXTURE_MAX_LEVEL, mNumMipmaps);
@@ -233,6 +224,9 @@ namespace Ogre {
                 case TEX_TYPE_3D:
                     OGRE_CHECK_GL_ERROR(glTexStorage3D(texTarget, GLsizei(mNumMipmaps+1), format, GLsizei(width), GLsizei(height), GLsizei(depth)));
                     break;
+                case TEX_TYPE_2D_MULTISAMPLE:
+                    OGRE_CHECK_GL_ERROR(glTexStorage2DMultisample(texTarget, mFSAA, format, width, height, true));
+                    break;
                 case TEX_TYPE_EXTERNAL_OES:
                     OGRE_EXCEPT(
                         Exception::ERR_RENDERINGAPI_ERROR,
@@ -291,6 +285,10 @@ namespace Ogre {
                                                              originFormat, datatype, NULL));
                         }
                         break;
+                    case TEX_TYPE_2D_MULTISAMPLE:
+                        OGRE_CHECK_GL_ERROR(
+                            glTexImage2DMultisample(texTarget, mFSAA, format, width, height, true));
+                        break;
                     case TEX_TYPE_EXTERNAL_OES:
                         OGRE_EXCEPT(
                             Exception::ERR_RENDERINGAPI_ERROR,
@@ -321,7 +319,7 @@ namespace Ogre {
         // Reset unpack alignment to defaults
         OGRE_CHECK_GL_ERROR(glPixelStorei(GL_UNPACK_ALIGNMENT, 4));
 
-        _createSurfaceList();
+        createSurfaceList();
 
         // Generate mipmaps after all texture levels have been loaded
         // This is required for compressed formats such as DXT
@@ -343,30 +341,10 @@ namespace Ogre {
         }
     }
 
-    void GL3PlusTexture::_createSurfaceList()
+    HardwarePixelBufferPtr GL3PlusTexture::createSurface(uint32 face, uint32 mipmap, uint32 width, uint32 height,
+                                                         uint32 depth)
     {
-        mSurfaceList.clear();
-
-        uint32 depth = mDepth;
-        for (uint8 face = 0; face < getNumFaces(); face++)
-        {
-            uint32 width = mWidth;
-            uint32 height = mHeight;
-
-            for (uint32 mip = 0; mip <= getNumMipmaps(); mip++)
-            {
-                GL3PlusHardwarePixelBuffer* buf =
-                    new GL3PlusTextureBuffer(this, face, mip, width, height, depth);
-                mSurfaceList.push_back(HardwarePixelBufferSharedPtr(buf));
-
-                if (width > 1)
-                    width = width / 2;
-                if (height > 1)
-                    height = height / 2;
-                if (depth > 1 && mTextureType != TEX_TYPE_2D_ARRAY)
-                    depth = depth / 2;
-            }
-        }
+        return std::make_shared<GL3PlusTextureBuffer>(this, face, mipmap, width, height, depth);
     }
 
     void GL3PlusTexture::createShaderAccessPoint(uint bindPoint, TextureAccess access, 
@@ -394,29 +372,6 @@ namespace Ogre {
 
         // TODO
         // * add memory barrier
-        // * material script access (can have multiple instances for a single texture_unit)
-        //     shader_access <binding point> [<access>] [<mipmap level>] [<texture array layer>] [<format>]
-        //     shader_access 2 read_write 0 0 PF_UINT32_R
-        //   binding point - location to bind for shader access; for OpenGL this must be unique and is not related to texture binding point
-        //   access - give the shader read, write, or read_write privileges [default read_write]
-        //   mipmap level - texture mipmap level to use [default 0]
-        //   texture array layer - layer of texture array to use: 'all', or layer number (if not layered, just use 0) [default 0]
-        //   format - texture format to be read in shader; for OpenGL this may be different than bound texture format - not sure about DX11 [default same format as texture]
-        //   Note that for OpenGL the shader access (image) binding point 
-        //   must be specified, it is NOT the same as the texture binding point,
-        //   and it must be unique among textures in this pass.
-        // * enforce binding point uniqueness by checking against 
-        //   image binding point allocation list in GL3PlusTextureManager
-        // * generalize for other render systems by introducing vitual method in Texture 
-        // for (image in mImages)
-        // {
-        // OGRE_CHECK_GL_ERROR(
-        //     glBindImageTexture(
-        //         mImageBind, mTextureID, 
-        //         mMipmapLevel, 
-        //         mLayered.find('all') != str::npos ? GL_TRUE : GL_FALSE, mLayer,
-        //         mImageAccess (READ, WRITE, READ_WRITE), 
-        //         toImageFormat(mFormatInShader))); //GL_RGBA8)); //GL_R32UI)); GL_READ_WRITE
         if (mRenderSystem->hasMinGLVersion(4, 2) || mRenderSystem->checkExtension("GL_ARB_shader_image_load_store"))
         {
             OGRE_CHECK_GL_ERROR(glBindImageTexture(bindPoint, mTextureID, mipmapLevel, isArrayTexture, textureArrayIndex, GlAccess, GlFormat));

@@ -18,18 +18,18 @@ public:
         mInfo["Category"] = "Geometry";
     }
 
-    void checkBoxToggled(CheckBox* box)
+    void checkBoxToggled(CheckBox* box) override
     {
         mPatchPass->setPolygonMode(box->isChecked() ? PM_WIREFRAME : PM_SOLID);
 
 #ifdef INCLUDE_RTSHADER_SYSTEM
         Material* mat = mPatchPass->getParent()->getParent();
         // Invalidate material in order to reflect polygon mode change in the generated shader based pass.
-        mShaderGenerator->invalidateMaterial(RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME, *mat);
+        mShaderGenerator->invalidateMaterial(MSN_SHADERGEN, *mat);
 #endif
     }
 
-    void sliderMoved(Slider* slider)
+    void sliderMoved(Slider* slider) override
     {
         mPatch->setSubdivision(slider->getValue());
     }
@@ -49,7 +49,7 @@ protected:
 #   pragma pack(pop)
 #endif
 
-    void setupContent()
+    void setupContent() override
     {
         // setup some basic lighting for our scene
         mSceneMgr->setAmbientLight(ColourValue(0.5, 0.5, 0.5));
@@ -79,7 +79,7 @@ protected:
 
         // create a patch mesh using vertices and declaration
         mPatch = MeshManager::getSingleton().createBezierPatch("patch",
-            ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, (float*)verts, mDecl, 3, 3, 5, 5, PatchSurface::VS_BOTH);
+            RGN_DEFAULT, (float*)verts, mDecl, 3, 3, 5, 5, PatchSurface::VS_BOTH);
 
         mPatch->setSubdivision(0);   // start at 0 detail
 
@@ -102,7 +102,7 @@ protected:
         mTrayMgr->createCheckBox(TL_TOPLEFT, "Wireframe", "Wireframe", 120);
     }
 
-    void cleanupContent()
+    void cleanupContent() override
     {
         HardwareBufferManager::getSingleton().destroyVertexDeclaration(mDecl);
         mPatchPass->setPolygonMode(PM_SOLID);

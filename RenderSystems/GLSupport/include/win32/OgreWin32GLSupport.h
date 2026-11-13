@@ -63,20 +63,14 @@ namespace Ogre
         /**
          * Initialise extensions
          */
-        virtual void initialiseExtensions();
+        void initialiseExtensions(HDC hdc);
         
 
-        bool selectPixelFormat(HDC hdc, int colourDepth, int multisample, bool hwGamma);
+        bool selectPixelFormat(HDC hdc, int colourDepth, int multisample, bool hwGamma, bool stereo, bool hdrDisplay);
 
         HGLRC createNewContext(HDC hdc, HGLRC shareList);
-
-        virtual unsigned int getDisplayMonitorCount() const;
     private:
         Win32Window *mInitialWindow;
-        bool mHasPixelFormatARB;
-        bool mHasMultisample;
-        bool mHasHardwareGamma;
-        PFNWGLCHOOSEPIXELFORMATARBPROC mWglChoosePixelFormat;
 
         struct DisplayMonitorInfo
         {

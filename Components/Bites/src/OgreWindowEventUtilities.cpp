@@ -36,8 +36,8 @@ THE SOFTWARE.
 #   define NOMINMAX // required to stop windows.h messing up std::min
 #  endif
 #  include <windows.h>
-#elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX
-#include <X11/Xlib.h>
+#elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX && !defined(OGRE_WAYLAND)
+#   include <X11/Xlib.h>
 #endif
 
 using namespace Ogre;
@@ -47,7 +47,7 @@ typedef std::multimap<RenderWindow*, WindowEventListener*> WindowEventListeners;
 static WindowEventListeners _msListeners;
 static RenderWindowList _msWindows;
 
-#if OGRE_PLATFORM == OGRE_PLATFORM_LINUX
+#if OGRE_PLATFORM == OGRE_PLATFORM_LINUX && !defined(OGRE_WAYLAND)
 static void GLXProc( RenderWindow *win, const XEvent &event );
 #endif
 
@@ -67,7 +67,6 @@ LRESULT CALLBACK WindowEventUtilities::_WndProc(HWND hWnd, UINT uMsg, WPARAM wPa
     if (!win)
         return DefWindowProc(hWnd, uMsg, wParam, lParam);
 
-    //LogManager* log = LogManager::getSingletonPtr();
     //Iterator of all listeners registered to this RenderWindow
     WindowEventListeners::iterator index,
         start = _msListeners.lower_bound(win),
@@ -185,32 +184,29 @@ void WindowEventUtilities::messagePump()
         TranslateMessage( &msg );
         DispatchMessage( &msg );
     }
-#elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX
+#elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX && !defined(OGRE_WAYLAND)
     //GLX Message Pump
-    Ogre::RenderWindowList::iterator win = _msWindows.begin();
-    Ogre::RenderWindowList::iterator end = _msWindows.end();
-
     Display* xDisplay = 0; // same for all windows
 
-    for (; win != end; win++)
+    for (const auto& w : _msWindows)
     {
         XID xid;
         XEvent event;
 
         if (!xDisplay)
-        (*win)->getCustomAttribute("XDISPLAY", &xDisplay);
+        w->getCustomAttribute("XDISPLAY", &xDisplay);
 
-        (*win)->getCustomAttribute("WINDOW", &xid);
+        w->getCustomAttribute("WINDOW", &xid);
 
         while (XCheckWindowEvent (xDisplay, xid, StructureNotifyMask | VisibilityChangeMask | FocusChangeMask, &event))
         {
-        GLXProc(*win, event);
+            GLXProc(w, event);
         }
 
         // The ClientMessage event does not appear under any Event Mask
         while (XCheckTypedWindowEvent (xDisplay, xid, ClientMessage, &event))
         {
-        GLXProc(*win, event);
+            GLXProc(w, event);
         }
     }
 #endif
@@ -225,16 +221,9 @@ void WindowEventUtilities::addWindowEventListener( RenderWindow* window, WindowE
 //--------------------------------------------------------------------------------//
 void WindowEventUtilities::removeWindowEventListener( RenderWindow* window, WindowEventListener* listener )
 {
-    WindowEventListeners::iterator i = _msListeners.begin(), e = _msListeners.end();
-
-    for( ; i != e; ++i )
-    {
-        if( i->first == window && i->second == listener )
-        {
-            _msListeners.erase(i);
-            break;
-        }
-    }
+    auto s = _msListeners.find(window);
+    if (s != _msListeners.end() && s->second == listener)
+        _msListeners.erase(s);
 }
 
 //--------------------------------------------------------------------------------//
@@ -251,7 +240,7 @@ void WindowEventUtilities::_removeRenderWindow(RenderWindow* window)
         _msWindows.erase( i );
 }
 
-#if OGRE_PLATFORM == OGRE_PLATFORM_LINUX
+#if OGRE_PLATFORM == OGRE_PLATFORM_LINUX && !defined(OGRE_WAYLAND)
 //--------------------------------------------------------------------------------//
 static void GLXProc( Ogre::RenderWindow *win, const XEvent &event )
 {

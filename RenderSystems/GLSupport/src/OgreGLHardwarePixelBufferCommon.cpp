@@ -32,7 +32,7 @@ namespace Ogre
 GLHardwarePixelBufferCommon::GLHardwarePixelBufferCommon(uint32 inWidth, uint32 inHeight,
                                                        uint32 inDepth, PixelFormat inFormat,
                                                        HardwareBuffer::Usage usage)
-    : HardwarePixelBuffer(inWidth, inHeight, inDepth, inFormat, usage, false, false),
+    : HardwarePixelBuffer(inWidth, inHeight, inDepth, inFormat, usage, false),
       mBuffer(inWidth, inHeight, inDepth, inFormat),
       mGLInternalFormat(0)
 {
@@ -81,6 +81,28 @@ void GLHardwarePixelBufferCommon::unlockImpl(void)
         // From buffer to card, only upload if was locked for writing.
         upload(mCurrentLock, mLockedBox);
     }
+    freeBuffer();
+}
+
+void GLHardwarePixelBufferCommon::_blitFromMemory(const PixelBox &src, const Box& dst)
+{
+    PixelBox converted;
+
+    if (needsConversion(src.format))
+    {
+        // Extents match, but format is not accepted as valid
+        // source format for GL. Do conversion in temporary buffer.
+        allocateBuffer();
+        converted = mBuffer.getSubVolume(src);
+        PixelUtil::bulkPixelConversion(src, converted);
+    }
+    else
+    {
+        // No conversion needed.
+        converted = src;
+    }
+
+    upload(converted, dst);
     freeBuffer();
 }
 

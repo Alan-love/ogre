@@ -672,13 +672,23 @@ WARN_LOGFILE           = "build/doxygen_warnings.log"
 # with spaces.
 
 INPUT                  = OgreMain/include \
-                            Components \
+                            Components/Bites/include \
+                            Components/MeshLodGenerator/include \
+                            Components/Overlay/include \
+                            Components/Paging/include \
+                            Components/Property/include \
+                            Components/RTShaderSystem/include \
+                            Components/Terrain/include \
+                            Components/Volume/include \
+                            Components/Python/Numpy.py \
+                            Components/Python/HighPy.py \
                             PlugIns \
                             PlugIns/PCZSceneManager/docs/readme.md \
+                            PlugIns/DotScene/README.md \
                             RenderSystems \
                             Docs/src/apimainpage.md \
                             Docs/src/manual.md \
-                            Docs/src/OgreShadows.md \
+                            Docs/src/ogre-shadows.md \
                             Docs/src/scripts.md \
                             Docs/src/material-scripts.md \
                             Docs/src/high-level-programs.md \
@@ -981,7 +991,7 @@ HTML_STYLESHEET        =
 # robust against future updates. Doxygen will copy the style sheet file to
 # the output directory.
 
-HTML_EXTRA_STYLESHEET  = "Docs/ogre_style.css"
+HTML_EXTRA_STYLESHEET  = "Docs/doxygen-awesome.css" "Docs/ogre_style.css"
 
 # The HTML_EXTRA_FILES tag can be used to specify one or more extra images or
 # other source files which should be copied to the HTML output directory. Note

@@ -26,12 +26,12 @@ using namespace OgreBites;
 
 class Sample_PCZTest : public SdkSample
 {
-    PCZSceneNode * buildingNode;
+    SceneNode * buildingNode;
     Vector3 buildingTranslate;
-    RaySceneQuery* raySceneQuery;
+    std::unique_ptr<RaySceneQuery> raySceneQuery;
     MovableObject* targetMO;
 public:
-    Sample_PCZTest() : raySceneQuery(0), targetMO(0)
+    Sample_PCZTest() : targetMO(0)
     {
         mInfo["Title"] = "PCZTest";
         mInfo["Description"] = "Demonstrates use of the Portal Connected Zone(PCZ) Scene Manager Plugin.";
@@ -42,12 +42,12 @@ public:
                         "opposed to going through the walls).";
     }
 
-    void cleanupContent()
+    void cleanupContent() override
     {
-        delete raySceneQuery;
+        raySceneQuery.reset();
     }
 
-    void createSceneManager(void)
+    void createSceneManager(void) override
     {
         // Create the SceneManager, in this case a generic one
         mSceneMgr = mRoot->createSceneManager("PCZSceneManager");
@@ -59,8 +59,8 @@ public:
         mShaderGenerator->addSceneManager(mSceneMgr);
 #endif
 
-        if(mOverlaySystem)
-            mSceneMgr->addRenderQueueListener(mOverlaySystem);
+        if(auto overlaySystem = mContext->getOverlaySystem())
+            mSceneMgr->addRenderQueueListener(overlaySystem);
     }
 
     // utility function to create terrain zones easily
@@ -118,10 +118,10 @@ public:
         return terrainZone;
     }
 
-    PCZSceneNode* createAntiPortal(const String& name)
+    SceneNode* createAntiPortal(const String& name)
     {
         // Create antiportal test.
-        PCZSceneNode* antiPortalNode = (PCZSceneNode*)mSceneMgr->getRootSceneNode()->createChildSceneNode();
+        SceneNode* antiPortalNode = mSceneMgr->getRootSceneNode()->createChildSceneNode();
         PCZone* defaultZone = ((PCZSceneManager*)mSceneMgr)->getDefaultZone();
         AntiPortal* antiPortal = ((PCZSceneManager*)mSceneMgr)->createAntiPortal(name);
         antiPortal->setCorner(0, Vector3(100.0f, 100.0f, 0.0f));
@@ -130,7 +130,7 @@ public:
         antiPortal->setCorner(3, Vector3(-100.0f, 100.0f, 0.0f));
         antiPortalNode->attachObject(antiPortal);
         defaultZone->_addAntiPortal(antiPortal);
-        ((PCZSceneManager*)mSceneMgr)->addPCZSceneNode(antiPortalNode, defaultZone);
+        ((PCZSceneManager*)mSceneMgr)->addPCZSceneNode((PCZSceneNode*)antiPortalNode, defaultZone);
 
         // Anti portal prop.
         Entity* planeEnt = mSceneMgr->createEntity(name + "Entity", SceneManager::PT_PLANE);
@@ -140,7 +140,7 @@ public:
         return antiPortalNode;
     }
 
-    void setupContent(void)
+    void setupContent(void) override
     {
         mCameraMan->setTopSpeed(15);
         mCamera->setNearClipDistance(2);
@@ -246,11 +246,11 @@ public:
         //Ogre::Radian r = Radian(3.1416/7.0);
         //buildingNode->rotate(Vector3::UNIT_Y, r);
 
-        PCZSceneNode* antiPortalNode1 = createAntiPortal("AntiPortal1");
+        SceneNode* antiPortalNode1 = createAntiPortal("AntiPortal1");
         antiPortalNode1->setPosition(Vector3(450, 200, 800));
         antiPortalNode1->setScale(0.5f, 0.5f, 0.5f);
 
-        PCZSceneNode* antiPortalNode2 = createAntiPortal("AntiPortal2");
+        SceneNode* antiPortalNode2 = createAntiPortal("AntiPortal2");
         antiPortalNode2->setPosition(Vector3(460, 200, 700));
         antiPortalNode2->setScale(0.5f, 0.5f, 0.5f);
 
@@ -260,8 +260,8 @@ public:
         mCameraNode->_updateBounds();
 
         // create the ray scene query
-        raySceneQuery = mSceneMgr->createRayQuery(
-            Ray(mCamera->getParentNode()->getPosition(), Vector3::NEGATIVE_UNIT_Z));
+        raySceneQuery.reset(mSceneMgr->createRayQuery(
+            Ray(mCamera->getParentNode()->getPosition(), Vector3::NEGATIVE_UNIT_Z)));
         raySceneQuery->setSortByDistance(true, 5);
 
     }
@@ -272,7 +272,7 @@ public:
         camera is in is usually what gets highlighted).  It's just a simple test of
         ray scene queries. Scene Queries will (at least, should) traverse portals.
      */
-    bool frameRenderingQueued( const FrameEvent& evt )
+    bool frameRenderingQueued( const FrameEvent& evt ) override
     {
         SdkSample::frameRenderingQueued(evt);
 #if 0
@@ -293,8 +293,8 @@ public:
         updateRay.setDirection(mCamera->getParentSceneNode()->getOrientation()*Vector3::NEGATIVE_UNIT_Z);
         raySceneQuery->setRay(updateRay);
         PCZone * zone = ((PCZSceneNode*)(mCamera->getParentSceneNode()))->getHomeZone();
-        ((PCZRaySceneQuery*)raySceneQuery)->setStartZone(zone);
-        ((PCZRaySceneQuery*)raySceneQuery)->setExcludeNode(mCamera->getParentSceneNode());
+        static_cast<PCZRaySceneQuery*>(raySceneQuery.get())->setStartZone(zone);
+        static_cast<PCZRaySceneQuery*>(raySceneQuery.get())->setExcludeNode(mCamera->getParentSceneNode());
         RaySceneQueryResult& qryResult = raySceneQuery->execute();
         RaySceneQueryResult::iterator i = qryResult.begin();
         if (i != qryResult.end())

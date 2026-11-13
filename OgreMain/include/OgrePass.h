@@ -106,7 +106,7 @@ namespace Ogre {
     {
     public:
         /** Definition of a functor for calculating the hashcode of a Pass.
-            @remarks
+
             The hashcode of a Pass is used to sort Passes for rendering, in order
             to reduce the number of render state changes. Each Pass represents a
             single unique set of states, but by ordering them, state changes can
@@ -162,8 +162,6 @@ namespace Ogre {
         bool mIteratePerLight : 1;
         /// Should it only be run for a certain light type?
         bool mRunOnlyForOneLightType : 1;
-        /// Normalisation
-        bool mNormaliseNormals : 1;
         bool mPolygonModeOverrideable : 1;
         bool mFogOverride : 1;
         /// Is this pass queued for deletion?
@@ -222,8 +220,7 @@ namespace Ogre {
         typedef std::vector<unsigned short> ContentTypeLookup;
         mutable ContentTypeLookup mShadowContentTypeLookup;
 
-        /// Vertex program details
-        std::unique_ptr<GpuProgramUsage> mProgramUsage[GPT_COUNT];
+        std::unique_ptr<GpuProgramUsage> mProgramUsage[GPT_PIPELINE_COUNT];
         /// Number of pass iterations to perform
         size_t mPassIterationCount;
         /// Point size, applies when not using per-vertex point size
@@ -244,9 +241,6 @@ namespace Ogre {
 
         Light::LightTypes mOnlyLightType;
         FogMode mFogMode;
-
-        /// Used to get scene blending flags from a blending type
-        void _getBlendFlags(SceneBlendType type, SceneBlendFactor& source, SceneBlendFactor& dest);
 
     public:
         typedef std::set<Pass*> PassSet;
@@ -277,7 +271,7 @@ namespace Ogre {
         /// Gets the index of this Pass in the parent Technique
         unsigned short getIndex(void) const { return mIndex; }
         /** Set the name of the pass
-           @remarks
+
            The name of the pass is optional.  Its useful in material scripts where a material could inherit
            from another material and only want to modify a particular pass.
         */
@@ -443,7 +437,7 @@ namespace Ogre {
         /// @name Point Sprites
         /// @{
         /** Gets the point size of the pass.
-            @remarks
+
             This property determines what point size is used to render a point
             list.
         */
@@ -484,9 +478,14 @@ namespace Ogre {
 
             When performing point rendering or point sprite rendering,
             point size can be attenuated with distance. The equation for
-            doing this is 
+            doing this is:
             
-            $$attenuation = 1 / (constant + linear * dist + quadratic * d^2)$$
+            \f[ S_a = V_h \cdot S \cdot \frac{1}{\sqrt{constant + linear \cdot d + quadratic \cdot d^2}} \f]
+
+            Where
+            - \f$d\f$ is the distance from the camera to the point
+            - \f$S\f$ is the point size parameter
+            - \f$V_h\f$ is the viewport height in pixels
 
             For example, to disable distance attenuation (constant screensize)
             you would set constant to 1, and linear and quadratic to 0. A
@@ -532,7 +531,7 @@ namespace Ogre {
         /// @name Texture Units
         /// @{
         /** Inserts a new TextureUnitState object into the Pass.
-            @remarks
+
             This unit is is added on top of all previous units.
             @param textureName
             The basic name of the texture e.g. brickwall.jpg, stonefloor.png
@@ -581,7 +580,7 @@ namespace Ogre {
         const TextureUnitStates& getTextureUnitStates() const { return mTextureUnitStates; }
 
         /** Removes the indexed texture unit state from this pass.
-            @remarks
+
             Note that removing a texture which is not the topmost will have a larger performance impact.
         */
         void removeTextureUnitState(unsigned short index);
@@ -594,7 +593,7 @@ namespace Ogre {
         size_t getNumTextureUnitStates(void) const { return mTextureUnitStates.size(); }
 
         /** Gets the 'nth' texture which references the given content type.
-            @remarks
+
             If the 'nth' texture unit which references the content type doesn't
             exist, then this method returns an arbitrary high-value outside the
             valid range to index texture units.
@@ -822,7 +821,7 @@ namespace Ogre {
         float getDepthBiasSlopeScale(void) const { return mDepthBiasSlopeScale; }
         /** Sets a factor which derives an additional depth bias from the number
             of times a pass is iterated.
-            @remarks
+
             The Final depth bias will be the constant depth bias as set through
             setDepthBias, plus this value times the iteration number.
         */
@@ -836,7 +835,7 @@ namespace Ogre {
         /** Sets the culling mode for this pass based on the 'vertex winding'.
             A typical way for the rendering engine to cull triangles is based on the 'vertex winding' of
             triangles. Vertex winding refers to the direction in which the vertices are passed or indexed
-            to in the rendering operation as viewed from the camera, and will wither be clockwise or
+            to in the rendering operation as viewed from the camera, and will either be clockwise or
             anticlockwise (that's 'counterclockwise' for you Americans out there ;) The default is
             Ogre::CULL_CLOCKWISE i.e. that only triangles whose vertices are passed/indexed in anticlockwise order
             are rendered - this is a common approach and is used in 3D studio models for example. You can
@@ -914,7 +913,7 @@ namespace Ogre {
         /// @name Fogging
         /// @{
         /** Sets the fogging mode applied to this pass.
-            @remarks
+
             Fogging is an effect that is applied as polys are rendered. Sometimes, you want
             fog to be applied to an entire scene. Other times, you want it to be applied to a few
             polygons only. This pass-level specification of fog parameters lets you easily manage
@@ -984,7 +983,7 @@ namespace Ogre {
         /// @name Alpha Rejection
         /// @{
         /** Sets the way the pass will have use alpha to totally reject pixels from the pipeline.
-            @remarks
+
             The default is CMPF_ALWAYS_PASS i.e. alpha is not used to reject pixels.
             @param func The comparison which must pass for the pixel to be written.
             @param value 1 byte value against which alpha values will be tested(0-255)
@@ -1028,7 +1027,7 @@ namespace Ogre {
         /** Sets whether or not transparent sorting is enabled.
             @param enabled
             If false depth sorting of this material will be disabled.
-            @remarks
+
             By default all transparent materials are sorted such that renderables furthest
             away from the camera are rendered first. This is usually the desired behaviour
             but in certain cases this depth sorting may be unnecessary and undesirable. If
@@ -1047,7 +1046,7 @@ namespace Ogre {
             @param enabled
             If true depth sorting of this material will be depend only on the value of
             getTransparentSortingEnabled().
-            @remarks
+
             By default even if transparent sorting is enabled, depth sorting will only be
             performed when the material is transparent and depth write/check are disabled.
             This function disables these extra conditions.
@@ -1061,7 +1060,7 @@ namespace Ogre {
         /// @name Light Iteration
         /// @{
         /** Sets the maximum number of lights to be used by this pass.
-            @remarks
+
             During rendering, if lighting is enabled (or if the pass uses an automatic
             program parameter based on a light) the engine will request the nearest lights
             to the object being rendered in order to work out which ones to use. This
@@ -1093,7 +1092,7 @@ namespace Ogre {
 
         /** Sets whether or not this pass should iterate per light or number of
             lights which can affect the object being rendered.
-            @remarks
+
             The default behaviour for a pass (when this option is 'false'), is
             for a pass to be rendered only once (or the number of times set in
             setPassIterationCount), with all the lights which could
@@ -1146,7 +1145,7 @@ namespace Ogre {
 
         /** If light iteration is enabled, determine the number of lights per
             iteration.
-            @remarks
+
             The default for this setting is 1, so if you enable light iteration
             (Pass::setIteratePerLight), the pass is rendered once per light. If
             you set this value higher, the passes will occur once per 'n' lights.
@@ -1206,7 +1205,7 @@ namespace Ogre {
         bool hasGpuProgram(GpuProgramType programType) const;
 
         /** Sets the details of the program to use.
-            @remarks
+
             Only applicable to programmable passes, this sets the details of
             the program to use in this pass. The program will not be
             loaded until the parent Material is loaded.
@@ -1224,17 +1223,17 @@ namespace Ogre {
         /// @overload
         void setGpuProgram(GpuProgramType type, const String& name, bool resetParams = true);
         /// @overload
-        void setFragmentProgram(const String& name, bool resetParams = true);
+        void setFragmentProgram(const String& name, bool resetParams = true) { setGpuProgram(GPT_FRAGMENT_PROGRAM, name, resetParams); }
         /// @overload
-        void setGeometryProgram(const String& name, bool resetParams = true);
+        void setGeometryProgram(const String& name, bool resetParams = true) { setGpuProgram(GPT_GEOMETRY_PROGRAM, name, resetParams); }
         /// @overload
-        void setTessellationDomainProgram(const String& name, bool resetParams = true);
+        void setTessellationDomainProgram(const String& name, bool resetParams = true) { setGpuProgram(GPT_DOMAIN_PROGRAM, name, resetParams); }
         /// @overload
-        void setTessellationHullProgram(const String& name, bool resetParams = true);
+        void setTessellationHullProgram(const String& name, bool resetParams = true) { setGpuProgram(GPT_HULL_PROGRAM, name, resetParams); }
         /// @overload
-        void setVertexProgram(const String& name, bool resetParams = true);
+        void setVertexProgram(const String& name, bool resetParams = true) { setGpuProgram(GPT_VERTEX_PROGRAM, name, resetParams); }
         /// @overload
-        void setComputeProgram(const String& name, bool resetParams = true);
+        void setComputeProgram(const String& name, bool resetParams = true) { setGpuProgram(GPT_COMPUTE_PROGRAM, name, resetParams); }
 
         /** Gets the name of the program used by this pass. */
         const String& getGpuProgramName(GpuProgramType type) const;
@@ -1252,44 +1251,44 @@ namespace Ogre {
         const String& getComputeProgramName(void) const { return getGpuProgramName(GPT_COMPUTE_PROGRAM); }
 
         /** Sets the Gpu program parameters.
-            @remarks
+
             Only applicable to programmable passes, and this particular call is
             designed for low-level programs; use the named parameter methods
             for setting high-level program parameters.
         */
-        void setGpuProgramParameters(GpuProgramType type, const GpuProgramParametersSharedPtr& params);
+        void setGpuProgramParameters(GpuProgramType type, const GpuProgramParametersPtr& params);
         /// @overload
-        void setVertexProgramParameters(GpuProgramParametersSharedPtr params);
+        void setVertexProgramParameters(GpuProgramParametersPtr params) { setGpuProgramParameters(GPT_VERTEX_PROGRAM, params); }
         /// @overload
-        void setFragmentProgramParameters(GpuProgramParametersSharedPtr params);
+        void setFragmentProgramParameters(GpuProgramParametersPtr params) { setGpuProgramParameters(GPT_FRAGMENT_PROGRAM, params); }
         /// @overload
-        void setGeometryProgramParameters(GpuProgramParametersSharedPtr params);
+        void setGeometryProgramParameters(GpuProgramParametersPtr params) { setGpuProgramParameters(GPT_GEOMETRY_PROGRAM, params); }
         /// @overload
-        void setTessellationHullProgramParameters(GpuProgramParametersSharedPtr params);
+        void setTessellationHullProgramParameters(GpuProgramParametersPtr params) { setGpuProgramParameters(GPT_HULL_PROGRAM, params); }
         /// @overload
-        void setTessellationDomainProgramParameters(GpuProgramParametersSharedPtr params);
+        void setTessellationDomainProgramParameters(GpuProgramParametersPtr params) { setGpuProgramParameters(GPT_DOMAIN_PROGRAM, params); }
         /// @overload
-        void setComputeProgramParameters(GpuProgramParametersSharedPtr params);
+        void setComputeProgramParameters(GpuProgramParametersPtr params) { setGpuProgramParameters(GPT_COMPUTE_PROGRAM, params); }
 
         /** Gets the Gpu program parameters used by this pass. */
-        const GpuProgramParametersSharedPtr& getGpuProgramParameters(GpuProgramType type) const;
+        const GpuProgramParametersPtr& getGpuProgramParameters(GpuProgramType type) const;
         /// @overload
-        GpuProgramParametersSharedPtr getVertexProgramParameters(void) const;
+        GpuProgramParametersPtr getVertexProgramParameters(void) const { return getGpuProgramParameters(GPT_VERTEX_PROGRAM); }
         /// @overload
-        GpuProgramParametersSharedPtr getFragmentProgramParameters(void) const;
+        GpuProgramParametersPtr getFragmentProgramParameters(void) const { return getGpuProgramParameters(GPT_FRAGMENT_PROGRAM); }
         /// @overload
-        GpuProgramParametersSharedPtr getGeometryProgramParameters(void) const;
+        GpuProgramParametersPtr getGeometryProgramParameters(void) const { return getGpuProgramParameters(GPT_GEOMETRY_PROGRAM); }
         /// @overload
-        GpuProgramParametersSharedPtr getTessellationHullProgramParameters(void) const;
+        GpuProgramParametersPtr getTessellationHullProgramParameters(void) const { return getGpuProgramParameters(GPT_HULL_PROGRAM); }
         /// @overload
-        GpuProgramParametersSharedPtr getTessellationDomainProgramParameters(void) const;
+        GpuProgramParametersPtr getTessellationDomainProgramParameters(void) const { return getGpuProgramParameters(GPT_DOMAIN_PROGRAM); }
         /// @overload
-        GpuProgramParametersSharedPtr getComputeProgramParameters(void) const;
+        GpuProgramParametersPtr getComputeProgramParameters(void) const { return getGpuProgramParameters(GPT_COMPUTE_PROGRAM); }
         /// @}
 
         /** Splits this Pass to one which can be handled in the number of
             texture units specified.
-            @remarks
+
             Only works on non-programmable passes, programmable passes cannot be
             split, it's up to the author to ensure that there is a fallback Technique
             for less capable cards.
@@ -1315,7 +1314,7 @@ namespace Ogre {
         bool isLoaded(void) const;
 
         /** Gets the 'hash' of this pass, ie a precomputed number to use for sorting
-            @remarks
+
             This hash is used to sort passes, and for this reason the pass is hashed
             using firstly its index (so that all passes are rendered in order), then
             by the textures which it's TextureUnitState instances are using.
@@ -1324,7 +1323,7 @@ namespace Ogre {
         /// Mark the hash as dirty
         void _dirtyHash(void);
         /** Internal method for recalculating the hash.
-            @remarks
+
             Do not call this unless you are sure the old hash is not still being
             used by anything. If in doubt, call _dirtyHash if you want to force
             recalculation of the has next time.
@@ -1339,22 +1338,6 @@ namespace Ogre {
         */
         void _updateAutoParams(const AutoParamDataSource* source, uint16 variabilityMask) const;
 
-        /** If set to true, this forces normals to be normalised dynamically
-            by the hardware for this pass.
-
-            This option can be used to prevent lighting variations when scaling an
-            object - normally because this scaling is hardware based, the normals
-            get scaled too which causes lighting to become inconsistent. By default the
-            SceneManager detects scaled objects and does this for you, but
-            this has an overhead so you might want to turn that off through
-            Ogre::SceneManager::setNormaliseNormalsOnScale(false) and only do it per-Pass
-            when you need to.
-        */
-        void setNormaliseNormals(bool normalise) { mNormaliseNormals = normalise; }
-
-        /** Returns true if this pass has auto-normalisation of normals set. */
-        bool getNormaliseNormals(void) const {return mNormaliseNormals; }
-
         /** Static method to retrieve all the Passes which need their
             hash values recalculated.
         */
@@ -1366,7 +1349,7 @@ namespace Ogre {
         { return msPassGraveyard; }
         /** Static method to reset the list of passes which need their hash
             values recalculated.
-            @remarks
+
             For performance, the dirty list is not updated progressively as
             the hashes are recalculated, instead we expect the processor of the
             dirty hash list to clear the list when they are done.
@@ -1385,7 +1368,7 @@ namespace Ogre {
 
         /** set the number of iterations that this pass
             should perform when doing fast multi pass operation.
-            @remarks
+
             Only applicable for programmable passes.
             @param count number of iterations to perform fast multi pass operations.
             A value greater than 1 will cause the pass to be executed count number of
@@ -1457,13 +1440,9 @@ namespace Ogre {
             Generally the smaller your lights are the more chance you’ll see a benefit rather than
             a penalty from clipping.
 
-            @note A specific note about OpenGL: user clip planes are completely ignored when you use
-            an ARB vertex program. This means light clip planes won’t help much if you use ARB
-            vertex programs on GL, although OGRE will perform some optimisation of its own, in that
-            if it sees that the clip volume is completely off-screen, it won’t perform a render at
-            all. When using GLSL, user clipping can be used but you have to use gl_ClipVertex in your
-            shader, see the GLSL documentation for more information. In Direct3D user clip planes are
-            always respected.
+            @note Only has an effect with the fixed-function pipeline. Exceptions:
+            - with D3D9, clip planes are even available when shaders are used
+            - with GL1, shaders must write to gl_ClipVertex
         */
         void setLightClipPlanesEnabled(bool enabled) { mLightClipPlanes = enabled; }
         /** Gets whether or not this pass will be clipped by user clips planes
@@ -1509,7 +1488,7 @@ namespace Ogre {
             MIN_GPU_PROGRAM_CHANGE
         };
         /** Sets one of the default hash functions to be used.
-            @remarks
+
             You absolutely must not change the hash function whilst any Pass instances
             exist in the render queue. The only time you can do this is either
             before you render anything, or directly after you manuall call
@@ -1523,7 +1502,7 @@ namespace Ogre {
         static void setHashFunction(BuiltinHashFunction builtin);
 
         /** Set the hash function used for all passes.
-            @remarks
+
             You absolutely must not change the hash function whilst any Pass instances
             exist in the render queue. The only time you can do this is either
             before you render anything, or directly after you manuall call
@@ -1543,16 +1522,10 @@ namespace Ogre {
          */
         static HashFunc* getBuiltinHashFunction(BuiltinHashFunction builtin);
 
-        /** Return an instance of user objects binding associated with this class.
-            You can use it to associate one or more custom objects with this class instance.
-            @see UserObjectBindings::setUserAny.
-        */
+        /// @copydoc UserObjectBindings
         UserObjectBindings&     getUserObjectBindings() { return mUserObjectBindings; }
 
-        /** Return an instance of user objects binding associated with this class.
-            You can use it to associate one or more custom objects with this class instance.
-            @see UserObjectBindings::setUserAny.
-        */
+        /// @overload
         const UserObjectBindings& getUserObjectBindings() const { return mUserObjectBindings; }
      private:
         std::unique_ptr<GpuProgramUsage>& getProgramUsage(GpuProgramType programType);
@@ -1560,7 +1533,7 @@ namespace Ogre {
     };
 
     /** Struct recording a pass which can be used for a specific illumination stage.
-        @remarks
+
         This structure is used to record categorised passes which fit into a
         number of distinct illumination phases - ambient, diffuse / specular
         (per-light) and decal (post-lighting texturing).

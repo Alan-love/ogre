@@ -31,6 +31,7 @@ THE SOFTWARE.
 #include "OgreBillboard.h"
 
 #include <algorithm>
+#include <memory>
 
 namespace Ogre {
     //-----------------------------------------------------------------------
@@ -96,10 +97,9 @@ namespace Ogre {
     BillboardSet::~BillboardSet()
     {
         // Free pool items
-        BillboardPool::iterator i;
-        for (i = mBillboardPool.begin(); i != mBillboardPool.end(); ++i)
+        for (auto *b : mBillboardPool)
         {
-            OGRE_DELETE *i;
+            OGRE_DELETE b;
         }
 
         // Delete shared buffers
@@ -489,7 +489,6 @@ namespace Ogre {
         {
             op.operationType = RenderOperation::OT_POINT_LIST;
             op.useIndexes = false;
-            op.useGlobalInstancingVertexBufferIsAvailable = false;
             op.indexData = 0;
             op.vertexData->vertexCount = mNumVisibleBillboards;
         }
@@ -563,7 +562,7 @@ namespace Ogre {
                 "expect.");
         }
 
-        mVertexData.reset(new VertexData());
+        mVertexData = std::make_unique<VertexData>();
         if (mPointRendering)
             mVertexData->vertexCount = mPoolSize;
         else
@@ -596,7 +595,7 @@ namespace Ogre {
 
         if (!mPointRendering)
         {
-            mIndexData.reset(new IndexData());
+            mIndexData = std::make_unique<IndexData>();
             mIndexData->indexStart = 0;
             mIndexData->indexCount = mPoolSize * 6;
 
@@ -851,173 +850,69 @@ namespace Ogre {
         RGBA colour = bb.mColour;
 
         // Texcoords
-        assert( bb.mUseTexcoordRect || bb.mTexcoordIndex < mTextureCoords.size() );
-        const Ogre::FloatRect & r =
+        assert(bb.mUseTexcoordRect || bb.mTexcoordIndex < mTextureCoords.size());
+        const Ogre::FloatRect& r =
             bb.mUseTexcoordRect ? bb.mTexcoordRect : mTextureCoords[bb.mTexcoordIndex];
 
-        if (bb.mRotation == Radian(0))
+        // Left-top, right-top, left-bottom, right-bottom
+        const Vector3* corners = offsets;
+        Vector3 rotatedCorners[4];
+        float u[4] = {r.left, r.right, r.left, r.right};
+        float v[4] = {r.top, r.top, r.bottom, r.bottom};
+
+        if (bb.mRotation != Radian(0))
         {
-            // Left-top
-            // Positions
-            *mLockPtr++ = offsets[0].x + bb.mPosition.x;
-            *mLockPtr++ = offsets[0].y + bb.mPosition.y;
-            *mLockPtr++ = offsets[0].z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = r.left;
-            *mLockPtr++ = r.top;
+            if (mRotationType == BBR_VERTEX)
+            {
+                // TODO: Cache axis when billboard type is BBT_POINT or BBT_PERPENDICULAR_COMMON
+                Vector3 axis = (offsets[3] - offsets[0]).crossProduct(offsets[2] - offsets[1]).normalisedCopy();
 
-            // Right-top
-            // Positions
-            *mLockPtr++ = offsets[1].x + bb.mPosition.x;
-            *mLockPtr++ = offsets[1].y + bb.mPosition.y;
-            *mLockPtr++ = offsets[1].z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = r.right;
-            *mLockPtr++ = r.top;
+                Matrix3 rotation;
+                rotation.FromAngleAxis(axis, bb.mRotation);
 
-            // Left-bottom
-            // Positions
-            *mLockPtr++ = offsets[2].x + bb.mPosition.x;
-            *mLockPtr++ = offsets[2].y + bb.mPosition.y;
-            *mLockPtr++ = offsets[2].z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = r.left;
-            *mLockPtr++ = r.bottom;
+                for (int i = 0; i < 4; i++)
+                    rotatedCorners[i] = rotation * offsets[i];
+                corners = rotatedCorners;
+            }
+            else
+            {
+                const Real      cos_rot  ( Math::Cos(bb.mRotation)   );
+                const Real      sin_rot  ( Math::Sin(bb.mRotation)   );
 
-            // Right-bottom
-            // Positions
-            *mLockPtr++ = offsets[3].x + bb.mPosition.x;
-            *mLockPtr++ = offsets[3].y + bb.mPosition.y;
-            *mLockPtr++ = offsets[3].z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = r.right;
-            *mLockPtr++ = r.bottom;
+                float width = (r.right-r.left)/2;
+                float height = (r.bottom-r.top)/2;
+                float mid_u = r.left+width;
+                float mid_v = r.top+height;
+
+                float cos_rot_w = cos_rot * width;
+                float cos_rot_h = cos_rot * height;
+                float sin_rot_w = sin_rot * width;
+                float sin_rot_h = sin_rot * height;
+
+                u[0] = mid_u - cos_rot_w + sin_rot_h;
+                v[0] = mid_v - sin_rot_w - cos_rot_h;
+                u[1] = mid_u + cos_rot_w + sin_rot_h;
+                v[1] = mid_v + sin_rot_w - cos_rot_h;
+                u[2] = mid_u - cos_rot_w - sin_rot_h;
+                v[2] = mid_v - sin_rot_w + cos_rot_h;
+                u[3] = mid_u + cos_rot_w - sin_rot_h;
+                v[3] = mid_v + sin_rot_w + cos_rot_h;
+            }
         }
-        else if (mRotationType == BBR_VERTEX)
+
+        // Use locals, so the compiler does not reload the members after every write
+        float* pVert = mLockPtr;
+        const float x = bb.mPosition.x, y = bb.mPosition.y, z = bb.mPosition.z;
+        for (int i = 0; i < 4; i++)
         {
-            // TODO: Cache axis when billboard type is BBT_POINT or BBT_PERPENDICULAR_COMMON
-            Vector3 axis = (offsets[3] - offsets[0]).crossProduct(offsets[2] - offsets[1]).normalisedCopy();
-
-            Matrix3 rotation;
-            rotation.FromAngleAxis(axis, bb.mRotation);
-
-            Vector3 pt;
-
-            // Left-top
-            // Positions
-            pt = rotation * offsets[0];
-            *mLockPtr++ = pt.x + bb.mPosition.x;
-            *mLockPtr++ = pt.y + bb.mPosition.y;
-            *mLockPtr++ = pt.z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = r.left;
-            *mLockPtr++ = r.top;
-
-            // Right-top
-            // Positions
-            pt = rotation * offsets[1];
-            *mLockPtr++ = pt.x + bb.mPosition.x;
-            *mLockPtr++ = pt.y + bb.mPosition.y;
-            *mLockPtr++ = pt.z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = r.right;
-            *mLockPtr++ = r.top;
-
-            // Left-bottom
-            // Positions
-            pt = rotation * offsets[2];
-            *mLockPtr++ = pt.x + bb.mPosition.x;
-            *mLockPtr++ = pt.y + bb.mPosition.y;
-            *mLockPtr++ = pt.z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = r.left;
-            *mLockPtr++ = r.bottom;
-
-            // Right-bottom
-            // Positions
-            pt = rotation * offsets[3];
-            *mLockPtr++ = pt.x + bb.mPosition.x;
-            *mLockPtr++ = pt.y + bb.mPosition.y;
-            *mLockPtr++ = pt.z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = r.right;
-            *mLockPtr++ = r.bottom;
+            *pVert++ = corners[i].x + x;
+            *pVert++ = corners[i].y + y;
+            *pVert++ = corners[i].z + z;
+            memcpy(pVert++, &colour, sizeof(RGBA));
+            *pVert++ = u[i];
+            *pVert++ = v[i];
         }
-        else
-        {
-            const Real      cos_rot  ( Math::Cos(bb.mRotation)   );
-            const Real      sin_rot  ( Math::Sin(bb.mRotation)   );
-
-            float width = (r.right-r.left)/2;
-            float height = (r.bottom-r.top)/2;
-            float mid_u = r.left+width;
-            float mid_v = r.top+height;
-
-            float cos_rot_w = cos_rot * width;
-            float cos_rot_h = cos_rot * height;
-            float sin_rot_w = sin_rot * width;
-            float sin_rot_h = sin_rot * height;
-
-            // Left-top
-            // Positions
-            *mLockPtr++ = offsets[0].x + bb.mPosition.x;
-            *mLockPtr++ = offsets[0].y + bb.mPosition.y;
-            *mLockPtr++ = offsets[0].z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = mid_u - cos_rot_w + sin_rot_h;
-            *mLockPtr++ = mid_v - sin_rot_w - cos_rot_h;
-
-            // Right-top
-            // Positions
-            *mLockPtr++ = offsets[1].x + bb.mPosition.x;
-            *mLockPtr++ = offsets[1].y + bb.mPosition.y;
-            *mLockPtr++ = offsets[1].z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = mid_u + cos_rot_w + sin_rot_h;
-            *mLockPtr++ = mid_v + sin_rot_w - cos_rot_h;
-
-            // Left-bottom
-            // Positions
-            *mLockPtr++ = offsets[2].x + bb.mPosition.x;
-            *mLockPtr++ = offsets[2].y + bb.mPosition.y;
-            *mLockPtr++ = offsets[2].z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = mid_u - cos_rot_w - sin_rot_h;
-            *mLockPtr++ = mid_v - sin_rot_w + cos_rot_h;
-
-            // Right-bottom
-            // Positions
-            *mLockPtr++ = offsets[3].x + bb.mPosition.x;
-            *mLockPtr++ = offsets[3].y + bb.mPosition.y;
-            *mLockPtr++ = offsets[3].z + bb.mPosition.z;
-            // Colour
-            memcpy(mLockPtr++, &colour, sizeof(RGBA));
-            // Texture coords
-            *mLockPtr++ = mid_u + cos_rot_w - sin_rot_h;
-            *mLockPtr++ = mid_v + sin_rot_w + cos_rot_h;
-        }
+        mLockPtr = pVert;
     }
     //-----------------------------------------------------------------------
     void BillboardSet::genVertOffsets(Real inleft, Real inright, Real intop, Real inbottom,
@@ -1044,7 +939,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     const String& BillboardSet::getMovableType(void) const
     {
-        return BillboardSetFactory::FACTORY_TYPE_NAME;
+        return MOT_BILLBOARD_SET;
     }
     //-----------------------------------------------------------------------
     Real BillboardSet::getSquaredViewDepth(const Camera* const cam) const
@@ -1070,46 +965,38 @@ namespace Ogre {
 
     void BillboardSet::setTextureCoords(const std::vector<FloatRect>& coords)
     {
-      if( coords.empty() ) {
-        setTextureStacksAndSlices( 1, 1 );
-        return;
-      }
-
-      mTextureCoords = coords;
+        if(coords.empty()) {
+            setTextureStacksAndSlices(1, 1);
+            return;
+        }
+        mTextureCoords = coords;
     }
 
     void BillboardSet::setTextureStacksAndSlices( uchar stacks, uchar slices )
-    {
-      if( stacks == 0 ) stacks = 1;
-      if( slices == 0 ) slices = 1;
-      //  clear out any previous allocation (as vectors may not shrink)
-      TextureCoordSets().swap( mTextureCoords );
-      //  make room
-      mTextureCoords.resize( (size_t)stacks * slices );
-      unsigned int coordIndex = 0;
-      //  spread the U and V coordinates across the rects
-      for( uint v = 0; v < stacks; ++v ) {
-        //  (float)X / X is guaranteed to be == 1.0f for X up to 8 million, so
-        //  our range of 1..256 is quite enough to guarantee perfect coverage.
-        float top = (float)v / (float)stacks;
-        float bottom = ((float)v + 1) / (float)stacks;
-        for( uint u = 0; u < slices; ++u ) {
-          Ogre::FloatRect & r = mTextureCoords[coordIndex];
-          r.left = (float)u / (float)slices;
-          r.bottom = bottom;
-          r.right = ((float)u + 1) / (float)slices;
-          r.top = top;
-          ++coordIndex;
+{
+        if(stacks == 0) stacks = 1;
+        if(slices == 0) slices = 1;
+        //  clear out any previous allocation (as vectors may not shrink)
+        TextureCoordSets().swap(mTextureCoords);
+        //  make room
+        mTextureCoords.resize((size_t)stacks * slices);
+        unsigned int coordIndex = 0;
+        //  spread the U and V coordinates across the rects
+        for(uint v = 0; v < stacks; ++v) {
+            //  (float)X / X is guaranteed to be == 1.0f for X up to 8 million, so
+            //  our range of 1..256 is quite enough to guarantee perfect coverage.
+            float top = (float)v / (float)stacks;
+            float bottom = ((float)v + 1) / (float)stacks;
+            for(uint u = 0; u < slices; ++u) {
+                Ogre::FloatRect & r = mTextureCoords[coordIndex];
+                r.left = (float)u / (float)slices;
+                r.bottom = bottom;
+                r.right = ((float)u + 1) / (float)slices;
+                r.top = top;
+                ++coordIndex;
+            }
         }
-      }
-      assert( coordIndex == (size_t)stacks * slices );
-    }
-    //-----------------------------------------------------------------------
-    Ogre::FloatRect const * BillboardSet::getTextureCoords( uint16 * oNumCoords )
-    {
-      *oNumCoords = (uint16)mTextureCoords.size();
-      //  std::vector<> is guaranteed to be contiguous
-      return &mTextureCoords.front();
+        assert( coordIndex == (size_t)stacks * slices );
     }
     //-----------------------------------------------------------------------
     void BillboardSet::setPointRenderingEnabled(bool enabled)
@@ -1142,11 +1029,11 @@ namespace Ogre {
 
     //-----------------------------------------------------------------------
     //-----------------------------------------------------------------------
-    String BillboardSetFactory::FACTORY_TYPE_NAME = "BillboardSet";
+    const String MOT_BILLBOARD_SET = "BillboardSet";
     //-----------------------------------------------------------------------
     const String& BillboardSetFactory::getType(void) const
     {
-        return FACTORY_TYPE_NAME;
+        return MOT_BILLBOARD_SET;
     }
     //-----------------------------------------------------------------------
     MovableObject* BillboardSetFactory::createInstanceImpl( const String& name,
@@ -1168,7 +1055,6 @@ namespace Ogre {
             {
                 externalData = StringConverter::parseBool(ni->second);
             }
-
         }
 
         if (poolSize > 0)
@@ -1179,6 +1065,5 @@ namespace Ogre {
         {
             return OGRE_NEW BillboardSet(name);
         }
-
     }
 }

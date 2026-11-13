@@ -103,7 +103,7 @@ namespace Ogre
     float Math::TanTable (float fValue)
     {
         // Convert range to index values, wrap if required
-        int idx = int(fValue *= mTrigTableFactor) % mTrigTableSize;
+        int idx = int(fValue * mTrigTableFactor) % mTrigTableSize;
         return mTanTable[idx];
     }
     //-----------------------------------------------------------------------
@@ -135,13 +135,6 @@ namespace Ogre
         {
             return Radian(-HALF_PI);
         }
-    }
-    //-----------------------------------------------------------------------
-    Real Math::UnitRandom ()
-    {
-        if (mRandProvider)
-            return mRandProvider->getRandomUnit();
-        else return Real(rand()) / float(RAND_MAX);
     }
     
     //-----------------------------------------------------------------------
@@ -294,22 +287,8 @@ namespace Ogre
     }
     //-----------------------------------------------------------------------
     std::pair<bool, Real> Math::intersects(const Ray& ray, 
-        const std::list<Plane>& planes, bool normalIsOutside)
-    {
-        std::vector<Plane> planesVec;
-        planesVec.reserve(planes.size());
-        for (std::list<Plane>::const_iterator i = planes.begin(); i != planes.end(); ++i)
-        {
-            planesVec.push_back(*i);
-        }
-        return intersects(ray, planesVec, normalIsOutside);
-    }
-    //-----------------------------------------------------------------------
-    std::pair<bool, Real> Math::intersects(const Ray& ray, 
         const std::vector<Plane>& planes, bool normalIsOutside)
     {
-        std::vector<Plane>::const_iterator planeit, planeitend;
-        planeitend = planes.end();
         bool allInside = true;
         std::pair<bool, Real> ret;
         std::pair<bool, Real> end;
@@ -318,15 +297,12 @@ namespace Ogre
         end.first = false;
         end.second = 0;
 
-
         // derive side
         // NB we don't pass directly since that would require Plane::Side in 
         // interface, which results in recursive includes since Math is so fundamental
         Plane::Side outside = normalIsOutside ? Plane::POSITIVE_SIDE : Plane::NEGATIVE_SIDE;
-
-        for (planeit = planes.begin(); planeit != planeitend; ++planeit)
+        for (auto& plane : planes)
         {
-            const Plane& plane = *planeit;
             // is origin outside?
             if (plane.getSide(ray.getOrigin()) == outside)
             {
@@ -802,4 +778,7 @@ namespace Ogre
 
         return ((min - max) * 0.5f).length();
     }
+
+    std::ostream& operator<<(std::ostream& o, const Radian& v) { return o << "Radian(" << v.valueRadians() << ")"; }
+    std::ostream& operator<<(std::ostream& o, const Degree& v) { return o << "Degree(" << v.valueDegrees() << ")"; }
 }

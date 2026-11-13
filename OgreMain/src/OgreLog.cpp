@@ -29,6 +29,8 @@ THE SOFTWARE.
 
 #include <iostream>
 
+#include "OgreFileSystemUtil.h"
+
 #if OGRE_PLATFORM == OGRE_PLATFORM_WIN32 || OGRE_PLATFORM == OGRE_PLATFORM_WINRT
 #   include <windows.h>
 #   if _WIN32_WINNT >= _WIN32_WINNT_VISTA
@@ -54,18 +56,13 @@ namespace Ogre
     {
         if (!mSuppressFile)
         {
-            mLog.open(name.c_str());
+            FileSystemUtil::openOutputFile(mLog, name);
 
 #if (OGRE_PLATFORM == OGRE_PLATFORM_WIN32 || OGRE_PLATFORM == OGRE_PLATFORM_WINRT) && _WIN32_WINNT >= _WIN32_WINNT_VISTA
             // Register log file to be collected by Windows Error Reporting
-            const int utf16Length = ::MultiByteToWideChar(CP_ACP, 0, name.c_str(), (int)name.size(), NULL, 0);
-            if(utf16Length > 0)
-            {
-                std::wstring wname;
-                wname.resize(utf16Length);
-                if (0 != ::MultiByteToWideChar(CP_ACP, 0, name.c_str(), (int)name.size(), &wname[0], (int)wname.size()))
-                    WerRegisterFile(wname.c_str(), WerRegFileTypeOther, WER_FILE_ANONYMOUS_DATA);
-            }
+            const std::wstring wname = FileSystemUtil::toWide(name);
+            if (!wname.empty())
+                WerRegisterFile(wname.c_str(), WerRegFileTypeOther, WER_FILE_ANONYMOUS_DATA);
 #endif
         }
 
@@ -99,8 +96,8 @@ namespace Ogre
         if (lml >= mLogLevel)
         {
             bool skipThisMessage = false;
-            for( mtLogListener::iterator i = mListeners.begin(); i != mListeners.end(); ++i )
-                (*i)->messageLogged( message, lml, maskDebug, mLogName, skipThisMessage);
+            for(auto & l : mListeners)
+                l->messageLogged( message, lml, maskDebug, mLogName, skipThisMessage);
             
             if (!skipThisMessage)
             {
@@ -135,13 +132,9 @@ namespace Ogre
                 {
                     if (mTimeStamp)
                     {
-                        struct tm *pTime;
-                        time_t ctTime; time(&ctTime);
-                        pTime = localtime( &ctTime );
-                        mLog << std::setw(2) << std::setfill('0') << pTime->tm_hour
-                            << ":" << std::setw(2) << std::setfill('0') << pTime->tm_min
-                            << ":" << std::setw(2) << std::setfill('0') << pTime->tm_sec
-                            << ": ";
+                        auto t = std::time(nullptr);
+                        auto pTime = std::localtime(&t);
+                        mLog << std::put_time(pTime, "%H:%M:%S: ");
                     }
                     mLog << message << std::endl;
 

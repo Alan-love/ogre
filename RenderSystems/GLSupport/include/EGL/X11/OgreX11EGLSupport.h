@@ -30,9 +30,6 @@ THE SOFTWARE.
 #ifndef __X11EGLSupport_H__
 #define __X11EGLSupport_H__
 
-// Tell EGL that we are using X11 (to select the appropriate definitions)
-#define USE_X11
-
 #include "OgreEGLSupport.h"
 
 #ifndef Status
@@ -57,9 +54,6 @@ namespace Ogre {
             X11EGLSupport(int profile);
             virtual ~X11EGLSupport();
 
-            virtual void switchMode(uint& width, uint& height, short& frequency);
-            String getDisplayName(void);
-
             NativeDisplayType getNativeDisplay(void);
             XVisualInfo *getVisualFromFBConfig(::EGLConfig glConfig);
             Atom mAtomDeleteWindow;
@@ -74,7 +68,7 @@ namespace Ogre {
                     RenderWindow* newWindow(const String& name,
                                         unsigned int width, unsigned int height,
                                         bool fullScreen,
-                                        const NameValuePairList *miscParams = 0);
+                                        const NameValuePairList *miscParams = 0) override;
 
     };
 }

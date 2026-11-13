@@ -42,11 +42,11 @@ namespace Ogre {
     *  @{
     */
     /** Handles the management of skeleton resources.
-        @remarks
-            This class deals with the runtime management of
-            skeleton data; like other resource managers it handles
-            the creation of resources (in this case skeleton data),
-            working within a fixed memory budget.
+
+        This class deals with the runtime management of
+        skeleton data; like other resource managers it handles
+        the creation of resources (in this case skeleton data),
+        working within a fixed memory budget.
     */
     class _OgreExport SkeletonManager: public ResourceManager, public Singleton<SkeletonManager>
     {
@@ -74,7 +74,7 @@ namespace Ogre {
         /// @copydoc ResourceManager::createImpl
         Resource* createImpl(const String& name, ResourceHandle handle, 
             const String& group, bool isManual, ManualResourceLoader* loader, 
-            const NameValuePairList* createParams);
+            const NameValuePairList* createParams) override;
 
     };
 

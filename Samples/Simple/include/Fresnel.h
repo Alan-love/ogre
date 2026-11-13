@@ -21,12 +21,12 @@ public:
         mInfo["Category"] = "Unsorted";
     }
 
-    void testCapabilities(const RenderSystemCapabilities* caps)
+    void testCapabilities(const RenderSystemCapabilities* caps) override
     {
         requireMaterial("Examples/FresnelReflectionRefraction");
     }
 
-    bool frameRenderingQueued(const FrameEvent &evt)
+    bool frameRenderingQueued(const FrameEvent &evt) override
     {
         // update the fish spline path animations and loop as needed
         mFishAnimTime += evt.timeSinceLastFrame;
@@ -46,19 +46,19 @@ public:
         return SdkSample::frameRenderingQueued(evt);
     }
 
-    void preRenderTargetUpdate(const RenderTargetEvent& evt)
+    void preRenderTargetUpdate(const RenderTargetEvent& evt) override
     {
         mCamera->enableReflection(mWaterPlane);
     }
 
-    void postRenderTargetUpdate(const RenderTargetEvent& evt)
+    void postRenderTargetUpdate(const RenderTargetEvent& evt) override
     {
         mCamera->disableReflection();
     }
 
 protected:
 
-    void setupContent()
+    void setupContent() override
     {
         mCameraNode->setPosition(-50, 125, 760);
         mCameraMan->setTopSpeed(280);
@@ -93,12 +93,14 @@ protected:
         mCamera->setAutoAspectRatio(true);
         // create our water plane mesh
         mWaterPlane = Plane(Vector3::UNIT_Y, 0);
-        MeshManager::getSingleton().createPlane("water", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+        MeshManager::getSingleton().createPlane("water", RGN_DEFAULT,
             mWaterPlane, 700, 1300, 10, 10, true, 1, 3, 5, Vector3::UNIT_Z);
 
         // create a water entity using our mesh, give it the shader material, and attach it to the origin
         mWater = mSceneMgr->createEntity("Water", "water");
-        mWater->setMaterialName("Examples/FresnelReflectionRefraction");
+        auto mat = MaterialManager::getSingleton().getByName("Examples/FresnelReflectionRefraction");
+        mat->getTechnique(0)->getPass(0)->getTextureUnitState(0)->setProjectiveTexturing(true, mCamera);
+        mWater->setMaterial(mat);
         mSceneMgr->getRootSceneNode()->attachObject(mWater);
 
         // hide the water from the render textures
@@ -202,7 +204,7 @@ protected:
         mFishAnimTime = 0;
     }
 
-    void cleanupContent()
+    void cleanupContent() override
     {
         mSurfaceEnts.clear();
         mSubmergedEnts.clear();
@@ -210,7 +212,8 @@ protected:
         mFishAnimStates.clear();
         mFishSplines.clear();
 
-        MeshManager::getSingleton().remove("water", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+        MeshManager::getSingleton().remove("water", RGN_DEFAULT);
+        MaterialManager::getSingleton().unload("Examples/FresnelReflectionRefraction", RGN_DEFAULT);
     }
 
     const unsigned int NUM_FISH;

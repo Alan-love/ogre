@@ -21,7 +21,7 @@ public:
             "It's cold though, so the frost will return after a while.";
     }
 
-    bool frameRenderingQueued(const FrameEvent& evt)
+    bool frameRenderingQueued(const FrameEvent& evt) override
     {
         // shoot a ray from the cursor to the plane
         Ray ray = mTrayMgr->getCursorRay(mCamera);
@@ -53,14 +53,14 @@ public:
         return SdkSample::frameRenderingQueued(evt);  // don't forget the parent class updates!
     }
 
-    bool mousePressed(const MouseButtonEvent& evt)
+    bool mousePressed(const MouseButtonEvent& evt) override
     {
         if (mTrayMgr->mousePressed(evt)) return true;
         mWiping = true;  // wipe frost if user left clicks in the scene
         return true;
     }
     
-    bool mouseReleased(const MouseButtonEvent& evt)
+    bool mouseReleased(const MouseButtonEvent& evt) override
     {
         if (mTrayMgr->mouseReleased(evt)) return true;
         mWiping = false;  // stop wiping frost if user releases LMB
@@ -69,7 +69,7 @@ public:
 
 protected:
 
-    void setupContent()
+    void setupContent() override
     {
         mSceneMgr->setSkyBox(true, "Examples/StormySkyBox");  // add a skybox
 
@@ -86,10 +86,10 @@ protected:
         mTrayMgr->showCursor();
 
         // create our dynamic texture with 8-bit luminance texels
-        TexturePtr tex = TextureManager::getSingleton().createManual("thaw", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+        TexturePtr tex = TextureManager::getSingleton().createManual("thaw", RGN_DEFAULT,
             TEX_TYPE_2D, TEXTURE_SIZE, TEXTURE_SIZE, 0, PF_L8, TU_DYNAMIC_WRITE_ONLY);
         MaterialManager::getSingleton()
-            .getByName("Examples/Frost", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME)
+            .getByName("Examples/Frost", RGN_DEFAULT)
             ->getTechnique(0)
             ->getPass(0)
             ->getTextureUnitState(1)
@@ -168,9 +168,9 @@ protected:
         mTexBuf->blitFromMemory(mBox);
     }
 
-    void cleanupContent()
+    void cleanupContent() override
     {
-        TextureManager::getSingleton().remove("thaw", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+        TextureManager::getSingleton().remove("thaw", RGN_DEFAULT);
         mSceneMgr->destroyQuery(mCursorQuery);
     }
 

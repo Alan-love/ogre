@@ -46,7 +46,7 @@ namespace Ogre {
     */
     /** A pose is a linked set of vertex offsets applying to one set of vertex
         data. 
-    @remarks
+
         The target index referred to by the pose has a meaning set by the user
         of this class; but for example when used by Mesh it refers to either the
         Mesh shared geometry (0) or a SubMesh dedicated geometry (1+).
@@ -67,13 +67,13 @@ namespace Ogre {
         /// Return the target geometry index of the pose
         ushort getTarget(void) const { return mTarget; }
         /// A collection of vertex offsets based on the vertex index
-        typedef std::map<size_t, Vector3> VertexOffsetMap;
+        typedef std::map<uint32, Vector3f> VertexOffsetMap;
         /// An iterator over the vertex offsets
         typedef MapIterator<VertexOffsetMap> VertexOffsetIterator;
         /// An iterator over the vertex offsets
         typedef ConstMapIterator<VertexOffsetMap> ConstVertexOffsetIterator;
         /// A collection of normals based on the vertex index
-        typedef std::map<size_t, Vector3> NormalsMap;
+        typedef std::map<uint32, Vector3f> NormalsMap;
         /// An iterator over the vertex offsets
         typedef MapIterator<NormalsMap> NormalsIterator;
         /// An iterator over the vertex offsets
@@ -85,17 +85,17 @@ namespace Ogre {
         @param index The vertex index
         @param offset The position offset for this pose
         */
-        void addVertex(size_t index, const Vector3& offset);
+        void addVertex(uint32 index, const Vector3f& offset);
 
         /** Adds an offset to a vertex and a new normal for this pose. 
         @param index The vertex index
         @param offset The position offset for this pose
         @param normal The new vertex normal
         */
-        void addVertex(size_t index, const Vector3& offset, const Vector3& normal);
+        void addVertex(uint32 index, const Vector3f& offset, const Vector3f& normal);
 
         /** Remove a vertex offset. */
-        void removeVertex(size_t index);
+        void removeVertex(uint32 index);
 
         /** Clear all vertices. */
         void clearVertices(void);

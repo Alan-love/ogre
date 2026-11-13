@@ -132,7 +132,7 @@ namespace Ogre
         switch(level)
         {
         case PM_POINTS:
-            return D3D11_FILL_SOLID; // this will done in a geometry shader like in the FixedFuncEMU sample  and the shader needs solid
+            return D3D11_FILL_SOLID;
         case PM_WIREFRAME:
             return D3D11_FILL_WIREFRAME;
         case PM_SOLID:
@@ -290,6 +290,14 @@ namespace Ogre
         case VET_FLOAT4:
             return DXGI_FORMAT_R32G32B32A32_FLOAT;
 
+        // Float16
+        case VET_HALF1:
+            return DXGI_FORMAT_R16_FLOAT;
+        case VET_HALF2:
+            return DXGI_FORMAT_R16G16_FLOAT;
+        case VET_HALF4:
+            return DXGI_FORMAT_R16G16B16A16_FLOAT;
+
         // Signed short
         case VET_SHORT1:
             return DXGI_FORMAT_R16_SINT;
@@ -345,33 +353,6 @@ namespace Ogre
         }
         // to keep compiler happy
         return DXGI_FORMAT_R32G32B32_FLOAT;
-    }
-    //---------------------------------------------------------------------
-    VertexElementSemantic D3D11Mappings::get(LPCSTR sem)
-    {
-        // todo - add to ogre - POSITIONT and PSIZE ("Transformed vertex position" and "Point size")
-
-        if( strcmp(sem, "BLENDINDICES") == 0 )
-            return VES_BLEND_INDICES;
-        if( strcmp(sem, "BLENDWEIGHT") == 0 )
-            return VES_BLEND_WEIGHTS;
-        if( strcmp(sem, "COLOR") == 0 )
-            return VES_DIFFUSE;
-//      if( strcmp(sem, "COLOR") == 0 )
-//          return VES_SPECULAR;
-        if( strcmp(sem, "NORMAL") == 0 )
-            return VES_NORMAL;
-        if( strcmp(sem, "POSITION") == 0 )
-            return VES_POSITION;
-        if( strcmp(sem, "TEXCOORD") == 0 )
-            return VES_TEXTURE_COORDINATES;
-        if( strcmp(sem, "BINORMAL") == 0 )
-            return VES_BINORMAL;
-        if( strcmp(sem, "TANGENT") == 0 )
-            return VES_TANGENT;
-
-        // to keep compiler happy
-        return VES_POSITION;
     }
     //---------------------------------------------------------------------
     LPCSTR D3D11Mappings::get(VertexElementSemantic sem)
@@ -432,7 +413,7 @@ namespace Ogre
         case DXGI_FORMAT_R10G10B10A2_TYPELESS:      return PF_UNKNOWN;
         case DXGI_FORMAT_R10G10B10A2_UNORM:         return PF_A2B10G10R10;
         case DXGI_FORMAT_R10G10B10A2_UINT:          return PF_UNKNOWN;
-        case DXGI_FORMAT_R11G11B10_FLOAT:           return PF_UNKNOWN;
+        case DXGI_FORMAT_R11G11B10_FLOAT:           return PF_R11G11B10_FLOAT;
         case DXGI_FORMAT_R8G8B8A8_TYPELESS:         return PF_UNKNOWN;
         case DXGI_FORMAT_R8G8B8A8_UNORM:            return PF_A8B8G8R8;
         case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:       return PF_A8B8G8R8;
@@ -451,7 +432,7 @@ namespace Ogre
         case DXGI_FORMAT_R32_UINT:                  return PF_UNKNOWN;
         case DXGI_FORMAT_R32_SINT:                  return PF_UNKNOWN;
         case DXGI_FORMAT_R24G8_TYPELESS:            return PF_UNKNOWN;
-        case DXGI_FORMAT_D24_UNORM_S8_UINT:         return PF_UNKNOWN;
+        case DXGI_FORMAT_D24_UNORM_S8_UINT:         return PF_DEPTH24_STENCIL8;
         case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:     return PF_UNKNOWN;
         case DXGI_FORMAT_X24_TYPELESS_G8_UINT:      return PF_UNKNOWN;
         case DXGI_FORMAT_R8G8_TYPELESS:             return PF_UNKNOWN;
@@ -552,6 +533,7 @@ namespace Ogre
         case PF_X8B8G8R8:       return DXGI_FORMAT_UNKNOWN;
         case PF_A2B10G10R10:    return DXGI_FORMAT_R10G10B10A2_TYPELESS;
         case PF_A2R10G10B10:    return DXGI_FORMAT_UNKNOWN;
+        case PF_R11G11B10_FLOAT:return DXGI_FORMAT_R11G11B10_FLOAT;
         case PF_FLOAT16_R:      return DXGI_FORMAT_R16_FLOAT;
         case PF_FLOAT16_GR:     return DXGI_FORMAT_R16G16_FLOAT;
         case PF_FLOAT16_RGBA:   return DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -575,6 +557,7 @@ namespace Ogre
         case PF_DEPTH16:        return DXGI_FORMAT_R32_TYPELESS;
         case PF_DEPTH32:        return DXGI_FORMAT_R32_TYPELESS;
         case PF_DEPTH32F:       return DXGI_FORMAT_R32_TYPELESS;
+        case PF_DEPTH24_STENCIL8:     return DXGI_FORMAT_R24G8_TYPELESS;
         default:                return DXGI_FORMAT_UNKNOWN;
         }
     }
@@ -628,6 +611,7 @@ namespace Ogre
             return PF_FLOAT32_RGBA;
         case PF_DEPTH16:
             return PF_L16;
+        case PF_DEPTH24_STENCIL8:
         case PF_DEPTH32:
         case PF_DEPTH32F:
             return PF_FLOAT32_R;
@@ -742,13 +726,13 @@ namespace Ogre
 		}
 
         UINT retVal = 0;
-        if( !(usage & TU_NOT_SRV) )
+        if( !(usage & TU_NOT_SAMPLED) )
             retVal |= D3D11_BIND_SHADER_RESOURCE;
 
         if( isRenderTarget )
             retVal |= D3D11_BIND_RENDER_TARGET;
 
-        if( usage & TU_UAV )
+        if( usage & TU_UNORDERED_ACCESS )
             retVal |= D3D11_BIND_UNORDERED_ACCESS;
 
         return retVal;
@@ -761,8 +745,8 @@ namespace Ogre
 
         UINT flags = 0;
 
-		if((bindflags & D3D11_BIND_SHADER_RESOURCE) && (bindflags & D3D11_BIND_RENDER_TARGET))
-			flags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
+	    if((bindflags & D3D11_BIND_SHADER_RESOURCE) && (bindflags & D3D11_BIND_RENDER_TARGET) && (usage & TU_AUTOMIPMAP))
+		    flags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
 
         if(textype == TEX_TYPE_CUBE_MAP)
             flags |= D3D11_RESOURCE_MISC_TEXTURECUBE;

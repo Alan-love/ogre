@@ -31,11 +31,9 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //////////////////////////////////////////////////////////////////////////////
 // Helper function section
 //////////////////////////////////////////////////////////////////////////////
-#ifdef GL_ES
-#version 300 es
-#else
-#version 150
-#endif
+OGRE_NATIVE_GLSL_VERSION_DIRECTIVE
+
+#include "OgreUnifiedShader.h"
 
 void checkShadow(
     sampler2D shadowMap,
@@ -107,8 +105,6 @@ uniform vec4 lightSpecularColor;
 uniform vec4 lightFalloff;
 uniform vec3 lightPos;
 
-out vec4 fragColour;
-
 void main()
 {
     // None directional lights have some calculations to do in the beginning of the pixel shader
@@ -116,7 +112,7 @@ void main()
     vec4 normProjPos = oPos / oPos.w;
     // -1 is because generally +Y is down for textures but up for the screen
     vec2 oUv0 = vec2(normProjPos.x, normProjPos.y * -1.0 * flip) * 0.5 + 0.5;
-    vec3 oRay = vec3(normProjPos.x, normProjPos.y * flip, 1.0) * farCorner;
+    f32vec3 oRay = vec3(normProjPos.x, normProjPos.y * flip, 1.0) * farCorner;
 #endif
     
     vec4 a0 = texture(Tex0, oUv0); // Attribute 0: Diffuse color+shininess
@@ -176,5 +172,5 @@ void main()
     total_light_contrib *= (1.0-spotFalloff);
 #endif
 
-    fragColour = vec4(total_light_contrib*colour, 0.0);
+    gl_FragColor = vec4(total_light_contrib*colour, 0.0);
 }

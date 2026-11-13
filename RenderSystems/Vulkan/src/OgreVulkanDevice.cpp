@@ -36,8 +36,6 @@ THE SOFTWARE.
 
 #include "OgreVulkanUtils.h"
 
-#include <vulkan/vulkan.h>
-
 #define TODO_findRealPresentQueue
 
 namespace Ogre
@@ -65,7 +63,8 @@ namespace Ogre
             destroyQueues( mComputeQueues );
             destroyQueues( mTransferQueues );
 
-            // Must be done externally (this' destructor has yet to free more Vulkan stuff)
+            vmaDestroyAllocator(mVmaAllocator);
+
             vkDestroyDevice( mDevice, 0 );
             mDevice = 0;
             mPhysicalDevice = 0;
@@ -74,14 +73,8 @@ namespace Ogre
     //-------------------------------------------------------------------------
     void VulkanDevice::destroyQueues( FastArray<VulkanQueue> &queueArray )
     {
-        FastArray<VulkanQueue>::iterator itor = queueArray.begin();
-        FastArray<VulkanQueue>::iterator endt = queueArray.end();
-
-        while( itor != endt )
-        {
-            itor->destroy();
-            ++itor;
-        }
+        for (auto& q : queueArray)
+            q.destroy();
         queueArray.clear();
     }
     //-------------------------------------------------------------------------
@@ -94,7 +87,7 @@ namespace Ogre
 
         appInfo.pEngineName = "Ogre3D Vulkan Engine";
         appInfo.engineVersion = OGRE_VERSION;
-        appInfo.apiVersion = VK_API_VERSION_1_0;
+        appInfo.apiVersion = VK_API_VERSION_1_2;
 
         createInfo.pApplicationInfo = &appInfo;
         createInfo.enabledLayerCount = layers.size();
@@ -102,6 +95,14 @@ namespace Ogre
 
         createInfo.enabledExtensionCount = extensions.size();
         createInfo.ppEnabledExtensionNames = extensions.data();
+
+#ifdef VK_KHR_portability_enumeration
+        for( const char *extension : extensions )
+        {
+            if( String( extension ) == VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME )
+                createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+        }
+#endif
 
 #if 1 //OGRE_DEBUG_MODE
         VkDebugReportCallbackCreateInfoEXT debugCb = {VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT};
@@ -256,7 +257,21 @@ namespace Ogre
 
         extensions.push_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
 
+        VkPhysicalDeviceFeatures2 features2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        features2.features = mDeviceFeatures;
+
+#ifdef VK_EXT_mesh_shader
+        VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
+        if(mRenderSystem->getCapabilities()->hasCapability(RSC_MESH_PROGRAM))
+        {
+            meshShaderFeatures.taskShader = VK_TRUE;
+            meshShaderFeatures.meshShader = VK_TRUE;
+            features2.pNext = &meshShaderFeatures;
+        }
+#endif
+
         VkDeviceCreateInfo createInfo = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+        createInfo.pNext = &features2;
 
         createInfo.enabledExtensionCount = static_cast<uint32>( extensions.size() );
         createInfo.ppEnabledExtensionNames = extensions.data();
@@ -264,11 +279,39 @@ namespace Ogre
         createInfo.queueCreateInfoCount = static_cast<uint32>( queueCreateInfo.size() );
         createInfo.pQueueCreateInfos = &queueCreateInfo[0];
 
-        createInfo.pEnabledFeatures = &mDeviceFeatures;
+        //features2.features = mDeviceFeatures;
 
         OGRE_VK_CHECK(vkCreateDevice(mPhysicalDevice, &createInfo, NULL, &mDevice));
 
-        initUtils( mDevice );
+        volkLoadDevice(mDevice);
+
+        VmaVulkanFunctions fns;
+        fns.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+        fns.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+        fns.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
+        fns.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
+        fns.vkAllocateMemory = vkAllocateMemory;
+        fns.vkFreeMemory = vkFreeMemory;
+        fns.vkMapMemory = vkMapMemory;
+        fns.vkUnmapMemory = vkUnmapMemory;
+        fns.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
+        fns.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
+        fns.vkBindBufferMemory = vkBindBufferMemory;
+        fns.vkBindImageMemory = vkBindImageMemory;
+        fns.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
+        fns.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
+        fns.vkCreateBuffer = vkCreateBuffer;
+        fns.vkDestroyBuffer = vkDestroyBuffer;
+        fns.vkCreateImage = vkCreateImage;
+        fns.vkDestroyImage = vkDestroyImage;
+        fns.vkCmdCopyBuffer = vkCmdCopyBuffer;
+
+        VmaAllocatorCreateInfo allocatorCreateInfo = {};
+        allocatorCreateInfo.instance = mInstance;
+        allocatorCreateInfo.device = mDevice;
+        allocatorCreateInfo.physicalDevice = mPhysicalDevice;
+        allocatorCreateInfo.pVulkanFunctions = &fns;
+        vmaCreateAllocator(&allocatorCreateInfo, &mVmaAllocator);
     }
     //-------------------------------------------------------------------------
     void VulkanDevice::initQueues( void )
@@ -277,24 +320,16 @@ namespace Ogre
         vkGetDeviceQueue( mDevice, mGraphicsQueue.mFamilyIdx, mGraphicsQueue.mQueueIdx, &queue );
         mGraphicsQueue.init( mDevice, queue, mRenderSystem );
 
-        FastArray<VulkanQueue>::iterator itor = mComputeQueues.begin();
-        FastArray<VulkanQueue>::iterator endt = mComputeQueues.end();
-
-        while( itor != endt )
+        for (auto& q : mComputeQueues)
         {
-            vkGetDeviceQueue( mDevice, itor->mFamilyIdx, itor->mQueueIdx, &queue );
-            itor->init( mDevice, queue, mRenderSystem );
-            ++itor;
+            vkGetDeviceQueue( mDevice, q.mFamilyIdx, q.mQueueIdx, &queue);
+            q.init(mDevice, queue, mRenderSystem);
         }
 
-        itor = mTransferQueues.begin();
-        endt = mTransferQueues.end();
-
-        while( itor != endt )
+        for (auto& q : mTransferQueues)
         {
-            vkGetDeviceQueue( mDevice, itor->mFamilyIdx, itor->mQueueIdx, &queue );
-            itor->init( mDevice, queue, mRenderSystem );
-            ++itor;
+            vkGetDeviceQueue(mDevice, q.mFamilyIdx, q.mQueueIdx, &queue);
+            q.init(mDevice, queue, mRenderSystem);
         }
 
         TODO_findRealPresentQueue;

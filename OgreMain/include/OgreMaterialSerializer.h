@@ -173,7 +173,7 @@ namespace Ogre {
             const String& commandName, const String& identifier, 
             const GpuProgramParameters::AutoConstantEntry* autoEntry, 
             const GpuProgramParameters::AutoConstantEntry* defaultAutoEntry, 
-            bool isFloat, bool isDouble, bool isInt, bool isUnsignedInt, 
+            bool isFloat, bool isDouble, bool isInt, bool isUnsignedInt, bool isRegister,
             size_t physicalIndex, size_t physicalSize,
             const GpuProgramParametersSharedPtr& params, GpuProgramParameters* defaultParams,
             const unsigned short level, const bool useMainBuffer);
@@ -187,12 +187,10 @@ namespace Ogre {
         void writeLayerBlendOperationEx(const LayerBlendOperationEx op);
         void writeLayerBlendSource(const LayerBlendSource lbs);
         
-        typedef std::multimap<TextureUnitState::TextureEffectType, TextureUnitState::TextureEffect> EffectMap;
-
-        void writeRotationEffect(const TextureUnitState::TextureEffect& effect, const TextureUnitState *pTex);
+        void writeRotationEffect(float speed);
         void writeTransformEffect(const TextureUnitState::TextureEffect& effect, const TextureUnitState *pTex);
-        void writeScrollEffect(const TextureUnitState::TextureEffect& effect, const TextureUnitState *pTex);
-        void writeEnvironmentMapEffect(const TextureUnitState::TextureEffect& effect, const TextureUnitState *pTex);
+        void writeScrollEffect(float scrollAnimU, float scrollAnimV);
+        void writeEnvironmentMapEffect(int type);
 
         String convertFiltering(FilterOptions fo);
 

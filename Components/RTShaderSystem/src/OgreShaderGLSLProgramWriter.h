@@ -64,25 +64,21 @@ public:
     /** 
     @see ProgramWriter::writeSourceCode.
     */
-    virtual void writeSourceCode(std::ostream& os, Program* program);
+    void writeSourceCode(std::ostream& os, Program* program) override;
 
     /** 
     @see ProgramWriter::getTargetLanguage.
     */
-    virtual const String& getTargetLanguage() const { return TargetLanguage; }
+    const String& getTargetLanguage() const override { return TargetLanguage; }
 
     static String TargetLanguage;
 
     // Protected methods.
 protected:
-
     void writeMainSourceCode(std::ostream& os, Program* program);
 
     /** Initialize string maps. */
     void initializeStringMaps();
-
-    /** Write the program dependencies. */
-    void writeProgramDependencies(std::ostream& os, Program* program);
 
     /** Write the input params of the function */
     void writeInputParameters(std::ostream& os, Function* function, GpuProgramType gpuType);
@@ -92,15 +88,13 @@ protected:
 
     void writeUniformBlock(std::ostream& os, const String& name, int binding, const UniformParameterList& uniforms);
 
-protected:
-    typedef std::map<Parameter::Content, const char*>  ParamContentToStringMap;
+    void writeUniformBlock(std::ostream& os, const String& name, int binding, const GpuSharedParametersPtr& params);
 
-    // Attributes.
 protected:
-    std::set<String> mLocalRenames;
+    typedef std::map<Parameter::Semantic, const char*>  ParamSemanticToStringMap;
 
     // Map parameter content to vertex attributes 
-    ParamContentToStringMap mContentToPerVertexAttributes;
+    ParamSemanticToStringMap mParamSemanticToNameMap;
     // Holds the current glsl version
     int mGLSLVersion;
     // set by derived class

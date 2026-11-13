@@ -21,93 +21,86 @@ public:
             "Use mouse to look around and mouse wheel to zoom. Press Q to take out or put back "
             "Sinbad's swords. With the swords equipped, you can left click to slice vertically or "
             "right click to slice horizontally. When the swords are not equipped, press E to "
-            "start/stop a silly dance routine.";
-    }
-
-    bool frameRenderingQueued(const FrameEvent& evt)
-    {
-        // let character update animations and camera
-        mChara->addTime(evt.timeSinceLastFrame);
-        return SdkSample::frameRenderingQueued(evt);
-    }
-    
-    bool keyPressed(const KeyboardEvent& evt)
-    {
-        // relay input events to character controller
-        if (!mTrayMgr->isDialogVisible()) mChara->injectKeyDown(evt);
-        return SdkSample::keyPressed(evt);
-    }
-    
-    bool keyReleased(const KeyboardEvent& evt)
-    {
-        // relay input events to character controller
-        if (!mTrayMgr->isDialogVisible()) mChara->injectKeyUp(evt);
-        return SdkSample::keyReleased(evt);
-    }
-
-    bool mouseMoved(const MouseMotionEvent& evt)
-    {
-        // Relay input events to character controller.
-        if (!mTrayMgr->isDialogVisible()) mChara->injectMouseMove(evt);
-        return SdkSample::mouseMoved(evt);
-    }
-
-    virtual bool mouseWheelRolled(const MouseWheelEvent& evt) {
-        // Relay input events to character controller.
-        if (!mTrayMgr->isDialogVisible()) mChara->injectMouseWheel(evt);
-        return SdkSample::mouseWheelRolled(evt);
-    }
-
-    bool mousePressed(const MouseButtonEvent& evt)
-    {
-        // Relay input events to character controller.
-        if (!mTrayMgr->isDialogVisible()) mChara->injectMouseDown(evt);
-        return SdkSample::mousePressed(evt);
+            "start/stop a silly dance routine. "
+            "On touch screens, hold to run, drag to look around, tap to jump or slice and "
+            "double tap to take out or put back the swords.";
     }
 
 protected:
 
-    void setupContent()
-    {   
-        // set background and some fog
-        mViewport->setBackgroundColour(ColourValue(1.0f, 1.0f, 0.8f));
-        mSceneMgr->setFog(Ogre::FOG_LINEAR, ColourValue(1.0f, 1.0f, 0.8f), 0, 15, 100);
+    void setupContent() override
+    {
+#ifdef OGRE_BUILD_COMPONENT_RTSHADERSYSTEM
+        // integrated depth shadows with soft edges
+        auto& rtShaderGen = RTShader::ShaderGenerator::getSingleton();
+        auto shadows = rtShaderGen.createSubRenderState(RTShader::SRS_SHADOW_MAPPING);
+        shadows->setParameter("filter", "pcf4");
+        rtShaderGen.getRenderState(MSN_SHADERGEN)->addTemplateSubRenderState(shadows);
+
+        // Make this viewport work with shader generator scheme.
+        mViewport->setMaterialScheme(MSN_SHADERGEN);
+        // update scheme for FFP supporting rendersystems
+        MaterialManager::getSingleton().setActiveScheme(mViewport->getMaterialScheme());
+#endif
+        // the sky box is drawn first without depth writes, so its distance only has to be
+        // inside the fog start
+        mSceneMgr->setSkyBox(true, "Examples/CloudyNoonSkyBox", 30);
+        // fade the floor into the hazy horizon of the sky box before the far clip distance
+        mSceneMgr->setFog(FOG_LINEAR, ColourValue(0.78, 0.81, 0.80), 0, 50, 450);
 
         // set shadow properties
-        mSceneMgr->setShadowTechnique(SHADOWTYPE_TEXTURE_MODULATIVE);
-        mSceneMgr->setShadowColour(ColourValue(0.5, 0.5, 0.5));
+        mSceneMgr->setShadowTechnique(SHADOWTYPE_TEXTURE_ADDITIVE_INTEGRATED);
+        mSceneMgr->setShadowTexturePixelFormat(PF_DEPTH16);
         mSceneMgr->setShadowTextureSize(1024);
         mSceneMgr->setShadowTextureCount(1);
-        mSceneMgr->setShadowDirLightTextureOffset(0);
+        mSceneMgr->setShadowTextureSelfShadow(true);
+        mSceneMgr->setShadowCasterRenderBackFaces(true);
         mSceneMgr->setShadowFarDistance(50);
         mSceneMgr->setShadowCameraSetup(FocusedShadowCameraSetup::create());
 
         // disable default camera control so the character can do its own
         mCameraMan->setStyle(CS_MANUAL);
 
-        // use a small amount of ambient lighting
-        mSceneMgr->setAmbientLight(ColourValue(0.3, 0.3, 0.3));
+        // the sky reflections of the SinbadPBR materials light the shadows, so little ambient light
+        // is needed. Without tone mapping the sun must stay dim enough not to clip.
+        mSceneMgr->setAmbientLight(ColourValue(0.05, 0.05, 0.06));
 
-        // add a bright light above the scene
-        Light* light = mSceneMgr->createLight(Light::LT_POINT);
-        mSceneMgr->getRootSceneNode()
-            ->createChildSceneNode(Vector3(-10, 40, 20))
-            ->attachObject(light);
-        light->setSpecularColour(ColourValue::White);
+        // a warm afternoon sun
+        Light* sun = mSceneMgr->createLight(Light::LT_DIRECTIONAL);
+        sun->setDiffuseColour(ColourValue(1.6, 1.52, 1.37));
+        sun->setSpecularColour(ColourValue(1.0, 0.95, 0.85));
+        SceneNode* sunNode = mSceneMgr->getRootSceneNode()->createChildSceneNode();
+        sunNode->setDirection(Vector3(0.45, -0.7, -0.55).normalisedCopy());
+        sunNode->attachObject(sun);
 
-        // create a floor mesh resource
-        MeshManager::getSingleton().createPlane("floor", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
-            Plane(Vector3::UNIT_Y, 0), 100, 100, 10, 10, true, 1, 10, 10, Vector3::UNIT_Z);
+        // create a floor mesh resource, large enough for its edge to vanish in the fog
+        MeshManager::getSingleton().createPlane("floor", RGN_DEFAULT,
+            Plane(Vector3::UNIT_Y, 0), 1200, 1200, 60, 60, true, 1, 120, 120, Vector3::UNIT_Z);
 
         // create a floor entity, give it a material, and place it at the origin
         Entity* floor = mSceneMgr->createEntity("Floor", "floor");
-        floor->setMaterialName("Examples/Rockwall");
+        floor->setMaterialName("SinbadPBR/Floor");
         floor->setCastShadows(false);
         mSceneMgr->getRootSceneNode()->attachObject(floor);
 
 //      LogManager::getSingleton().logMessage("creating sinbad");
         // create our character controller
-        mChara = new SinbadCharacterController(mCamera);
+        mChara = std::make_unique<SinbadCharacterController>(mCamera);
+        // see the floor up to the end of the fog
+        mCamera->setFarClipDistance(600);
+
+        // use the variants of Sinbad's materials for physically based lighting
+        for (const auto& mo : mSceneMgr->getMovableObjects(MOT_ENTITY))
+        {
+            for (auto sub : static_cast<Entity*>(mo.second)->getSubEntities())
+            {
+                const String& name = sub->getMaterialName();
+                if (StringUtil::startsWith(name, "Sinbad/", false))
+                    sub->setMaterialName("SinbadPBR/" + name.substr(7));
+            }
+        }
+
+        mInputListenerChain = TouchAgnosticInputListenerChain(mWindow, {mTrayMgr.get(), this, mChara.get()});
 
 //      LogManager::getSingleton().logMessage("toggling stats");
         mTrayMgr->toggleAdvancedFrameStats();
@@ -121,18 +114,12 @@ protected:
 //      LogManager::getSingleton().logMessage("all done");
     }
 
-    void cleanupContent()
+    void cleanupContent() override
     {
-        // clean up character controller and the floor mesh
-        if (mChara)
-        {
-            delete mChara;
-            mChara = 0;
-        }
-        MeshManager::getSingleton().remove("floor", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+        MeshManager::getSingleton().remove("floor", RGN_DEFAULT);
     }
 
-    SinbadCharacterController* mChara;
+    std::unique_ptr<SinbadCharacterController> mChara;
 };
 
 #endif

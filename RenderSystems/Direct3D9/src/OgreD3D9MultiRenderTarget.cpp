@@ -35,11 +35,12 @@ THE SOFTWARE.
 #include "OgreRoot.h"
 #include "OgreD3D9Device.h"
 #include "OgreD3D9DeviceManager.h"
+#include "OgreDepthBuffer.h"
 
 namespace Ogre 
 {
     D3D9MultiRenderTarget::D3D9MultiRenderTarget(const String &name):
-        MultiRenderTarget(name)
+        MultiRenderTarget(name), mDepthTarget(NULL)
     {
         /// Clear targets
         for(size_t x=0; x<OGRE_MAX_MULTIPLE_RENDER_TARGETS; ++x)
@@ -69,26 +70,37 @@ namespace Ogre
             if (mRenderTargets[y]->getWidth() != buffer->getWidth() ||
                 mRenderTargets[y]->getHeight() != buffer->getHeight())
             {
-                OGRE_EXCEPT(
-                    Exception::ERR_INVALIDPARAMS, 
-                    "MultiRenderTarget surfaces are not of same size", 
-                    "D3D9MultiRenderTarget::bindSurface");
+                OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "MultiRenderTarget surfaces are not of same size");
             }
 
-            if (!Root::getSingleton().getRenderSystem()->getCapabilities()->hasCapability(RSC_MRT_DIFFERENT_BIT_DEPTHS)
+            if (Root::getSingleton().getRenderSystem()->getCapabilities()->hasCapability(RSC_MRT_SAME_BIT_DEPTHS)
                 && (PixelUtil::getNumElemBits(mRenderTargets[y]->getFormat()) != 
                     PixelUtil::getNumElemBits(buffer->getFormat())))
             {
-                OGRE_EXCEPT(
-                    Exception::ERR_INVALIDPARAMS, 
-                    "MultiRenderTarget surfaces are not of same bit depth and hardware requires it", 
-                    "D3D9MultiRenderTarget::bindSurface"
-                );
+                OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
+                            "MultiRenderTarget surfaces are not of same bit depth and hardware requires it");
             }
+        }
+
+        if(PixelUtil::isDepth(target->suggestPixelFormat()))
+        {
+            mDepthTarget = target;
+            mDepthBufferPoolId = DepthBuffer::POOL_DEFAULT; // we want attachDepthBuffer to happen
+            return;
         }
 
         mRenderTargets[attachment] = buffer;
         checkAndUpdate();
+    }
+
+    bool D3D9MultiRenderTarget::attachDepthBuffer( DepthBuffer *depthBuffer )
+    {
+        if(!mDepthTarget)
+            return MultiRenderTarget::attachDepthBuffer(depthBuffer);
+
+        mDepthBuffer = mDepthTarget->getDepthBuffer();
+        mDepthBuffer->_notifyRenderTargetAttached(this);
+        return true;
     }
 
     void D3D9MultiRenderTarget::unbindSurfaceImpl(size_t attachment)

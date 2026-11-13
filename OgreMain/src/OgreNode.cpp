@@ -31,8 +31,6 @@ namespace Ogre {
 
     Node::QueuedUpdates Node::msQueuedUpdates;
     //-----------------------------------------------------------------------
-    Node::Node() : Node(BLANKSTRING) {}
-    //-----------------------------------------------------------------------
     Node::Node(const String& name)
         :mParent(0),
         mName(name),
@@ -179,13 +177,9 @@ namespace Ogre {
             else
             {
                 // Just update selected children
-                ChildUpdateSet::iterator it, itend;
-                itend = mChildrenToUpdate.end();
-                for(it = mChildrenToUpdate.begin(); it != itend; ++it)
-                {
-                    Node* child = *it;
-                    child->_update(true, false);
-                }
+                // index-based: a re-entrant requestUpdate() may push_back and reallocate
+                for (size_t i = 0; i < mChildrenToUpdate.size(); ++i)
+                    mChildrenToUpdate[i]->_update(true, false);
 
             }
 
@@ -287,9 +281,7 @@ namespace Ogre {
         if (child->mParent)
         {
             OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
-                "Node '" + child->getName() + "' already was a child of '" +
-                child->mParent->getName() + "'.",
-                "Node::addChild");
+                        "Node '" + child->getName() + "' already is a child of '" + child->mParent->getName() + "'");
         }
 
         mChildren.push_back(child);
@@ -345,7 +337,9 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void Node::setOrientation( const Quaternion & q )
     {
+#ifndef OGRE_FAST_MATH
         OgreAssertDbg(!q.isNaN(), "Invalid orientation supplied as parameter");
+#endif
         mOrientation = q;
         mOrientation.normalise();
         needUpdate();
@@ -365,7 +359,9 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void Node::setPosition(const Vector3& pos)
     {
+#ifndef OGRE_FAST_MATH
         assert(!pos.isNaN() && "Invalid vector supplied as parameter");
+#endif
         mPosition = pos;
         needUpdate();
     }
@@ -438,6 +434,8 @@ namespace Ogre {
         //find where the node would end up in parent's local space
         if(mParent)
             setPosition( mParent->convertWorldToLocalPosition( pos ) );
+        else
+            setPosition( pos );
     }
     //-----------------------------------------------------------------------
     void Node::_setDerivedOrientation( const Quaternion& q )
@@ -445,6 +443,8 @@ namespace Ogre {
         //find where the node would end up in parent's local space
         if(mParent)
             setOrientation( mParent->convertWorldToLocalOrientation( q ) );
+        else
+            setOrientation( q );
     }
 
     //-----------------------------------------------------------------------
@@ -475,7 +475,7 @@ namespace Ogre {
         return mDerivedScale;
     }
     //-----------------------------------------------------------------------
-    Vector3 Node::convertWorldToLocalPosition( const Vector3 &worldPos )
+    Vector3 Node::convertWorldToLocalPosition( const Vector3 &worldPos ) const
     {
         if (mNeedParentUpdate)
         {
@@ -488,7 +488,7 @@ namespace Ogre {
 #endif
     }
     //-----------------------------------------------------------------------
-    Vector3 Node::convertLocalToWorldPosition( const Vector3 &localPos )
+    Vector3 Node::convertLocalToWorldPosition( const Vector3 &localPos ) const
     {
         if (mNeedParentUpdate)
         {
@@ -497,7 +497,7 @@ namespace Ogre {
         return _getFullTransform() * localPos;
     }
     //-----------------------------------------------------------------------
-    Vector3 Node::convertWorldToLocalDirection( const Vector3 &worldDir, bool useScale )
+    Vector3 Node::convertWorldToLocalDirection( const Vector3 &worldDir, bool useScale ) const
     {
         if (mNeedParentUpdate)
         {
@@ -514,7 +514,7 @@ namespace Ogre {
 #endif
     }
     //-----------------------------------------------------------------------
-    Vector3 Node::convertLocalToWorldDirection( const Vector3 &localDir, bool useScale )
+    Vector3 Node::convertLocalToWorldDirection( const Vector3 &localDir, bool useScale ) const
     {
         if (mNeedParentUpdate)
         {
@@ -523,7 +523,7 @@ namespace Ogre {
         return useScale ? _getFullTransform().linear() * localDir : mDerivedOrientation * localDir;
     }
     //-----------------------------------------------------------------------
-    Quaternion Node::convertWorldToLocalOrientation( const Quaternion &worldOrientation )
+    Quaternion Node::convertWorldToLocalOrientation( const Quaternion &worldOrientation ) const
     {
         if (mNeedParentUpdate)
         {
@@ -532,7 +532,7 @@ namespace Ogre {
         return mDerivedOrientation.Inverse() * worldOrientation;
     }
     //-----------------------------------------------------------------------
-    Quaternion Node::convertLocalToWorldOrientation( const Quaternion &localOrientation )
+    Quaternion Node::convertLocalToWorldOrientation( const Quaternion &localOrientation ) const
     {
         if (mNeedParentUpdate)
         {
@@ -544,19 +544,26 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void Node::removeAllChildren(void)
     {
-        ChildNodeMap::iterator i, iend;
-        iend = mChildren.end();
-        for (i = mChildren.begin(); i != iend; ++i)
+        for (auto *c : mChildren)
         {
-            (*i)->setParent(0);
+            c->setParent(0);
         }
         mChildren.clear();
         mChildrenToUpdate.clear();
     }
     //-----------------------------------------------------------------------
+    void Node::removeFromParent(void)
+    {
+        if (getParent()) {
+            getParent()->removeChild(this);
+        }
+    }
+    //-----------------------------------------------------------------------
     void Node::setScale(const Vector3& inScale)
     {
+#ifndef OGRE_FAST_MATH
         assert(!inScale.isNaN() && "Invalid vector supplied as parameter");
+#endif
         mScale = inScale;
         needUpdate();
     }
@@ -695,7 +702,7 @@ namespace Ogre {
             return;
         }
 
-        mChildrenToUpdate.insert(child);
+        mChildrenToUpdate.push_back(child);
         // Request selective update of me, if we didn't do it before
         if (mParent && (!mParentNotified || forceParentUpdate))
         {
@@ -707,7 +714,8 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void Node::cancelUpdate(Node* child)
     {
-        mChildrenToUpdate.erase(child);
+        mChildrenToUpdate.erase(std::remove(mChildrenToUpdate.begin(), mChildrenToUpdate.end(), child),
+                                mChildrenToUpdate.end());
 
         // Propagate this up if we're done
         if (mChildrenToUpdate.empty() && mParent && !mNeedChildUpdate)
@@ -729,12 +737,10 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void Node::processQueuedUpdates(void)
     {
-        for (QueuedUpdates::iterator i = msQueuedUpdates.begin();
-            i != msQueuedUpdates.end(); ++i)
+        for (auto *n : msQueuedUpdates)
         {
             // Update, and force parent update since chances are we've ended
             // up with some mixed state in there due to re-entrancy
-            Node* n = *i;
             n->mQueuedForUpdate = false;
             n->needUpdate(true);
         }

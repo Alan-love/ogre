@@ -42,7 +42,9 @@ THE SOFTWARE.
 #include "OgreSTBICodec.h"
 #include "OgreHighLevelGpuProgramManager.h"
 #include "OgreMeshManager.h"
+#include "OgreMeshSerializer.h"
 #include "OgreMesh.h"
+#include "OgreSubMesh.h"
 #include "OgreSkeletonManager.h"
 #include "OgreSkeletonInstance.h"
 #include "OgreCompositorManager.h"
@@ -51,6 +53,14 @@ THE SOFTWARE.
 #include "OgreArchiveManager.h"
 
 #include "OgreHighLevelGpuProgram.h"
+
+#include "OgreKeyFrame.h"
+#include "OgreAnimable.h"
+
+#include "OgreBillboardSet.h"
+#include "OgreBillboard.h"
+#include "OgreParticleEmitter.h"
+#include "OgrePredefinedControllers.h"
 
 #include <random>
 using std::minstd_rand;
@@ -64,10 +74,27 @@ TEST_F(CameraTests,customProjectionMatrix)
     std::vector<Vector3> corners(cam.getWorldSpaceCorners(), cam.getWorldSpaceCorners() + 8);
     RealRect extents = cam.getFrustumExtents();
     cam.setCustomProjectionMatrix(true, cam.getProjectionMatrix());
-    for(int j = 0; j < 8; j++)
-        EXPECT_EQ(corners[j], cam.getWorldSpaceCorners()[j]);
+    for(int j = 0; j < 8; j++) {
+        for(int k = 0; k < 3; k++) {
+            if(OGRE_DOUBLE_PRECISION == 0)
+                EXPECT_FLOAT_EQ(corners[j][k], cam.getWorldSpaceCorners()[j][k]);
+            else
+                EXPECT_DOUBLE_EQ(corners[j][k], cam.getWorldSpaceCorners()[j][k]);
+        }
+    }
 
-    EXPECT_EQ(extents, cam.getFrustumExtents());
+    if(OGRE_DOUBLE_PRECISION == 0) {
+        EXPECT_FLOAT_EQ(extents.bottom, cam.getFrustumExtents().bottom);
+        EXPECT_FLOAT_EQ(extents.top, cam.getFrustumExtents().top);
+        EXPECT_FLOAT_EQ(extents.left, cam.getFrustumExtents().left);
+        EXPECT_FLOAT_EQ(extents.right, cam.getFrustumExtents().right);
+    } else {
+        EXPECT_DOUBLE_EQ(extents.bottom, cam.getFrustumExtents().bottom);
+        EXPECT_DOUBLE_EQ(extents.top, cam.getFrustumExtents().top);
+        EXPECT_DOUBLE_EQ(extents.left, cam.getFrustumExtents().left);
+        EXPECT_DOUBLE_EQ(extents.right, cam.getFrustumExtents().right);
+    }
+
 }
 
 TEST(Root,shutdown)
@@ -82,13 +109,133 @@ TEST(Root,shutdown)
     root.shutdown();
 }
 
-TEST(SceneManager,removeAndDestroyAllChildren)
+TEST(SceneManager, removeAndDestroyAllChildren)
 {
     Root root("");
     SceneManager* sm = root.createSceneManager();
     sm->getRootSceneNode()->createChildSceneNode();
     sm->getRootSceneNode()->createChildSceneNode();
     sm->getRootSceneNode()->removeAndDestroyAllChildren();
+}
+
+struct SceneNodeTest : public RootWithoutRenderSystemFixture {
+    SceneManager* mSceneMgr;
+
+    void SetUp() override {
+        RootWithoutRenderSystemFixture::SetUp();
+        mSceneMgr = mRoot->createSceneManager();
+    }
+};
+
+TEST_F(SceneNodeTest, detachAllObjects){
+	auto sinbad = mSceneMgr->createEntity("sinbad", "Sinbad.mesh");
+	auto sinbad2 = mSceneMgr->createEntity("sinbad2", "Sinbad.mesh");
+	SceneNode* node = mSceneMgr->getRootSceneNode()->createChildSceneNode("parent");
+    node->attachObject(sinbad);
+    node->attachObject(sinbad2);
+
+	auto sinbad3 = mSceneMgr->createEntity("sinbad3", "Sinbad.mesh");
+	SceneNode* child = node->createChildSceneNode("child");
+    child->attachObject(sinbad3);
+    node->destroyAllObjects();
+    EXPECT_FALSE(mSceneMgr->hasEntity("sinbad"));
+    EXPECT_FALSE(mSceneMgr->hasEntity("sinbad2"));
+    EXPECT_TRUE(mSceneMgr->hasEntity("sinbad3"));
+    EXPECT_EQ(node->numAttachedObjects(), 0);
+    EXPECT_EQ(child->numAttachedObjects(), 1);
+}
+
+TEST_F(SceneNodeTest, destroyAllChildrenAndObjects)
+{
+	auto sinbad = mSceneMgr->createEntity("sinbad", "Sinbad.mesh");
+	SceneNode* node = mSceneMgr->getRootSceneNode()->createChildSceneNode("parent");
+    node->attachObject(sinbad);
+
+	auto sinbad2 = mSceneMgr->createEntity("sinbad2", "Sinbad.mesh");
+	SceneNode* child = node->createChildSceneNode("child");
+    child->attachObject(sinbad2);
+
+	auto sinbad3 = mSceneMgr->createEntity("sinbad3", "Sinbad.mesh");
+	SceneNode* grandchild = node->createChildSceneNode("grandchild");
+    grandchild->attachObject(sinbad3);
+
+    node->destroyAllChildrenAndObjects();
+    EXPECT_FALSE(mSceneMgr->hasSceneNode("grandchild"));
+    EXPECT_FALSE(mSceneMgr->hasEntity("sinbad3"));
+    EXPECT_FALSE(mSceneMgr->hasSceneNode("child"));
+    EXPECT_FALSE(mSceneMgr->hasEntity("sinbad2"));
+    EXPECT_FALSE(mSceneMgr->hasEntity("sinbad"));
+    EXPECT_TRUE(mSceneMgr->hasSceneNode("parent"));
+}
+
+TEST_F(SceneNodeTest, destroyChildAndObjects)
+{
+
+	auto sinbad = mSceneMgr->createEntity("sinbad", "Sinbad.mesh");
+	SceneNode* node = mSceneMgr->getRootSceneNode()->createChildSceneNode("parent");
+    node->attachObject(sinbad);
+
+	auto sinbad2 = mSceneMgr->createEntity("sinbad2", "Sinbad.mesh");
+	SceneNode* child = node->createChildSceneNode("child");
+    child->attachObject(sinbad2);
+
+	auto sinbad3 = mSceneMgr->createEntity("sinbad3", "Sinbad.mesh");
+	SceneNode* grandchild = child->createChildSceneNode("grandchild");
+    grandchild->attachObject(sinbad3);
+
+    node->destroyChildAndObjects("child");
+
+    EXPECT_FALSE(mSceneMgr->hasSceneNode("grandchild"));
+    EXPECT_FALSE(mSceneMgr->hasSceneNode("child"));
+    EXPECT_TRUE(mSceneMgr->hasSceneNode("parent"));
+    EXPECT_FALSE(mSceneMgr->hasEntity("sinbad2"));
+    EXPECT_FALSE(mSceneMgr->hasEntity("sinbad3"));
+    EXPECT_TRUE(mSceneMgr->hasEntity("sinbad"));
+}
+
+TEST_F(SceneNodeTest, removeFromParent) {
+    SceneNode* parent = mSceneMgr->getRootSceneNode()->createChildSceneNode("parent");
+    SceneNode* child = parent->createChildSceneNode("child");
+    EXPECT_EQ(parent->getChild("child"), child);
+    child->removeFromParent(); //detach when we have a parent.
+    EXPECT_EQ(child->getParent(), nullptr);
+    child->removeFromParent(); //detach when we don't a parent.
+    EXPECT_EQ(child->getParent(), nullptr); //it is a no-op
+}
+
+static testing::AssertionResult AssertDirectionEquals(const char* m_expr,
+                                               const char* n_expr,
+                                               const Vector3& m,
+                                               const Vector3& n) {
+    if (m.directionEquals(n, Degree(0.01f)))
+        return testing::AssertionSuccess();
+
+    return testing::AssertionFailure()
+        << m_expr << " and " << n_expr << " do not have the same direction\n"
+        << "  Actual: " << m << "\n"
+        << "Expected: " << n;
+}
+#define EXPECT_DIR_EQ(val1, val2) EXPECT_PRED_FORMAT2(AssertDirectionEquals, val1, val2)
+
+TEST_F(SceneNodeTest, setDirection) {
+    SceneNode* parent = mSceneMgr->getRootSceneNode()->createChildSceneNode();
+    parent->setOrientation(Quaternion(Degree(90), Vector3::UNIT_Y));
+
+    SceneNode* child = parent->createChildSceneNode();
+
+    child->setDirection(Vector3::UNIT_X, Node::TS_PARENT);
+    EXPECT_DIR_EQ(child->getOrientation() * Vector3::NEGATIVE_UNIT_Z, Vector3::UNIT_X);
+
+    child->setDirection(Vector3::UNIT_Z, Node::TS_WORLD);
+    EXPECT_DIR_EQ(child->_getDerivedOrientation() * Vector3::NEGATIVE_UNIT_Z, Vector3::UNIT_Z);
+
+    child->setOrientation(Quaternion::IDENTITY);
+    child->setDirection(Vector3::UNIT_X, Node::TS_LOCAL);
+    EXPECT_DIR_EQ(child->getOrientation() * Vector3::NEGATIVE_UNIT_Z, Vector3::UNIT_X);
+
+    child->setFixedYawAxis(true, Vector3::UNIT_Z);
+    child->setDirection(Vector3::UNIT_X, Node::TS_PARENT);
+    EXPECT_DIR_EQ(child->getOrientation() * Vector3::NEGATIVE_UNIT_Z, Vector3::UNIT_X);
 }
 
 static void createRandomEntityClones(Entity* ent, size_t cloneCount, const Vector3& min,
@@ -103,9 +250,9 @@ static void createRandomEntityClones(Entity* ent, size_t cloneCount, const Vecto
         SceneNode* node = mgr->createSceneNode();
         // Random translate.
         Vector3 nodePos = max - min;
-        nodePos.x *= float(rng())/rng.max();
-        nodePos.y *= float(rng())/rng.max();
-        nodePos.z *= float(rng())/rng.max();
+        nodePos.x *= double(rng())/rng.max();
+        nodePos.y *= double(rng())/rng.max();
+        nodePos.z *= double(rng())/rng.max();
         nodePos += min;
         node->setPosition(nodePos);
         mgr->getRootSceneNode()->addChild(node);
@@ -120,7 +267,7 @@ struct SceneQueryTest : public RootWithoutRenderSystemFixture {
     Camera* mCamera;
     SceneNode* mCameraNode;
 
-    void SetUp() {
+    void SetUp() override {
         RootWithoutRenderSystemFixture::SetUp();
 
         mSceneMgr = mRoot->createSceneManager();
@@ -160,10 +307,8 @@ TEST_F(SceneQueryTest,Intersection)
     EXPECT_EQ(results.movables2movables.size(), sizeof(expected)/sizeof(expected[0]));
 
     int i = 0;
-    for (SceneQueryMovableIntersectionList::iterator mov = results.movables2movables.begin();
-         mov != results.movables2movables.end(); ++mov)
+    for (auto & thepair : results.movables2movables)
     {
-        SceneQueryMovableObjectPair& thepair = *mov;
         // printf("{%d, %d},", StringConverter::parseInt(thepair.first->getName()), StringConverter::parseInt(thepair.second->getName()));
         ASSERT_EQ(expected[i][0], StringConverter::parseInt(thepair.first->getName()));
         ASSERT_EQ(expected[i][1], StringConverter::parseInt(thepair.second->getName()));
@@ -219,6 +364,202 @@ TEST(MaterialSerializer, Basic)
               TextureUnitState::CONTENT_SHADOW);
     EXPECT_EQ(mat2->getTechniques()[0]->getPasses()[0]->getTextureUnitState(1)->getTextureName(),
               "TextureName");
+}
+
+struct MeshSerializerBufferRange : public RootWithoutRenderSystemFixture
+{
+};
+
+TEST_F(MeshSerializerBufferRange, ExportsUsedRange)
+{
+    MeshPtr mesh = MeshManager::getSingleton().createManual("BufferRangeSrc", RGN_DEFAULT);
+    SubMesh* subMesh = mesh->createSubMesh();
+    subMesh->useSharedVertices = false;
+
+    auto vertexData = new VertexData();
+    vertexData->vertexDeclaration->addElement(0, 0, VET_FLOAT3, VES_POSITION);
+
+    auto vertexBuffer = HardwareBufferManager::getSingleton().createVertexBuffer(
+        vertexData->vertexDeclaration->getVertexSize(0), 7, HBU_CPU_TO_GPU);
+    float positions[7][3] = {
+        {9, 9, 9}, {9, 9, 9}, {9, 9, 9}, {9, 9, 9},
+        {0, 0, 0}, {1, 0, 0}, {0, 1, 0},
+    };
+    vertexBuffer->writeData(0, sizeof(positions), positions, true);
+    vertexData->vertexBufferBinding->setBinding(0, vertexBuffer);
+    vertexData->vertexStart = 4;
+    vertexData->vertexCount = 3;
+    subMesh->resetVertexData(vertexData);
+
+    auto indexData = new IndexData();
+    indexData->indexBuffer = HardwareBufferManager::getSingleton().createIndexBuffer(
+        HardwareIndexBuffer::IT_16BIT, 5, HBU_CPU_TO_GPU);
+    uint16 indices[] = {7, 7, 0, 1, 2};
+    indexData->indexBuffer->writeData(0, sizeof(indices), indices, true);
+    indexData->indexStart = 2;
+    indexData->indexCount = 3;
+    subMesh->indexData = indexData;
+
+    mesh->_setBounds(AxisAlignedBox(Vector3(0, 0, 0), Vector3(1, 1, 0)));
+    mesh->load();
+
+    MeshSerializer serializer;
+    std::vector<char> buffer(4096);
+    auto stream = std::make_shared<MemoryDataStream>("BufferRange.mesh", buffer.data(), buffer.size(),
+                                                     false, false);
+    serializer.exportMesh(mesh.get(), stream);
+
+    auto readStream = std::make_shared<MemoryDataStream>("BufferRange.mesh", buffer.data(), stream->tell(),
+                                                         false, true);
+    MeshPtr imported = MeshManager::getSingleton().createManual("BufferRangeDst", RGN_DEFAULT);
+    serializer.importMesh(readStream, imported.get());
+
+    SubMesh* importedSubMesh = imported->getSubMesh(0);
+    ASSERT_TRUE(importedSubMesh->vertexData);
+    EXPECT_EQ(importedSubMesh->vertexData->vertexStart, 0u);
+    EXPECT_EQ(importedSubMesh->vertexData->vertexCount, 3u);
+    ASSERT_TRUE(importedSubMesh->indexData);
+    EXPECT_EQ(importedSubMesh->indexData->indexStart, 0u);
+    EXPECT_EQ(importedSubMesh->indexData->indexCount, 3u);
+
+    auto importedVertexBuffer = importedSubMesh->vertexData->vertexBufferBinding->getBuffer(0);
+    HardwareBufferLockGuard vertexLock(importedVertexBuffer, HardwareBuffer::HBL_READ_ONLY);
+    const float* importedPositions = static_cast<const float*>(vertexLock.pData);
+    for (size_t i = 0; i < 3; ++i)
+        EXPECT_EQ(Vector3(importedPositions + i * 3), Vector3(positions[4 + i]));
+
+    auto importedIndexBuffer = importedSubMesh->indexData->indexBuffer;
+    HardwareBufferLockGuard indexLock(importedIndexBuffer, HardwareBuffer::HBL_READ_ONLY);
+    const uint16* importedIndices = static_cast<const uint16*>(indexLock.pData);
+    for (size_t i = 0; i < 3; ++i)
+        EXPECT_EQ(importedIndices[i], uint16(i));
+
+    MeshManager::getSingleton().remove(imported);
+    MeshManager::getSingleton().remove(mesh);
+}
+
+namespace
+{
+/// a triangle whose index data and generated LODs all live in one shared index buffer
+MeshPtr createSharedLodMesh(const String& name, const std::vector<std::pair<size_t, size_t>>& lodRanges)
+{
+    MeshPtr mesh = MeshManager::getSingleton().createManual(name, RGN_DEFAULT);
+    SubMesh* subMesh = mesh->createSubMesh();
+    subMesh->useSharedVertices = false;
+
+    auto vertexData = new VertexData();
+    vertexData->vertexDeclaration->addElement(0, 0, VET_FLOAT3, VES_POSITION);
+    auto vertexBuffer = HardwareBufferManager::getSingleton().createVertexBuffer(
+        vertexData->vertexDeclaration->getVertexSize(0), 3, HBU_CPU_TO_GPU);
+    float positions[3][3] = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+    vertexBuffer->writeData(0, sizeof(positions), positions, true);
+    vertexData->vertexBufferBinding->setBinding(0, vertexBuffer);
+    vertexData->vertexCount = 3;
+    subMesh->resetVertexData(vertexData);
+
+    // 99 marks indices that belong to someone else and must not be exported
+    std::vector<uint16> indices(32, 99);
+    indices[0] = 0, indices[1] = 1, indices[2] = 2;
+    for (const auto& range : lodRanges)
+    {
+        for (size_t i = 0; i < range.second; ++i)
+            indices[range.first + i] = uint16((range.first + i) % 3);
+    }
+
+    auto indexBuffer = HardwareBufferManager::getSingleton().createIndexBuffer(
+        HardwareIndexBuffer::IT_16BIT, indices.size(), HBU_CPU_TO_GPU);
+    indexBuffer->writeData(0, indexBuffer->getSizeInBytes(), indices.data(), true);
+
+    subMesh->indexData->indexBuffer = indexBuffer;
+    subMesh->indexData->indexStart = 0;
+    subMesh->indexData->indexCount = 3;
+
+    mesh->_setLodInfo(ushort(lodRanges.size() + 1));
+    for (size_t lod = 0; lod < lodRanges.size(); ++lod)
+    {
+        MeshLodUsage usage;
+        usage.userValue = Real(100 * (lod + 1));
+        mesh->_setLodUsage(ushort(lod + 1), usage);
+
+        auto lodData = new IndexData();
+        lodData->indexBuffer = indexBuffer;
+        lodData->indexStart = lodRanges[lod].first;
+        lodData->indexCount = lodRanges[lod].second;
+        subMesh->mLodFaceList[lod] = lodData;
+    }
+
+    mesh->_setBounds(AxisAlignedBox(Vector3(0, 0, 0), Vector3(1, 1, 0)));
+    mesh->load();
+    return mesh;
+}
+
+MeshPtr exportAndImport(const MeshPtr& mesh, const String& name, size_t* exportedSize = nullptr)
+{
+    MeshSerializer serializer;
+    std::vector<char> buffer(4096);
+    auto stream = std::make_shared<MemoryDataStream>(name, buffer.data(), buffer.size(), false, false);
+    serializer.exportMesh(mesh.get(), stream);
+    if (exportedSize)
+        *exportedSize = stream->tell();
+
+    auto readStream = std::make_shared<MemoryDataStream>(name, buffer.data(), stream->tell(), false, true);
+    MeshPtr imported = MeshManager::getSingleton().createManual(name, RGN_DEFAULT);
+    serializer.importMesh(readStream, imported.get());
+    return imported;
+}
+
+std::vector<uint16> readLodIndices(const IndexData* indexData)
+{
+    HardwareBufferLockGuard lock(indexData->indexBuffer, indexData->indexStart * sizeof(uint16),
+                                 indexData->indexCount * sizeof(uint16), HardwareBuffer::HBL_READ_ONLY);
+    const uint16* data = static_cast<const uint16*>(lock.pData);
+    return std::vector<uint16>(data, data + indexData->indexCount);
+}
+} // namespace
+
+TEST_F(MeshSerializerBufferRange, ExportsUsedLodRanges)
+{
+    // disjoint LOD ranges in a buffer shared with other geometry, as in a GeometryPool page
+    MeshPtr mesh = createSharedLodMesh("LodRangeSrc", {{10, 3}, {20, 3}});
+    MeshPtr imported = exportAndImport(mesh, "LodRangeDst");
+
+    SubMesh* subMesh = imported->getSubMesh(0);
+    ASSERT_EQ(imported->getNumLodLevels(), 3);
+    ASSERT_EQ(subMesh->mLodFaceList.size(), 2u);
+
+    for (size_t lod = 0; lod < 2; ++lod)
+    {
+        const IndexData* lodData = subMesh->mLodFaceList[lod];
+        EXPECT_EQ(lodData->indexBuffer->getNumIndexes(), 3u) << "LOD " << lod + 1;
+        EXPECT_EQ(lodData->indexStart, 0u);
+        EXPECT_EQ(readLodIndices(lodData), readLodIndices(mesh->getSubMesh(0)->mLodFaceList[lod]));
+    }
+    EXPECT_NE(subMesh->mLodFaceList[0]->indexBuffer, subMesh->mLodFaceList[1]->indexBuffer);
+
+    MeshManager::getSingleton().remove(imported);
+    MeshManager::getSingleton().remove(mesh);
+}
+
+TEST_F(MeshSerializerBufferRange, SharesOverlappingLodRanges)
+{
+    // overlapping ranges, as written by the compressed LOD generator, keep sharing one buffer
+    MeshPtr mesh = createSharedLodMesh("LodOverlapSrc", {{4, 6}, {7, 6}});
+    MeshPtr imported = exportAndImport(mesh, "LodOverlapDst");
+
+    SubMesh* subMesh = imported->getSubMesh(0);
+    ASSERT_EQ(subMesh->mLodFaceList.size(), 2u);
+
+    const IndexData* lod1 = subMesh->mLodFaceList[0];
+    const IndexData* lod2 = subMesh->mLodFaceList[1];
+    EXPECT_EQ(lod1->indexBuffer, lod2->indexBuffer);
+    EXPECT_EQ(lod1->indexBuffer->getNumIndexes(), 9u);
+    EXPECT_EQ(lod1->indexStart, 0u);
+    EXPECT_EQ(lod2->indexStart, 3u);
+    EXPECT_EQ(readLodIndices(lod1), readLodIndices(mesh->getSubMesh(0)->mLodFaceList[0]));
+    EXPECT_EQ(readLodIndices(lod2), readLodIndices(mesh->getSubMesh(0)->mLodFaceList[1]));
+
+    MeshManager::getSingleton().remove(imported);
+    MeshManager::getSingleton().remove(mesh);
 }
 
 TEST(Image, FlipV)
@@ -289,9 +630,64 @@ TEST(Image, Combine)
     ASSERT_TRUE(!memcmp(combined.getData(), ref.getData(), ref.getSize()));
 }
 
+TEST(Image, Compressed)
+{
+    Root root;
+    ConfigFile cf;
+    cf.load(FileSystemLayer(OGRE_VERSION_NAME).getConfigFilePath("resources.cfg"));
+    auto testPath = cf.getSettings("Tests").begin()->second;
+
+    Image img;
+#if OGRE_NO_PVRTC_CODEC == 0
+    // 2bpp
+    img.load(Root::openFileStream(testPath+"/ogreborderUp_pvr2.pvr"), "pvr");
+    EXPECT_EQ(img.getFormat(), PF_PVRTC_RGB2);
+    // 2bpp alpha
+    img.load(Root::openFileStream(testPath+"/ogreborderUp_pvr2a.pvr"), "pvr");
+    EXPECT_EQ(img.getFormat(), PF_PVRTC_RGBA2);
+    // 4bpp
+    img.load(Root::openFileStream(testPath+"/ogreborderUp_pvr4.pvr"), "pvr");
+    EXPECT_EQ(img.getFormat(), PF_PVRTC_RGB4);
+    // 4 bpp alpha
+    img.load(Root::openFileStream(testPath+"/ogreborderUp_pvr4a.pvr"), "pvr");
+    EXPECT_EQ(img.getFormat(), PF_PVRTC_RGBA4);
+#endif
+
+#if OGRE_NO_ETC_CODEC == 0
+    img.load(Root::openFileStream(testPath+"/Texture.pkm"), "pkm");
+    EXPECT_EQ(img.getFormat(), PF_ETC2_RGB8);
+    img.load(Root::openFileStream(testPath+"/etc2-rgba8.ktx"), "ktx");
+    EXPECT_EQ(img.getFormat(), PF_ETC2_RGBA8);
+#endif
+
+#if OGRE_NO_ASTC_CODEC == 0
+    img.load(Root::openFileStream(testPath+"/Earth-Color10x6.astc"), "astc");
+    EXPECT_EQ(img.getFormat(), PF_ASTC_RGBA_10X6_LDR);
+#endif
+
+#if OGRE_NO_DDS_CODEC == 0
+    img.load(Root::openFileStream(testPath+"/ogreborderUp_dxt3.dds"), "dds");
+    EXPECT_EQ(img.getFormat(), PF_BYTE_RGBA); // no RenderSystem available, will decompress
+#endif
+}
+
+#if OGRE_NO_PVRTC_CODEC == 0
+TEST(Image, PVRTextureArray)
+{
+    Root root;
+
+    // PVR3 header for a single 8x8 PVRTC 4bpp surface, but claiming two array members.
+    // The zeroed tail is 32 bytes of pixel data for each of them.
+    uint32 pvr[13 + 2 * 8] = {0x03525650, 0, 2, 0, 0, 0, 8, 8, 1, 2, 1, 0, 0};
+
+    Image img;
+    EXPECT_THROW(img.load(DataStreamPtr(new MemoryDataStream(pvr, sizeof(pvr))), "pvr"), InvalidParametersException);
+}
+#endif
+
 struct UsePreviousResourceLoadingListener : public ResourceLoadingListener
 {
-    bool resourceCollision(Resource *resource, ResourceManager *resourceManager) { return false; }
+    bool resourceCollision(Resource *resource, ResourceManager *resourceManager) override { return false; }
 };
 
 typedef RootWithoutRenderSystemFixture ResourceLoading;
@@ -324,7 +720,7 @@ TEST_F(ResourceLoading, CollsionUseExisting)
 
 struct DeletePreviousResourceLoadingListener : public ResourceLoadingListener
 {
-    bool resourceCollision(Resource* resource, ResourceManager* resourceManager)
+    bool resourceCollision(Resource* resource, ResourceManager* resourceManager) override
     {
         resourceManager->remove(resource->getName(), resource->getGroup());
         return true;
@@ -435,4 +831,214 @@ TEST_F(SkeletonTests, linkedSkeletonAnimationSource)
     entity->getSkeleton()->addLinkedSkeletonAnimationSource("ninja.skeleton");
     entity->refreshAvailableAnimationState();
     EXPECT_TRUE(entity->getAnimationState("Stealth")); // animation from ninja.sekeleton
+}
+
+TEST(MaterialLoading, LateShadowCaster)
+{
+    Root root("");
+    auto tech = MaterialManager::getSingleton().create("Material", RGN_DEFAULT)->createTechnique();
+    tech->setShadowCasterMaterial("Caster");
+    EXPECT_FALSE(tech->getShadowCasterMaterial());
+
+    MaterialManager::getSingleton().create("Caster", RGN_DEFAULT);
+
+    // force call _load() due to missing rendersystem
+    tech->_load();
+
+    EXPECT_TRUE(tech->getShadowCasterMaterial());
+}
+
+TEST(Light, AnimableValue)
+{
+    Light l;
+
+    l.setDiffuseColour(0, 0, 0);
+    auto diffuseColour = l.createAnimableValue("diffuseColour");
+    diffuseColour->applyDeltaValue(ColourValue(1, 2, 3, 0));
+    EXPECT_EQ(l.getDiffuseColour(), ColourValue(1, 2, 3));
+
+    l.setSpecularColour(0, 0, 0);
+    auto specularColour = l.createAnimableValue("specularColour");
+    specularColour->applyDeltaValue(ColourValue(1, 2, 3, 0));
+    EXPECT_EQ(l.getSpecularColour(), ColourValue(1, 2, 3));
+
+    l.setAttenuation(0, 0, 0, 0);
+    auto attenuation = l.createAnimableValue("attenuation");
+    attenuation->applyDeltaValue(Vector4(1, 2, 3, 4));
+    EXPECT_EQ(l.getAttenuation(), Vector4f(1, 2, 3, 4));
+
+    l.setSpotlightInnerAngle(Radian(0));
+    auto spotlightInner = l.createAnimableValue("spotlightInner");
+    spotlightInner->applyDeltaValue(Radian(1));
+    EXPECT_EQ(l.getSpotlightInnerAngle(), Radian(1));
+
+    l.setSpotlightOuterAngle(Radian(0));
+    auto spotlightOuter = l.createAnimableValue("spotlightOuter");
+    spotlightOuter->applyDeltaValue(Radian(1));
+    EXPECT_EQ(l.getSpotlightOuterAngle(), Radian(1));
+
+    l.setSpotlightFalloff(0);
+    auto spotlightFalloff = l.createAnimableValue("spotlightFalloff");
+    spotlightFalloff->applyDeltaValue(Real(1));
+    EXPECT_EQ(l.getSpotlightFalloff(), 1);
+}
+
+TEST(Light, AnimationTrack)
+{
+    Light l;
+    l.setDiffuseColour(0, 0, 0);
+    l.setAttenuation(0, 0, 0, 0);
+
+    Animation anim("test", 1.0);
+    auto diffuse = anim.createNumericTrack(0, l.createAnimableValue("diffuseColour"));
+    diffuse->createNumericKeyFrame(0)->setValue(ColourValue(1, 2, 3, 0));
+    diffuse->createNumericKeyFrame(1)->setValue(ColourValue(2, 4, 6, 0));
+
+    diffuse->apply(0.5);
+
+    EXPECT_EQ(l.getDiffuseColour(), ColourValue(1.5, 3, 4.5));
+
+    auto attenuation = anim.createNumericTrack(1, l.createAnimableValue("attenuation"));
+    attenuation->createNumericKeyFrame(0)->setValue(Vector4(1, 2, 3, 4));
+    attenuation->createNumericKeyFrame(1)->setValue(Vector4(2, 4, 6, 8));
+
+    attenuation->apply(0.5);
+    EXPECT_EQ(l.getAttenuation(), Vector4f(1.5, 3, 4.5, 6));
+}
+
+namespace
+{
+/// Minimal AnimableValue implementation for testing the numeric track helpers
+class TestIntAnimableValue : public AnimableValue
+{
+public:
+    TestIntAnimableValue(int& value) : AnimableValue(INT), mValue(value) {}
+    void setCurrentStateAsBaseValue() override { setAsBaseValue(mValue); }
+    void setValue(int val) override { mValue = val; }
+    void applyDeltaValue(int val) override { mValue += val; }
+
+private:
+    int& mValue;
+};
+} // namespace
+
+TEST(AnimableValue, IntAnimationTrack)
+{
+    int value = 0;
+    auto animable = std::make_shared<TestIntAnimableValue>(value);
+
+    Animation anim("test", 1.0);
+    auto track = anim.createNumericTrack(0, animable);
+    track->createNumericKeyFrame(0)->setValue(10);
+    track->createNumericKeyFrame(1)->setValue(20);
+
+    // scaled value must stay an int, otherwise applyDeltaValue() cannot cast it
+    track->apply(0.5);
+    EXPECT_EQ(value, 15);
+}
+
+TEST(GpuProgramParams, Variability)
+{
+    auto constants = std::make_shared<GpuNamedConstants>();
+    constants->map["parameter"] = GpuConstantDefinition();
+    constants->map["parameter"].constType = GCT_MATRIX_4X4;
+
+    GpuProgramParameters params;
+    params._setNamedConstants(constants);
+    params.setNamedAutoConstant("parameter", GpuProgramParameters::ACT_WORLD_MATRIX);
+
+    GpuProgramParameters params2;
+    params2._setNamedConstants(constants);
+    params2.clearNamedAutoConstant("parameter");
+
+    EXPECT_EQ(params.getConstantDefinition("parameter").variability, GPV_PER_OBJECT);
+}
+
+TEST(Billboard, TextureCoords)
+{
+    Root root("");
+    MaterialManager::getSingleton().initialise();
+
+    float xsegs = 3;
+    float ysegs = 3;
+    BillboardSet bbs("name");
+    bbs.setTextureStacksAndSlices(ysegs, xsegs);
+
+    auto& texcoords = bbs.getTextureCoords();
+
+
+    float width = 300;
+    float height = 300;
+    float gap = 20;
+
+    for (int y = 0; y < ysegs; ++y)
+    {
+        for (int x = 0; x < xsegs; ++x)
+        {
+            FloatRect ref((x + 0) / xsegs, (ysegs - y - 1) / ysegs, // uv
+                          (x + 1) / xsegs, (ysegs - y - 0) / ysegs);
+            auto& genRect = texcoords[(ysegs - y - 1)*xsegs + x];
+            EXPECT_EQ(genRect, ref);
+
+            // only for visualisation
+            Billboard* bb = bbs.createBillboard({(x * width / xsegs) + ((x - 1) * gap), // position
+                                                 (y * height / ysegs) + ((y - 1) * gap), 0});
+            bb->setTexcoordIndex((ysegs - y - 1)*xsegs + x);
+        }
+    }
+}
+
+struct ConstantRandom : public Math::RandomValueProvider
+{
+    Real value;
+    explicit ConstantRandom(Real v) : value(v) {}
+    Real getRandomUnit() override { return value; }
+};
+
+struct TestEmitter : public ParticleEmitter
+{
+    TestEmitter() : ParticleEmitter(NULL) {}
+    using ParticleEmitter::genEmissionDirection;
+};
+
+TEST(ParticleEmitter, AngleAbove180EmitsInAllDirections)
+{
+    // the largest random value picks the largest deviation from the base direction
+    ConstantRandom rand(1);
+    Math::SetRandomValueProvider(&rand);
+
+    TestEmitter emitter;
+    emitter.setDirection(Vector3::UNIT_X);
+
+    for (Real degrees : {180, 270, 360})
+    {
+        emitter.setAngle(Degree(degrees));
+
+        Vector3 dir;
+        emitter.genEmissionDirection(Vector3::ZERO, dir);
+        EXPECT_TRUE(dir.positionEquals(Vector3::NEGATIVE_UNIT_X, 1e-4)) << degrees << " degrees: " << dir;
+    }
+
+    Math::SetRandomValueProvider(NULL);
+}
+
+TEST(ConfigFile, MissingKeyReturnsDefault)
+{
+    static char text[] = "b = 2\n";
+    ConfigFile cf;
+    cf.load(std::make_shared<MemoryDataStream>(text, sizeof(text) - 1));
+
+    EXPECT_EQ(cf.getSetting("b"), "2");
+    EXPECT_EQ(cf.getSetting("a", "", "default"), "default");
+}
+
+TEST(LinearControllerFunction, InputOnOrOutsideKeys)
+{
+    LinearControllerFunction f({0, 0.5, 1}, {10, 20, 40}, 1, false);
+
+    EXPECT_FLOAT_EQ(f.calculate(0), 10);
+    EXPECT_FLOAT_EQ(f.calculate(0.25), 15);
+    EXPECT_FLOAT_EQ(f.calculate(0.5), 20);
+    EXPECT_FLOAT_EQ(f.calculate(0.75), 30);
+    EXPECT_FLOAT_EQ(f.calculate(1), 40);
 }

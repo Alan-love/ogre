@@ -40,10 +40,10 @@ class _OgreGLExport GLHardwarePixelBufferCommon : public HardwarePixelBuffer
 {
 protected:
     /// Lock a box
-    PixelBox lockImpl(const Box &lockBox,  LockOptions options);
+    PixelBox lockImpl(const Box &lockBox,  LockOptions options) override;
 
     /// Unlock a box
-    void unlockImpl(void);
+    void unlockImpl(void) override;
 
     // Internal buffer; either on-card or in system memory, freed/allocated on demand
     // depending on buffer usage
@@ -60,6 +60,11 @@ protected:
 
     // Download a box of pixels from the card
     virtual void download(const PixelBox &data);
+
+    virtual bool needsConversion(PixelFormat format) { return format != mFormat; }
+
+    void _blitFromMemory(const PixelBox &src, const Box& dst);
+
 public:
     /// Should be called by HardwareBufferManager
     GLHardwarePixelBufferCommon(uint32 mWidth, uint32 mHeight, uint32 mDepth,

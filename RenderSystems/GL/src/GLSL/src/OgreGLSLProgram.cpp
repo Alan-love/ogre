@@ -128,12 +128,12 @@ namespace Ogre {
     class CmdInputOperationType : public ParamCommand
     {
     public:
-        String doGet(const void* target) const
+        String doGet(const void* target) const override
         {
             const GLSLProgram* t = static_cast<const GLSLProgram*>(target);
             return operationTypeToString(t->getInputOperationType());
         }
-        void doSet(void* target, const String& val)
+        void doSet(void* target, const String& val) override
         {
             GLSLProgram* t = static_cast<GLSLProgram*>(target);
             t->setInputOperationType(parseOperationType(val));
@@ -143,12 +143,12 @@ namespace Ogre {
     class CmdOutputOperationType : public ParamCommand
     {
     public:
-        String doGet(const void* target) const
+        String doGet(const void* target) const override
         {
             const GLSLProgram* t = static_cast<const GLSLProgram*>(target);
             return operationTypeToString(t->getOutputOperationType());
         }
-        void doSet(void* target, const String& val)
+        void doSet(void* target, const String& val) override
         {
             GLSLProgram* t = static_cast<GLSLProgram*>(target);
             t->setOutputOperationType(parseOperationType(val));
@@ -158,12 +158,12 @@ namespace Ogre {
     class CmdMaxOutputVertices : public ParamCommand
     {
     public:
-        String doGet(const void* target) const
+        String doGet(const void* target) const override
         {
             const GLSLProgram* t = static_cast<const GLSLProgram*>(target);
             return StringConverter::toString(t->getMaxOutputVertices());
         }
-        void doSet(void* target, const String& val)
+        void doSet(void* target, const String& val) override
         {
             GLSLProgram* t = static_cast<GLSLProgram*>(target);
             t->setMaxOutputVertices(StringConverter::parseInt(val));
@@ -208,22 +208,24 @@ namespace Ogre {
             case GPT_COMPUTE_PROGRAM:
             case GPT_DOMAIN_PROGRAM:
             case GPT_HULL_PROGRAM:
+            case GPT_MESH_PROGRAM:
+            case GPT_TASK_PROGRAM:
                 break;
             }
-            mGLShaderHandle = glCreateShaderObjectARB(shaderType);
+            mGLShaderHandle = (size_t)glCreateShaderObjectARB(shaderType);
         }
 
         // Add preprocessor extras and main source
         if (!mSource.empty())
         {
             const char *source = mSource.c_str();
-            glShaderSourceARB(mGLShaderHandle, 1, &source, NULL);
+            glShaderSourceARB((GLhandleARB)mGLShaderHandle, 1, &source, NULL);
         }
 
-        glCompileShaderARB(mGLShaderHandle);
+        glCompileShaderARB((GLhandleARB)mGLShaderHandle);
         // check for compile errors
         int compiled = 0;
-        glGetObjectParameterivARB(mGLShaderHandle, GL_OBJECT_COMPILE_STATUS_ARB, &compiled);
+        glGetObjectParameterivARB((GLhandleARB)mGLShaderHandle, GL_OBJECT_COMPILE_STATUS_ARB, &compiled);
 
         String compileInfo = getObjectInfo(mGLShaderHandle);
 
@@ -239,7 +241,7 @@ namespace Ogre {
     {
         if (isSupported())
         {
-            glDeleteObjectARB(mGLShaderHandle);
+            glDeleteObjectARB((GLhandleARB)mGLShaderHandle);
             mGLShaderHandle = 0;
 
             // destroy all programs using this shader
@@ -261,11 +263,8 @@ namespace Ogre {
             mSource, *mConstantDefs, getResourceLogName());
 
         // Also parse any attached sources
-        for (GLSLProgramContainer::const_iterator i = mAttachedGLSLPrograms.begin();
-            i != mAttachedGLSLPrograms.end(); ++i)
+        for (auto childShader : mAttachedGLSLPrograms)
         {
-            GLSLShaderCommon* childShader = *i;
-
             GLSLLinkProgramManager::getSingleton().extractUniformsFromGLSL(
                 childShader->getSource(), *mConstantDefs, childShader->getName());
 
@@ -314,14 +313,14 @@ namespace Ogre {
     }
 
     //-----------------------------------------------------------------------
-    void GLSLProgram::attachToProgramObject( const GLhandleARB programObject )
+    void GLSLProgram::attachToProgramObject( const uint programObject )
     {
         // attach child objects
         for (auto childShader : mAttachedGLSLPrograms)
         {
             childShader->attachToProgramObject(programObject);
         }
-        glAttachObjectARB( programObject, mGLShaderHandle );
+        glAttachObjectARB( (GLhandleARB)programObject, (GLhandleARB)mGLShaderHandle );
         GLenum glErr = glGetError();
         if(glErr != GL_NO_ERROR)
         {
@@ -331,9 +330,9 @@ namespace Ogre {
 
     }
     //-----------------------------------------------------------------------
-    void GLSLProgram::detachFromProgramObject( const GLhandleARB programObject )
+    void GLSLProgram::detachFromProgramObject( const uint programObject )
     {
-        glDetachObjectARB(programObject, mGLShaderHandle);
+        glDetachObjectARB((GLhandleARB)programObject, (GLhandleARB)mGLShaderHandle);
 
         GLenum glErr = glGetError();
         if(glErr != GL_NO_ERROR)
@@ -372,6 +371,8 @@ namespace Ogre {
     {
         // Tell the Link Program Manager what shader is to become inactive
         GLSLLinkProgramManager::getSingleton().setActiveShader( mType, NULL );
+        // change back to fixed pipeline
+        glUseProgramObjectARB(0);
     }
 
     //-----------------------------------------------------------------------------

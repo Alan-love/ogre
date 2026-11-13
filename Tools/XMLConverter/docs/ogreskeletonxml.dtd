@@ -1,10 +1,10 @@
-<!ELEMENT skeleton (bones, bonehierarchy, animations?, animationlinks?) >
+<!ELEMENT skeleton (bones, bonehierarchy?, animations?, animationlinks?) >
 <!ATTLIST skeleton
     blendmode   CDATA   "average">
 <!ELEMENT bones (bone+) >
 <!ELEMENT bone (position, rotation, scale?) >
 <!ATTLIST bone
-	id		CDATA	#REQUIRED
+	id		CDATA	#IMPLIED
 	name	CDATA	#REQUIRED>
 <!ELEMENT position EMPTY>
 <!ATTLIST position 
